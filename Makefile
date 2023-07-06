@@ -26,7 +26,7 @@ CXXFLAGS += $(shell pkg-config --cflags sdl2_image)
 
 OBJS  = midilib.o
 OBJS += common.o
-OBJS += plotlib.o
+OBJS += cinterplot.o
 OBJS += stream_buffer.o
 OBJS += randlib.o
 OBJS += oklab.o
@@ -40,14 +40,14 @@ OBJS += oklab.o
 
 .PHONY: run
 
-TARGET=main
+TARGET=app
 all:$(TARGET)
 
-run: main
-	@echo "[running ./main]"
-	@./main && echo "[process completed successfully]" || echo "[process completed abnormally]"
+run: app
+	@echo "[running ./app]"
+	@./app && echo "[process completed successfully]" || echo "[process completed abnormally]"
 
-main: $(OBJS) main.o
+app: $(OBJS) app.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 %.dylib:$(OBJS)
@@ -63,4 +63,4 @@ main: $(OBJS) main.o
 	$(CXX) $(CXXFLAGS) -fPIC -o $@ -c $<
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.size *.dylib main
+	rm -f *.o *.elf *.bin *.hex *.size *.dylib app

@@ -1,5 +1,5 @@
-#ifndef _PLOTLIB_H_
-#define _PLOTLIB_H_
+#ifndef _CINTERPLOT_H_
+#define _CINTERPLOT_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,5 +73,5 @@ int compress_y (CinterState *cs);
 } /* end extern C */
 #endif
 
-#endif /* _PLOTLIB_H_ */
+#endif /* _CINTERPLOT_H_ */
 

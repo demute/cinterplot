@@ -3,9 +3,8 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 
-#include "plotlib.h"
+#include "cinterplot.h"
 #include "font.c"
-#include "main.h"
 #include "oklab.h"
 
 extern const unsigned int font[256][8];

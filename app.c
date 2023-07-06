@@ -2,7 +2,7 @@
 #include "stream_buffer.h"
 #include "randlib.h"
 #include "midilib.h"
-#include "plotlib.h"
+#include "cinterplot.h"
 
 #ifndef randf
 #define randf() ((double) rand () / ((double) RAND_MAX+1))
