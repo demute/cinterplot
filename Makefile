@@ -38,9 +38,14 @@ OBJS += oklab.o
 #	LDFLAGS += -DHAVE_SDL
 #endif
 
+.PHONY: run
 
 TARGET=main
 all:$(TARGET)
+
+run: main
+	@echo "[running ./main]"
+	@./main && echo "[process completed successfully]" || echo "[process completed abnormally]"
 
 main: $(OBJS) main.o
 	$(CXX) -o $@ $^ $(LDFLAGS)

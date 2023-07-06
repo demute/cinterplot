@@ -5,446 +5,270 @@
 
 #include "plotlib.h"
 #include "font.c"
+#include "main.h"
+#include "oklab.h"
+
 extern const unsigned int font[256][8];
+static int interrupted = 0;
 
-SubWindow subWindows[MAX_SUB_WINDOWS][MAX_SUB_WINDOWS];
-
-void make_sub_windows (PlotlibConfig *config, uint32_t *pixels, int w, int h, int margin, int bordered, int nrows, int ncols)
+typedef struct ColorScheme
 {
-    if (!config || !pixels || nrows <= 0 || ncols <= 0 || nrows > MAX_SUB_WINDOWS || ncols > MAX_SUB_WINDOWS)
-        exit_error ("invalid arguments passed: config:%p pixels:%p w:%d, h:%d margin:%d bordered:%d nrows:%d ncols:%d",
-                    (void*) config, (void*) pixels, w, h, margin, bordered, nrows, ncols);
+    int nLevels;
+    uint32_t *colors;
+} ColorScheme;
 
-    int fontSpace = 12*(w <= 1000 ? 1 : 2);
+static uint32_t rgb2color (RGB *rgb)
+{
+    float r = rgb->r;
+    float g = rgb->g;
+    float b = rgb->b;
 
-    bzero (subWindows, sizeof (subWindows));
-    int width = w / ncols;
-    int height = (h-fontSpace) / nrows;
-    int yOffset = 0;
-    for (int row=0; row<nrows; row++)
-    {
-        int xOffset = 0;
-        for (int col=0; col<ncols; col++)
-        {
-            subWindows[row][col].config   = config;
-            subWindows[row][col].pixels   = pixels;
-            subWindows[row][col].w        = w;
-            subWindows[row][col].h        = h;
-            subWindows[row][col].bordered = bordered;
-            subWindows[row][col].margin   = margin;
-            subWindows[row][col].xOffset  = xOffset;
-            subWindows[row][col].yOffset  = yOffset;
-            subWindows[row][col].subw     = width;
-            subWindows[row][col].subh     = height;
-            xOffset += width;
-        }
-        yOffset += height;
-    }
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
+    if (r > 1) r = 1;
+    if (g > 1) g = 1;
+    if (b > 1) b = 1;
+
+    int ri = (int) (255 * r);
+    int gi = (int) (255 * g);
+    int bi = (int) (255 * b);
+
+    return MAKE_COLOR (ri,gi,bi);
 }
 
-Points *allocate_points (int maxPoints, double xmin, double xmax, double ymin, double ymax)
+typedef struct RGBNames
 {
-    if (maxPoints <= 0)
-        exit_error ("maxPoints <= 0");
-    Points *points = (Points*) malloc (sizeof (Points));
-    assert (points);
-    points->maxPoints = maxPoints;
-    points->nPoints = 0;
-    points->xmin = xmin;
-    points->xmax = xmax;
-    points->ymin = ymin;
-    points->ymax = ymax;
-    points->xs = (double*) malloc ((size_t) maxPoints * sizeof (double));
-    points->ys = (double*) malloc ((size_t) maxPoints * sizeof (double));
-    assert (points->xs);
-    assert (points->ys);
-    return points;
-}
+    const char *name;
+    const int r;
+    const int g;
+    const int b;
+} RGBNames;
 
-#define TRUNCATE(x,min,max) (((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x))
-uint32_t fire_palette (float x)
+static const RGBNames rgbNameList[] =
 {
-    //static int foo = 0;
-    //if (++foo % 4000 == 0)
-    //    print_debug ("x:%g", x);
-    if (isnan (x))
-        return MAKE_COLOR (50,50,50);
+    {"red",        255,   0,   0},
+    {"green",        0, 255,   0},
+    {"blue",         0,   0, 255},
+    {"black",        0,   0,   0},
+    {"white",      255, 255, 255},
+    {"cyan",         0, 255, 255},
+    {"magenta",    255,   0, 255},
+    {"yellow",     255, 255,   0},
+    {"orange",     255, 165,   0},
+    {"purple",     128,   0, 128},
+    {"pink",       255, 192, 203},
+    {"brown",      165,  42,  42},
+    {"gray",       128, 128, 128},
+    {"darkgray",   169, 169, 169},
+    {"lightgray",  211, 211, 211},
+    {"lime",       191, 255,   0},
+    {"indigo",      75,   0, 130},
+    {"violet",     238, 130, 238},
+    {"silver",     192, 192, 192},
+    {"gold",       255, 215,   0},
+    {"beige",      245, 245, 220},
+    {"navy",         0,   0, 128},
+    {"maroon",     128,   0,   0},
+    {"olive",      128, 128,   0},
+    {"teal",         0, 128, 128},
+    {"lime",         0, 255,   0},
+    {"aquamarine", 127, 255, 212},
+    {"turquoise",   64, 224, 208},
+    {"royalblue",   70, 130, 180},
+    {"slategray",  112, 128, 144},
+    {"plum",       221, 160, 221},
+    {"orchid",     218, 112, 214},
+    {"salmon",     250, 128, 114},
+    {"coral",      255, 127,  80},
+    {"wheat",      245, 222, 179},
+    {"peru",       205, 133,  63},
+    {"sienna",     160,  82,  45},
+    {"chocolate",  210, 105,  30}
+};
 
-    int r,g,b;
 
-    if (x < 0)
-        x = 0;
-    if (x > 1)
-        x = 1;
-
-    if (x < 0.5)
-    {
-        double minr = 0;
-        double ming = 0;
-        double minb = 0;
-
-        double maxr = 255;
-        double maxg = 0;
-        double maxb = 0;
-
-        double s = x * 2;
-        r = (int) (minr + s * (maxr - minr));
-        g = (int) (ming + s * (maxg - ming));
-        b = (int) (minb + s * (maxb - minb));
-    }
-    else
-    {
-        double minr = 255;
-        double ming = 0;
-        double minb = 0;
-
-        double maxr = 255;
-        double maxg = 255;
-        double maxb = 255;
-
-        double s = (x - 0.5) * 2;
-        r = (int) (minr + s * (maxr - minr));
-        g = (int) (ming + s * (maxg - ming));
-        b = (int) (minb + s * (maxb - minb));
-    }
-
-    r = TRUNCATE (r, 0, 255);
-    g = TRUNCATE (g, 0, 255);
-    b = TRUNCATE (b, 0, 255);
-
-    return MAKE_COLOR (r,g,b);
-}
-
-void draw_heatmap (int subx, int suby, int yoffs, float *heatmap, int hw, int hh, float scale)
+static int get_color_by_name (char *str, int *r, int *g, int *b)
 {
-    SubWindow *sub = & subWindows[suby][subx];
-    assert (sub);
-
-    uint32_t *pixels = sub->pixels;
-    int w = sub->w;
-    int h = sub->h;
-
-    if (sub->bordered)
+    int n = sizeof (rgbNameList) / sizeof (rgbNameList[0]);
+    for (int i=0; i<n; i++)
     {
-        int x0 = sub->xOffset + sub->margin;
-        int y0 = sub->yOffset + sub->margin;
-        int x1 = x0 + sub->subw - 2 * sub->margin;
-        int y1 = y0 + sub->subh - 2 * sub->margin;
-        uint32_t color;
-        //if (x0 < mouseX && mouseX < x1 && y0 < mouseY && mouseY < y1)
-        //    color = MAKE_COLOR (255, 0, 0);
-        //else
-            color = MAKE_COLOR (100, 100, 100);
-        lineRGBA (pixels, w, h, x0, y0, x1, y0, color);
-        lineRGBA (pixels, w, h, x1, y0, x1, y1, color);
-        lineRGBA (pixels, w, h, x1, y1, x0, y1, color);
-        lineRGBA (pixels, w, h, x0, y1, x0, y0, color);
-    }
-
-    int width  = sub->subw - sub->margin * 2 - 2;
-    int height = sub->subh - sub->margin * 2 - 2;
-
-    for (int yi=0; yi<height; yi++)
-    {
-        for (int xi=0; xi<width; xi++)
+        if (equal (str, rgbNameList[i].name))
         {
-            int x = sub->xOffset + sub->margin + 1 + xi;
-            int y = sub->yOffset + sub->margin + 1 + yi;
-
-            int hxi0 = (int) ((float) hw * ((float) (xi  ) / (float) width));
-            int hxi1 = (int) ((float) hw * ((float) (xi+1) / (float) width));
-            int hyi  = (int) ((float) hh * ((float) (yi  ) / (float) height));
-            hyi = (hyi + yoffs) % hh;
-
-            //static int foo = 0;
-            //if (++foo % 4000 == 0)
-            //    print_debug ("[%d,%d] ==> heatmap[%d,%d] --> [%d,%d]", yi, xi, hyi, hxi, y, x);
-
-
-            //if (xi == 10 && yi == 0)
-            //    print_debug ("val:%f", heatmap[hh * hyi + hxi]);
-            float sum = 0;
-            float n = 0;
-            for (int hxi=hxi0; hxi<=hxi1 && hxi<hw; hxi++)
-            {
-                sum += heatmap[hw * hyi + hxi];
-                n += 1;
-            }
-
-            if (x>=0 && y>=0 && x<w && y<h)
-                pixels[y * w + x] = fire_palette (sum * scale / n);
+            *r = rgbNameList[i].r;
+            *g = rgbNameList[i].g;
+            *b = rgbNameList[i].b;
+            return 0;
         }
     }
+    return -1;
 }
 
-void draw_points (int subx, int suby, Points *points, char drawType, uint32_t color)
+#define MAX_NUM_VERTICES 16
+static void compute_color_scheme (char *spec, ColorScheme *scheme)
 {
-    SubWindow *sub = & subWindows[suby][subx];
-    assert (sub);
-    if (sub->bordered)
+    int argc;
+    char **argv;
+    char *copy = parse_csv (spec, & argc, & argv, ' ', 0);
+    if (!copy)
+        exit_error ("bug");
+
+    int nVertices = argc;
+    if (nVertices > MAX_NUM_VERTICES)
+        exit_error ("nVertices(%d) > MAX_NUM_VERTICES(%d) at '%s'", nVertices, MAX_NUM_VERTICES, spec);
+
+    RGB vertices[MAX_NUM_VERTICES];
+    for (int i=0; i<argc; i++)
     {
-        int x0 = sub->xOffset + sub->margin;
-        int y0 = sub->yOffset + sub->margin;
-        int x1 = x0 + sub->subw - 2 * sub->margin;
-        int y1 = y0 + sub->subh - 2 * sub->margin;
-        uint32_t color;
-        //if (x0 < mouseX && mouseX < x1 && y0 < mouseY && mouseY < y1)
-        //    color = MAKE_COLOR (255, 0, 0);
-        //else
-            color = MAKE_COLOR (100, 100, 100);
-        uint32_t *pixels = sub->pixels;
-        int w = sub->w;
-        int h = sub->h;
-        lineRGBA (pixels, w, h, x0, y0, x1, y0, color);
-        lineRGBA (pixels, w, h, x1, y0, x1, y1, color);
-        lineRGBA (pixels, w, h, x1, y1, x0, y1, color);
-        lineRGBA (pixels, w, h, x0, y1, x0, y0, color);
-    }
-
-    double xmin = points->xmin;
-    double xmax = points->xmax;
-    double ymin = points->ymin;
-    double ymax = points->ymax;
-
-    if (xmin == xmax)
-    {
-        xmin =  DBL_MAX;
-        xmax = -DBL_MAX;
-        for (int i=0; i<points->nPoints; i++)
+        char *str = argv[i];
+        if (str[0] == '#')
         {
-            if (isnan (points->xs[i])) continue;
-            if (points->xs[i] < xmin) xmin = points->xs[i];
-            if (points->xs[i] > xmax) xmax = points->xs[i];
+            int r,g,b;
+            if (sscanf (& str[1], "%02x%02x%02x", & r, & g, & b) != 3)
+                exit_error ("parse error at '%s' in str spec '%s'", str, spec);
+            float s = 1.0 / 255.0;
+            vertices[i].r = r * s;
+            vertices[i].g = g * s;
+            vertices[i].b = b * s;
+
         }
-        if (xmin == xmax)
+        else if ('0' <= str[0] && str[0] <= '9')
         {
-            xmin -= 0.5;
-            xmax += 0.5;
-        }
-    }
+            int colorIndex, numColors;
+            if (sscanf (str, "%d/%d", & colorIndex, & numColors) != 2)
+                exit_error ("parse error at '%s' in str spec '%s'", str, spec);
+            Lab oklab;
+            oklab.L = 0.7;
+            float C = 0.5;
+            float h = (2 * M_PI * colorIndex) / numColors;
+            oklab.a = C * cos(h);
+            oklab.b = C * sin(h);
+            oklab_to_srgb (& oklab, & vertices[i]);
 
-    if (ymin == ymax)
-    {
-        ymin =  DBL_MAX;
-        ymax = -DBL_MAX;
-        for (int i=0; i<points->nPoints; i++)
-        {
-            if (isnan (points->ys[i])) continue;
-            if (points->ys[i] < ymin) ymin = points->ys[i];
-            if (points->ys[i] > ymax) ymax = points->ys[i];
-        }
-        if (ymin == ymax)
-        {
-            ymin -= 0.5;
-            ymax += 0.5;
-        }
-    }
-
-    double invDiffX = 1.0 / (xmax - xmin);
-    double invDiffY = 1.0 / (ymax - ymin);
-    int lastX=0, lastY=0;
-    int width  = sub->subw - sub->margin * 2;
-    int height = sub->subh - sub->margin * 2;
-    int wasNan = 0;
-    for (int i=0; i<points->nPoints; i++)
-    {
-        double x = points->xs[i];
-        double y = points->ys[i];
-
-        if (isnan (x) || isnan (y))
-        {
-            wasNan = 1;
-            continue; // FIXME: make a jump here
-        }
-        double xf = (x - xmin) * invDiffX;
-        double yf = (y - ymin) * invDiffY;
-
-        int xi = sub->xOffset + sub->margin + (int) (xf * width);
-        int yi = sub->yOffset + sub->subh - sub->margin - (int) (yf * height);
-
-        if (drawType == 'h')
-        {
-            lastX = xi;
-            lastY = sub->yOffset + sub->subh - 1 - sub->bordered * (sub->margin);
-        }
-
-        int drawEverything = 0;
-        int drawThis = (drawEverything || (lastX >= 0 && lastY >= 0 && lastX < sub->w && lastY < sub->h && xi >= 0 && yi >= 0 && xi < sub->w && yi < sub->h));
-        if (drawThis && i && !wasNan)
-        {
-            lineRGBA (sub->pixels, sub->w, sub->h, lastX, lastY, xi, yi, color);
-            if (drawType == 't')
-            {
-                lineRGBA (sub->pixels, sub->w, sub->h, lastX, lastY-1, xi, yi-1, color);
-                lineRGBA (sub->pixels, sub->w, sub->h, lastX, lastY+1, xi, yi+1, color);
-                lineRGBA (sub->pixels, sub->w, sub->h, lastX-1, lastY, xi-1, yi, color);
-                lineRGBA (sub->pixels, sub->w, sub->h, lastX+1, lastY, xi+1, yi, color);
-            }
-            //print_debug ("(%f %f) [%f,%f] [%f,%f] (mar:%d subw:%d subh:%d xoffs:%d yoffs:%d) => (%d,%d)", x, y, xmin, xmax, ymin, ymax, sub->margin, sub->subw, sub->subh, sub->xOffset, sub->yOffset, xi, yi);
-        }
-        wasNan = 0;
-        lastX = xi;
-        lastY = yi;
-    }
-}
-
-void add_text (int subx, int suby, Points *points, double x, double y, char *text, uint32_t color)
-{
-    SubWindow *sub = & subWindows[suby][subx];
-    assert (sub);
-
-    double xmin = points->xmin;
-    double xmax = points->xmax;
-    double ymin = points->ymin;
-    double ymax = points->ymax;
-
-    if (xmin == xmax)
-    {
-        xmin =  DBL_MAX;
-        xmax = -DBL_MAX;
-        for (int i=0; i<points->nPoints; i++)
-        {
-            if (isnan (points->xs[i])) continue;
-            if (points->xs[i] < xmin) xmin = points->xs[i];
-            if (points->xs[i] > xmax) xmax = points->xs[i];
-        }
-        if (xmin == xmax)
-        {
-            xmin -= 0.5;
-            xmax += 0.5;
-        }
-    }
-
-    if (ymin == ymax)
-    {
-        ymin =  DBL_MAX;
-        ymax = -DBL_MAX;
-        for (int i=0; i<points->nPoints; i++)
-        {
-            if (isnan (points->ys[i])) continue;
-            if (points->ys[i] < ymin) ymin = points->ys[i];
-            if (points->ys[i] > ymax) ymax = points->ys[i];
-        }
-        if (ymin == ymax)
-        {
-            ymin -= 0.5;
-            ymax += 0.5;
-        }
-    }
-
-    double invDiffX = 1.0 / (xmax - xmin);
-    double invDiffY = 1.0 / (ymax - ymin);
-    int width  = sub->subw - sub->margin * 2;
-    int height = sub->subh - sub->margin * 2;
-
-    if (isnan (x) || isnan (y))
-        return;
-    double xf = (x - xmin) * invDiffX;
-    double yf = (y - ymin) * invDiffY;
-
-    int xi = sub->xOffset + sub->margin + (int) (xf * width);
-    int yi = sub->yOffset + sub->subh - sub->margin - (int) (yf * height);
-
-    putText (sub->pixels, sub->w, sub->h, xi, yi, color, 0, text);
-}
-
-void get_sub_properties (int subx, int suby, int *width, int *height, int *xoffs, int *yoffs)
-{
-    SubWindow *sub = & subWindows[suby][subx];
-    assert (sub);
-
-    *width = sub->subw - sub->margin * 2;
-    *height = sub->subh - sub->margin * 2;
-    *xoffs = sub->xOffset + sub->margin;
-    *yoffs = sub->yOffset + sub->margin;
-}
-
-void get_floating_mouse_pos (int subx, int suby, int mouseX, int mouseY, double *xf, double *yf)
-{
-    int width, height, xoffs, yoffs;
-    get_sub_properties (subx, suby, & width, & height, & xoffs, & yoffs);
-
-    *xf = (double) (mouseX - xoffs) / width;
-    *yf = (double) (mouseY - yoffs) / height;
-}
-
-void put_point (Points *points, double x, double y)
-{
-    if (points->nPoints >= points->maxPoints)
-        exit_error ("buffer overflow %d>=%d", points->nPoints, points->maxPoints);
-
-    points->xs[points->nPoints] = x;
-    points->ys[points->nPoints] = y;
-    points->nPoints++;
-}
-
-void reset_points (Points *points)
-{
-    points->nPoints = 0;
-}
-
-int putTextf (uint32_t* pixels, int w, int h, double x0f, double y0f, uint32_t color, int transparent, char *message)
-{
-    int x0 = XINT (w, x0f);
-    int y0 = YINT (h, y0f);
-    return putText (pixels, w, h, x0, y0, color, transparent, message);
-}
-
-int putText (uint32_t* pixels, int w, int h, int x0, int y0, uint32_t color, int transparent, char *message)
-{
-    if (!pixels)
-        return 0;
-
-    int scale = w <= 1000 ? 1 : 2;
-    int fh = 8*scale;
-    int fw = 6*scale;
-
-    char *p = message;
-    int cols = 256;
-    int margin = 1;
-
-    y0 -= fh + margin;
-    x0 -= (fw + margin) * ((int)strlen (message) / 2 - 1);
-
-    int x = x0;
-    int y = y0;
-
-    int i=0;
-    while (*p)
-    {
-        if ((++i == cols) || (*p == '\n'))
-        {
-            int wrap = (i == cols);
-            i = 0;
-            x = x0;
-            y += fh + 4 * margin;
-            if (wrap) continue;
-        }
-        else if (*p == '\t')
-        {
-            while (++i % 4)
-                x += fw + margin;
         }
         else
         {
-            if (x > 0 && x < w-1-fw && 
-               (y > 0 && y < h-1-fh))
-            {
-                for (int yi=0; yi<fh; yi++)
-                    for (int xi=0; xi<fw; xi++)
-                        if (!((font[(int)(*p)][yi/scale] >> (11-(xi/scale))) & 1))
-                            pixels[(y+yi)*w + (x+xi)] = color;
-                        else if (!transparent)
-                            pixels[(y+yi)*w + (x+xi)] = ~color;
-            }
-            x += fw + margin;
+            int r,g,b;
+            if (get_color_by_name (str, & r, & g, & b) < 0)
+                exit_error ("parse error at '%s' in color spec '%s'", str, spec);
+            float s = 1.0 / 255.0;
+            vertices[i].r = r * s;
+            vertices[i].g = g * s;
+            vertices[i].b = b * s;
         }
-        p++;
     }
-    return y - y0;
+    free (copy);
+    free (argv);
+
+    if (nVertices == 1)
+    {
+        uint32_t color = rgb2color (& vertices[0]);
+        int n = scheme->nLevels;
+        for (int i=0; i<n; i++)
+            scheme->colors[i] = color;
+    }
+    else
+    {
+        int offset = 0;
+        for (int v=0; v<nVertices-1; v++)
+        {
+            Lab c0, c1;
+            srgb_to_oklab (& vertices[v],   & c0);
+            srgb_to_oklab (& vertices[v+1], & c1);
+
+            int len = scheme->nLevels / (nVertices - 1);
+            if (v == 0)
+            {
+                int rest = scheme->nLevels - len * (nVertices - 1);
+                len += rest;
+            }
+
+            for (int i=0; i<len; i++)
+            {
+                float w1;
+                if (v+1 == nVertices-1)
+                    w1 = (float) i / (len - 1);
+                else
+                    w1 = (float) i / len;
+                float w0 = 1 - w1;
+                Lab c =
+                {
+                    w0 * c0.L + w1 * c1.L,
+                    w0 * c0.a + w1 * c1.a,
+                    w0 * c0.b + w1 * c1.b,
+                };
+                RGB rgb;
+                oklab_to_srgb (& c, & rgb);
+                if (offset + i >= scheme->nLevels)
+                    exit_error ("bug");
+                scheme->colors[offset + i] = rgb2color (& rgb);
+            }
+            offset += len;
+        }
+        if (offset != scheme->nLevels)
+            exit_error ("bug");
+    }
 }
 
-void lineRGBA (uint32_t *pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
+int autoscale (CinterState *cs)                         { cs->autoscale = 1;                       return 1; }
+int background (CinterState *cs, uint32_t bgColor)      { cs->bgColor = bgColor;                   return 1; }
+int toggle_mouse (CinterState *cs)                      { cs->mouseEnabled ^= 1;                   return 1; }
+int toggle_fullscreen (CinterState *cs)                 { cs->toggleFullscreen = 1;                return 1; }
+int quit (CinterState *cs)                              { cs->running = 0;                         return 0; }
+int toggle_tracking (CinterState *cs)                   { cs->trackingEnabled ^= 1;                return 1; }
+int colorscheme (CinterState *cs, int colorSchemeIndex) { cs->colorSchemeIndex = colorSchemeIndex; return 1; }
+
+int move_left (CinterState *cs)
+{
+    //CinterGraph *g = cs->graphs[cs->activeGraphIndex];
+    return 1;
+}
+
+int move_right (CinterState *cs)
+{
+    foobar;
+    return 1;
+}
+
+int move_up (CinterState *cs)
+{
+    foobar;
+    return 1;
+}
+
+int move_down (CinterState *cs)
+{
+    foobar;
+    return 1;
+}
+
+int expand_x (CinterState *cs)
+{
+    foobar;
+    return 1;
+}
+
+int compress_x (CinterState *cs)
+{
+    foobar;
+    return 1;
+}
+
+int expand_y (CinterState *cs)
+{
+    foobar;
+    return 1;
+}
+
+int compress_y (CinterState *cs)
+{
+    foobar;
+    return 1;
+}
+
+
+static void lineRGBA (uint32_t *pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
 {
     if (!pixels)
         return;
@@ -495,25 +319,7 @@ void lineRGBA (uint32_t *pixels, int w, int h, int x0, int y0, int x1, int y1, u
     }
 }
 
-void lineRGBAf (uint32_t* pixels, int w, int h, double x0f, double y0f, double x1f, double y1f, uint32_t color)
-{
-    int x0 = XINT (w, x0f);
-    int y0 = YINT (h, y0f);
-    int x1 = XINT (w, x1f);
-    int y1 = YINT (h, y1f);
-    lineRGBA (pixels, w, h, x0, y0, x1, y1, color);
-}
-
-void printRectf (uint32_t* pixels, int w, int h, double x0f, double y0f, double x1f, double y1f, uint32_t color)
-{
-    int x0 = XINT (w, x0f);
-    int y0 = YINT (h, y0f);
-    int x1 = XINT (w, x1f);
-    int y1 = YINT (h, y1f);
-    printRect (pixels, w, h, x0, y0, x1, y1, color);
-}
-
-void printRect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
+static void printRect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
 {
     if (x1 < x0)
     {
@@ -535,58 +341,105 @@ void printRect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, int y1, 
 }
 
 
-#define CASE_RETURN_STRING(x) case x : return # x
-char *sdl_pixelformat_to_string (uint32_t value)
+#define SDLK_APPLE_KEY 1073742051
+
+static int on_mouse_pressed (CinterState *cs, int button)
 {
-    switch (value)
+    return 0;
+}
+
+static int on_mouse_released (CinterState *cs)
+{
+    return 0;
+}
+
+static int on_mouse_motion (CinterState *cs, int xi, int yi)
+{
+    return 1;
+}
+
+#define COLOR_DARK_GRAY  MAKE_COLOR ( 73, 73, 73)
+#define COLOR_GRAY       MAKE_COLOR (111,111,111)
+#define COLOR_LIGHT_GRAY MAKE_COLOR (144,144,144)
+#define COLOR_WHITE_GRAY MAKE_COLOR (182,182,182)
+
+static int on_keyboard (CinterState *cs, int key, int pressed, int repeat)
+{
+    int unhandled = 0;
+    if (pressed && !repeat)
     {
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_UNKNOWN);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_INDEX1LSB);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_INDEX1MSB);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_INDEX4LSB);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_INDEX4MSB);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_INDEX8);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGB332);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGB444);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGB555);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGR555);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_ARGB4444);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGBA4444);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_ABGR4444);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGRA4444);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_ARGB1555);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGBA5551);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_ABGR1555);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGRA5551);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGB565);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGR565);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGB24);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGR24);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGB888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGBX8888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGR888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGRX8888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_ARGB8888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_RGBA8888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_ABGR8888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_BGRA8888);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_ARGB2101010);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_YV12);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_IYUV);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_YUY2);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_UYVY);
-        CASE_RETURN_STRING (SDL_PIXELFORMAT_YVYU);
-     default: return "(unknown format)";
+        switch (key)
+        {
+         case 'a': autoscale (cs); break;
+         case 'f': toggle_fullscreen (cs); break;
+         case 'm': toggle_mouse (cs); break;
+         case 'q': quit (cs); break;
+         case 't': toggle_tracking (cs); break;
+         //case 'x': exit_zoom (cs); break;
+
+         case '1': // fall through
+         case '2': // fall through
+         case '3': // fall through
+         case '4': // fall through
+         case '5': // fall through
+         case '6': colorscheme (cs, key - '1'); break;
+
+         case '7': background (cs, COLOR_DARK_GRAY); break;
+         case '8': background (cs, COLOR_GRAY); break;
+         case '9': background (cs, COLOR_LIGHT_GRAY); break;
+         case '0': background (cs, COLOR_WHITE_GRAY); break;
+         default: unhandled = 1;
+        }
     }
-}
-#undef CASE_RETURN_STRING
 
-static void ffwd (PlotlibConfig *config, uint32_t *pixels, int w, int h)
+    else if (pressed)
+    {
+        switch (key)
+        {
+         case SDLK_LEFT: move_left (cs); break;
+         case SDLK_RIGHT: move_right (cs); break;
+         case SDLK_UP: move_up (cs); break;
+         case SDLK_DOWN: move_down (cs); break;
+         case 'e': expand_x (cs); break;
+         case 'c': compress_x (cs); break;
+         case '+': expand_y (cs); break;
+         case '-': compress_y (cs); break;
+         default: unhandled = 1;
+        }
+    }
+
+    if (unhandled)
+        print_debug ("key: %c, pressed: %d, repeat: %d", key, pressed, repeat);
+
+    return 0;
+}
+
+static void plot_data (CinterState *cs, uint32_t *pixels, int w, int h)
 {
-    putTextf (pixels, w, h, 0.5, 0.5, ~0u, 1, "ffwd...");
+    foobar;
+    static uint8_t cnt = 0;
+    cnt++;
+    memset (pixels, cnt, sizeof (uint32_t) * (uint32_t) w * (uint32_t) h);
 }
 
-void update_image (PlotlibConfig* config, SDL_Texture* texture, int isReady)
+
+typedef struct
+{
+    int argc;
+    char **argv;
+    CinterState *cs;
+} UserData;
+
+int user_main (int argc, char **argv, CinterState *cs);
+static int userMainRetVal = 1;
+static void *userMainCaller (void *_data)
+{
+    UserData *data = _data;
+    userMainRetVal = user_main (data->argc, data->argv, data->cs);
+    return NULL;
+}
+
+static void update_image (CinterState *cs, SDL_Texture *texture, int init)
 {
     int w, h;
     if (SDL_QueryTexture (texture, NULL, NULL, & w, & h))
@@ -598,145 +451,199 @@ void update_image (PlotlibConfig* config, SDL_Texture* texture, int isReady)
     if (status)
         exit_error ("texture: %p, status: %d: %s\n", (void*) texture, status, SDL_GetError());
 
-    memset (pixels, 0x11, sizeof (uint32_t) * (uint32_t) w * (uint32_t) h);
-    if (isReady)
-        config->callback (config, pixels, w, h);
+    if (init)
+        memset (pixels, 0x11, sizeof (uint32_t) * (uint32_t) w * (uint32_t) h);
     else
-        ffwd (config, pixels, w, h);
+        cs->plot_data (cs, pixels, w, h);
     SDL_UnlockTexture (texture);
 }
 
-void plotlib_init (PlotlibConfig *config)
+static void signal_handler (int sig)
 {
+    interrupted = 1;
+}
+
+static CinterState *cinterplot_init (void)
+{
+    CinterState *cs = safe_calloc (1, sizeof (*cs));
+    cs->on_mouse_pressed  = on_mouse_pressed;
+    cs->on_mouse_released = on_mouse_released;
+    cs->on_mouse_motion   = on_mouse_motion;
+    cs->on_keyboard       = on_keyboard;
+    cs->plot_data         = plot_data;
+    
+    cs->autoscale        = 0;
+    cs->mouseEnabled     = 1;
+    cs->trackingEnabled  = 0;
+    cs->toggleFullscreen = 0;
+    cs->fullscreen       = 0;
+    cs->redraw           = 0;
+    cs->redrawing        = 0;
+    cs->running          = 1;
+    cs->bgColor          = COLOR_DARK_GRAY;
+    cs->colorSchemeIndex = 0;
+    cs->nRows            = 0;
+    cs->nCols            = 0;
+    cs->activeGraphIndex = 0;
+    cs->graphs           = NULL;
+    cs->frameCounter     = 0;
+
+    signal (SIGINT, signal_handler);
+
     if (SDL_Init (SDL_INIT_VIDEO) < 0)
         exit_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
 
-    config->window = SDL_CreateWindow ("Particle Simulator", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, config->windowWidth, config->windowHeight, SDL_WINDOW_SHOWN);
-    true_or_exit_error (config->window != NULL, "Window could not be created! SDL Error: %s\n", SDL_GetError ());
+    cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                   CINTERPLOT_INIT_WIDTH, CINTERPLOT_INIT_HEIGHT, SDL_WINDOW_SHOWN);
+    true_or_exit_error (cs->window != NULL, "Window could not be created: SDL Error: %s\n", SDL_GetError ());
 
-    config->renderer = SDL_CreateRenderer (config->window, -1, SDL_RENDERER_ACCELERATED);
-    true_or_exit_error (config->renderer != NULL, "Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
+    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
+    true_or_exit_error (cs->renderer != NULL, "Renderer could not be created: SDL Error: %s\n", SDL_GetError ());
 
-    SDL_SetRenderDrawColor (config->renderer, 0xff, 0xff, 0xff, 0xff);
-    SDL_SetWindowFullscreen (config->window, (config->fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
+    SDL_SetRenderDrawColor (cs->renderer, 0xff, 0xff, 0xff, 0xff);
 
-    config->texture = SDL_CreateTexture (config->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, config->windowWidth, config->windowHeight);
-    true_or_exit_error (config->texture != NULL, "Texture could not be created! SDL Error: %s\n", SDL_GetError ());
+    cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                     CINTERPLOT_INIT_WIDTH, CINTERPLOT_INIT_HEIGHT);
+    true_or_exit_error (cs->texture != NULL, "Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
-    update_image (config, config->texture, 0);
-    SDL_RenderCopy (config->renderer, config->texture, NULL, NULL);
-    SDL_RenderPresent (config->renderer);
+    update_image (cs, cs->texture, 1);
+
+    SDL_RenderCopy (cs->renderer, cs->texture, NULL, NULL);
+    SDL_RenderPresent (cs->renderer);
+
+    return cs;
 }
 
-void plotlib_cleanup (PlotlibConfig *config)
+static int cinterplot_run_until_quit (CinterState *cs)
 {
-    SDL_DestroyRenderer (config->renderer);
-    SDL_DestroyWindow (config->window);
-    SDL_Quit();
-    config->renderer = NULL;
-    config->window = NULL;
-}
+    double fps = 30;
+    double periodTime = 1.0 / fps;
+    double lastFrameTsp = 0;
 
-#define SDLK_APPLE_KEY 1073742051
-int plotlib_main_loop (PlotlibConfig *config, int redraw)
-{
-    config->frameCounter++;
-    int toggleFullscreen = 0;
-    SDL_Event sdlEvent;
-    while (SDL_PollEvent (& sdlEvent))
+    print_debug ("%d %d", cs->running, interrupted);
+    while (cs->running && !interrupted)
     {
-        int pressed = 0;
-        switch(sdlEvent.type)
+        cs->frameCounter++;
+        SDL_Event sdlEvent;
+        while (SDL_PollEvent (& sdlEvent))
         {
-         case SDL_QUIT:
-             //gameRunning = 0;
-             break;
-         case SDL_MOUSEBUTTONDOWN:
-             redraw = config->on_mouse_pressed (config, sdlEvent.button.button);
-             break;
-         case SDL_MOUSEBUTTONUP:
-             redraw = config->on_mouse_released (config);
-             break;
-         case SDL_MOUSEMOTION:
-             redraw = config->on_mouse_motion (config, sdlEvent.motion.x, sdlEvent.motion.y);
-             break;
-         case SDL_KEYDOWN:
-             pressed = 1;
-             // fall through
-         case SDL_KEYUP:
-             {
-                 static int state[300] = {0};
-                 int key = sdlEvent.key.keysym.sym;
-                 int cacheIndex = key;
-                 if (cacheIndex < 0 || cacheIndex >= 256)
-                 {
-                     cacheIndex = 256;
-                     switch (key)
-                     {
-                      case SDLK_TAB: cacheIndex++;
-                      case SDLK_LEFT: cacheIndex++;
-                      case SDLK_RIGHT: cacheIndex++;
-                      case SDLK_UP: cacheIndex++;
-                      case SDLK_DOWN: break;
-                      case SDLK_APPLE_KEY: break;
-                      default: cacheIndex = -1; print_debug ("key: %d", key); break;
-                     }
-                 }
-
-                 int repeat = 0;
-                 if (cacheIndex >= 0 && state[cacheIndex] == pressed)
-                     repeat = 1;
-
-                 if (cacheIndex >= 0)
-                     state[cacheIndex] = pressed;
-
-                 int ret = config->on_keyboard (config, key, pressed, repeat);
-                 if (ret < 0)
-                     return -1;
-                 else if (ret == 1)
-                     redraw = 1;
+            switch(sdlEvent.type)
+            {
+             case SDL_QUIT:
+                 return 0;
+             case SDL_MOUSEBUTTONDOWN:
+                 cs->redraw |= cs->on_mouse_pressed (cs, sdlEvent.button.button);
                  break;
-             }
-         default:
-             break;
-        }
-    }
+             case SDL_MOUSEBUTTONUP:
+                 cs->redraw |= cs->on_mouse_released (cs);
+                 break;
+             case SDL_MOUSEMOTION:
+                 cs->redraw |= cs->on_mouse_motion (cs, sdlEvent.motion.x, sdlEvent.motion.y);
+                 break;
+             case SDL_KEYDOWN:
+             case SDL_KEYUP:
+                 {
+                     int repeat = sdlEvent.key.repeat;
+                     int pressed = sdlEvent.key.state == SDL_PRESSED;
+                     int key = sdlEvent.key.keysym.sym;
+                     int mod = sdlEvent.key.keysym.mod;
+                     if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
+                     {
+                         if ('a' <= key && key <= 'z')
+                             key &= ~0x20;
+                     }
 
-    if (toggleFullscreen)
-    {
-        toggleFullscreen = 0;
-        config->fullscreen = !config->fullscreen;
-        SDL_DestroyRenderer (config->renderer);
-        SDL_DestroyWindow (config->window);
-        SDL_DestroyTexture (config->texture);
-        SDL_Quit();
-        if (SDL_Init (SDL_INIT_VIDEO) < 0)
-            exit_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
-        config->window = SDL_CreateWindow ("Plotlib", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                           (config->fullscreen ? 2560 : config->windowWidth),
-                                           (config->fullscreen ? 1600 : config->windowHeight),
+                     cs->redraw |= cs->on_keyboard (cs, key, pressed, repeat);
+                     break;
+                 }
+             default:
+                 break;
+            }
+        }
+
+        if (cs->toggleFullscreen)
+        {
+            cs->toggleFullscreen = 0;
+            cs->fullscreen = !cs->fullscreen;
+            SDL_DestroyRenderer (cs->renderer);
+            SDL_DestroyWindow (cs->window);
+            SDL_DestroyTexture (cs->texture);
+            SDL_Quit();
+
+            if (SDL_Init (SDL_INIT_VIDEO) < 0)
+            {
+                print_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
+                return 1;
+            }
+
+            cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                           (cs->fullscreen ? 2560 : CINTERPLOT_INIT_WIDTH),
+                                           (cs->fullscreen ? 1600 : CINTERPLOT_INIT_HEIGHT),
                                            SDL_WINDOW_SHOWN);
 
-        true_or_exit_error (config->window != NULL, "Window could not be created! SDL Error: %s\n", SDL_GetError ());
-        config->renderer = SDL_CreateRenderer (config->window, -1, SDL_RENDERER_ACCELERATED);
-        true_or_exit_error (config->renderer != NULL, "Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
-        SDL_SetRenderDrawColor (config->renderer, 0xff, 0xff, 0xff, 0xff);
-        config->texture = SDL_CreateTexture (config->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                             (config->fullscreen ? 2560 : config->windowWidth),
-                                             (config->fullscreen ? 1600 : config->windowHeight));
-        assert (config->texture);
-        SDL_SetWindowFullscreen (config->window, config->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
-        SDL_RenderPresent (config->renderer);
-        usleep (100000);
-    }
+            true_or_exit_error (cs->window != NULL, "Window could not be created! SDL Error: %s\n", SDL_GetError ());
+            cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
 
-    if (redraw)
-    {
-        redraw = 0;
-        update_image (config, config->texture, 1);
-        SDL_RenderCopy (config->renderer, config->texture, NULL, NULL);
-        SDL_RenderPresent (config->renderer);
+            true_or_exit_error (cs->renderer != NULL, "Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
+            cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                             (cs->fullscreen ? 2560 : CINTERPLOT_INIT_WIDTH),
+                                             (cs->fullscreen ? 1600 : CINTERPLOT_INIT_HEIGHT));
+            assert (cs->texture);
+
+            SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+            SDL_RenderPresent (cs->renderer);
+            usleep (100000);
+        }
+
+        double tsp = get_time ();
+        if (cs->redraw && tsp - lastFrameTsp > periodTime)
+        {
+            cs->redrawing = 1;
+            lastFrameTsp = tsp;
+            update_image (cs, cs->texture, 0);
+            SDL_RenderCopy (cs->renderer, cs->texture, NULL, NULL);
+            SDL_RenderPresent (cs->renderer);
+            cs->redrawing = 0;
+            cs->redraw = 0;
+        }
     }
 
     return 0;
 }
+
+static void cinterplot_cleanup (CinterState *cs)
+{
+    SDL_DestroyRenderer (cs->renderer);
+    SDL_DestroyWindow (cs->window);
+    SDL_Quit();
+    cs->renderer = NULL;
+    cs->window = NULL;
+}
+
+int main (int argc, char **argv)
+{
+    // SDL, at least on my version of macOS, prevents SDL from running on any other thread
+    // than the main thread
+
+    CinterState *cs = cinterplot_init ();
+    if (!cs)
+        return 1;
+
+    UserData data = {argc, argv, cs};
+    pthread_t userThread;
+    if (pthread_create (& userThread, NULL, userMainCaller, & data))
+        exit_error ("could not create thread\n");
+
+    int ret = cinterplot_run_until_quit (cs);
+    cs->running = 0;
+
+    // Wait for the thread to finish
+    if (pthread_join (userThread, NULL)) {
+        exit_error("could not join thread\n");
+    }
+
+    cinterplot_cleanup (cs);
+
+    return userMainRetVal ? userMainRetVal : ret;
+}
+

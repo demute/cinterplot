@@ -9,83 +9,69 @@ extern "C" {
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 
-
-#define XINT(w,x) ((int)(round((x) * (w))))
-#define YINT(h,y) ((int)(round((1.0-y) * (h))))
-#define XTOFLOAT(w,xint) (((double) (xint)) / (w))
-#define YTOFLOAT(h,yint) (1.0 - ((double) (yint)) / (h))
+#define CINTERPLOT_INIT_WIDTH 1080
+#define CINTERPLOT_INIT_HEIGHT 600
+#define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
-#define MAX_SUB_WINDOWS 4
 
-struct plotlib_config_t
+typedef struct CinterGraph
 {
-    int    windowWidth;
-    int    windowHeight;
-    int fullscreen;
+
+} CinterGraph;
+
+typedef struct CinterState
+{
+    uint32_t autoscale : 1;
+    uint32_t mouseEnabled : 1;
+    uint32_t trackingEnabled : 1;
+    uint32_t toggleFullscreen : 1;
+    uint32_t fullscreen : 1;
+    uint32_t redraw : 1;
+    uint32_t redrawing : 1;
+    uint32_t running : 1;
+
+    uint32_t bgColor;
+
+    int colorSchemeIndex;
+    int nRows;
+    int nCols;
+
+    int activeGraphIndex;
+    CinterGraph **graphs;
+
     SDL_Window   *window;
     SDL_Renderer *renderer;
     SDL_Texture  *texture;
-    int    frameCounter;
-    void *userdata;
 
-    int  (*on_mouse_pressed) (struct plotlib_config_t *config, int button);
-    int  (*on_mouse_released) (struct plotlib_config_t *config);
-    int  (*on_mouse_motion) (struct plotlib_config_t *config, int xi, int yi);
-    int  (*on_keyboard) (struct plotlib_config_t *config, int c, int pressed, int repeat);
-    void (*callback) (struct plotlib_config_t *config, uint32_t *pixels, int w, int h);
-};
-typedef struct plotlib_config_t PlotlibConfig;
+    int frameCounter;
 
-struct points_t
-{
-    int nPoints;
-    int maxPoints;
-    double xmin;
-    double xmax;
-    double ymin;
-    double ymax;
-    double *xs;
-    double *ys;
-};
-typedef struct points_t Points;
+    int  (*on_mouse_pressed)  (struct CinterState *cs, int button);
+    int  (*on_mouse_released) (struct CinterState *cs);
+    int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
+    int  (*on_keyboard)       (struct CinterState *cs, int c, int pressed, int repeat);
+    void (*plot_data)         (struct CinterState *cs, uint32_t *pixels, int w, int h);
 
-struct sub_window_t
-{
-    PlotlibConfig *config;
-    uint32_t *pixels;
-    int w;
-    int h;
+} CinterState;
 
-    int bordered;
-    int margin;
-    int subw;
-    int subh;
-    int xOffset;
-    int yOffset;
-};
-typedef struct sub_window_t SubWindow;
-
-int plotlib_main_loop (PlotlibConfig *config, int redraw);
-void plotlib_init (PlotlibConfig *config);
-void plotlib_cleanup (PlotlibConfig *config);
-void lineRGBA (uint32_t *pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color);
-void lineRGBAf (uint32_t *pixels, int w, int h, double x0f, double y0f, double x1f, double y1f, uint32_t color);
-void make_sub_windows (PlotlibConfig *config, uint32_t *pixels, int w, int h, int margin, int bordered, int nrows, int ncols);
-Points *allocate_points (int maxPoints, double xmin, double xmax, double ymin, double ymax);
-void draw_points (int subx, int suby, Points *points, char drawType, uint32_t color);
-void put_point (Points *points, double x, double y);
-void reset_points (Points *points);
-void printRect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color);
-void printRectf (uint32_t* pixels, int w, int h, double x0f, double y0f, double x1f, double y1f, uint32_t color);
-void draw_heatmap (int subx, int suby, int yoffs, float *heatmap, int width, int height, float scale);
-void get_sub_properties (int subx, int suby, int *width, int *height, int *xoffs, int *yoffs);
-void get_floating_mouse_pos (int subx, int suby, int mouseX, int mouseY, double *xf, double *yf);
-int putTextf (uint32_t* pixels, int w, int h, double x0f, double y0f, uint32_t color, int transparent, char *message);
-int putText (uint32_t* pixels, int w, int h, int x0, int y0, uint32_t color, int transparent, char *message);
-void add_text (int subx, int suby, Points *points, double x, double y, char *text, uint32_t color);
+int autoscale (CinterState *cs);
+int background (CinterState *cs, uint32_t bgColor);
+int toggle_mouse (CinterState *cs);
+int toggle_fullscreen (CinterState *cs);
+int quit (CinterState *cs);
+int toggle_tracking (CinterState *cs);
+int colorscheme (CinterState *cs, int colorSchemeIndex);
+int move_left (CinterState *cs);
+int move_right (CinterState *cs);
+int move_up (CinterState *cs);
+int move_down (CinterState *cs);
+int expand_x (CinterState *cs);
+int compress_x (CinterState *cs);
+int expand_y (CinterState *cs);
+int compress_y (CinterState *cs);
 
 #ifdef __cplusplus
 } /* end extern C */
 #endif
 
 #endif /* _PLOTLIB_H_ */
+

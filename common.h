@@ -39,11 +39,12 @@ extern "C" {
 #define fprint(fs,...)         MESSAGE  (fs, 0, "",  __VA_ARGS__)
 #define fprintn(fs,...)        MESSAGEn (fs, 0, "",  __VA_ARGS__)
 
-#define fexit_debug(fs,...)    do {fprint_debug   (fs, __VA_ARGS__); exit (1); } while (0)
-#define fexit_info(fs,...)     do {fprint_info    (fs, __VA_ARGS__); exit (1); } while (0)
-#define fexit_warning(fs,...)  do {fprint_warning (fs, __VA_ARGS__); exit (1); } while (0)
-#define fexit_error(fs,...)    do {fprint_error   (fs, __VA_ARGS__); exit (1); } while (0)
-#define fexit_abort(fs,...)    do {fprint_abort   (fs, __VA_ARGS__); exit (1); } while (0)
+#define myexit() pthread_exit(NULL);
+#define fexit_debug(fs,...)    do {fprint_debug   (fs, __VA_ARGS__); myexit (); } while (0)
+#define fexit_info(fs,...)     do {fprint_info    (fs, __VA_ARGS__); myexit (); } while (0)
+#define fexit_warning(fs,...)  do {fprint_warning (fs, __VA_ARGS__); myexit (); } while (0)
+#define fexit_error(fs,...)    do {fprint_error   (fs, __VA_ARGS__); myexit (); } while (0)
+#define fexit_abort(fs,...)    do {fprint_abort   (fs, __VA_ARGS__); myexit (); } while (0)
 
 #define print_debug(...)       fprint_debug   (STDFS, __VA_ARGS__)
 #define print_warning(...)     fprint_warning (STDFS, __VA_ARGS__)

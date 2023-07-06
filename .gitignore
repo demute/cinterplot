@@ -1,0 +1,16 @@
+*~
+*.o
+*.elf
+*.hex
+*.bin
+*.size
+*.log
+.*.sw[ponm]
+*.vim
+*.srec
+*.dylib
+*.so
+.DS_Store
+*-backups
+/trash
+.swp
