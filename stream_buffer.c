@@ -24,22 +24,22 @@ static uint32_t next_power_of_two (uint32_t len)
 
 StreamBuffer* stream_buffer_create (uint32_t requestedLen, size_t itemSize)
 {
-    StreamBuffer* bs = (StreamBuffer*) malloc (sizeof (StreamBuffer));
-    assert (bs);
+    StreamBuffer* sb = (StreamBuffer*) malloc (sizeof (StreamBuffer));
+    assert (sb);
 
-    bs->len      = next_power_of_two (requestedLen);
-    bs->itemSize = itemSize;
-    bs->index    = 0;
-    bs->counter  = 0;
+    sb->len      = next_power_of_two (requestedLen);
+    sb->itemSize = itemSize;
+    sb->index    = 0;
+    sb->counter  = 0;
 
     // double buffered to continuously store data in two places,
     // always getting a contigious chunk of data.
-    size_t bytes = itemSize * bs->len * 2;
+    size_t bytes = itemSize * sb->len * 2;
 
-    bs->buf = malloc (bytes);
-    assert (bs->buf);
+    sb->buf = malloc (bytes);
+    assert (sb->buf);
 
-    return bs;
+    return sb;
 }
 
 int stream_buffer_resize (StreamBuffer *sb, uint32_t newLen)
@@ -83,70 +83,70 @@ int stream_buffer_resize (StreamBuffer *sb, uint32_t newLen)
     sb->counter = copyLen;
 }
 
-int stream_buffer_destroy (StreamBuffer* bs)
+int stream_buffer_destroy (StreamBuffer* sb)
 {
-    free (bs->buf);
-    free (bs);
+    free (sb->buf);
+    free (sb);
     return 0;
 }
 
-int stream_buffer_reset (StreamBuffer* bs)
+int stream_buffer_reset (StreamBuffer* sb)
 {
-    assert (bs);
-    bs->index   = 0;
-    bs->counter = 0;
+    assert (sb);
+    sb->index   = 0;
+    sb->counter = 0;
 
     return 0;
 }
 
-int stream_buffer_insert (StreamBuffer* bs, void* src)
+int stream_buffer_insert (StreamBuffer* sb, void* src)
 {
-    uint32_t index0 = bs->index;
-    uint32_t index1 = (index0 + bs->len) & (2 * bs->len - 1);
+    uint32_t index0 = sb->index;
+    uint32_t index1 = (index0 + sb->len) & (2 * sb->len - 1);
 
     //printf ("stream_buffer_insert: index0=%u, index1=%u  ", index0, index1);
 
-    void* dst0 = (void*) & ((uint8_t *) bs->buf) [bs->itemSize * index0];
-    void* dst1 = (void*) & ((uint8_t *) bs->buf) [bs->itemSize * index1];
+    void* dst0 = (void*) & ((uint8_t *) sb->buf) [sb->itemSize * index0];
+    void* dst1 = (void*) & ((uint8_t *) sb->buf) [sb->itemSize * index1];
 
-    memcpy (dst0, src, bs->itemSize);
-    memcpy (dst1, src, bs->itemSize);
+    memcpy (dst0, src, sb->itemSize);
+    memcpy (dst1, src, sb->itemSize);
 
-    bs->index = (bs->index + 1) & (bs->len - 1);
-    bs->counter++;
+    sb->index = (sb->index + 1) & (sb->len - 1);
+    sb->counter++;
 
     return 0;
 }
 
-int stream_buffer_get (StreamBuffer *bs, void *_buf, uint32_t *len)
+int stream_buffer_get (StreamBuffer *sb, void *_buf, uint32_t *len)
 {
     assert (_buf);
     void **buf = (void **) _buf;
-    *len = MIN (bs->counter, bs->len);
-    uint32_t indexStop = ((bs->index - 1) & (bs->len - 1)) + bs->len;
+    *len = MIN (sb->counter, sb->len);
+    uint32_t indexStop = ((sb->index - 1) & (sb->len - 1)) + sb->len;
     uint32_t indexStart = indexStop - *len + 1;
-    *buf = (void*) & ((uint8_t *) bs->buf) [bs->itemSize * indexStart];
+    *buf = (void*) & ((uint8_t *) sb->buf) [sb->itemSize * indexStart];
 
     return 0;
 }
 
-uint32_t stream_buffer_counter_to_index (StreamBuffer* bs, uint64_t counter)
+uint32_t stream_buffer_counter_to_index (StreamBuffer* sb, uint64_t counter)
 {
-    int len = MIN (bs->counter, bs->len);
-    if (counter > bs->counter || (bs->counter - counter) >= len)
+    int len = MIN (sb->counter, sb->len);
+    if (counter > sb->counter || (sb->counter - counter) >= len)
         return -1;
 
-    uint32_t diff = (uint32_t) (bs->counter - counter);
+    uint32_t diff = (uint32_t) (sb->counter - counter);
     return len - diff - 1;
 }
 
-uint64_t stream_buffer_index_to_counter (StreamBuffer* bs, uint32_t index)
+uint64_t stream_buffer_index_to_counter (StreamBuffer* sb, uint32_t index)
 {
-    int len = MIN (bs->counter, bs->len);
+    int len = MIN (sb->counter, sb->len);
     int currentIndex = len - 1;
     int diff = currentIndex - index;
     if (diff > len || diff < 0)
         exit_error ("index %d out of range [0,%d)", index, len);
 
-    return bs->counter - (uint64_t) diff;
+    return sb->counter - (uint64_t) diff;
 }
