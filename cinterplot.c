@@ -362,6 +362,55 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 #define COLOR_LIGHT_GRAY MAKE_COLOR (144,144,144)
 #define COLOR_WHITE_GRAY MAKE_COLOR (182,182,182)
 
+CinterGraph *graph_new (uint32_t len, int doublePrecision)
+{
+    CinterGraph *graph = safe_calloc (1, sizeof (*graph));
+    graph->len = len;
+    graph->doublePrecision = doublePrecision;
+    pthread_mutex_init (& graph->lock, NULL);
+
+    size_t itemSize = doublePrecision ? 2 * sizeof (double) : 2 * sizeof (float);
+
+    if (graph->len == 0)
+    {
+        // lazy infinite length
+        graph->sb = stream_buffer_create (INITIAL_VARIABLE_LENGTH, itemSize);
+    }
+    else
+    {
+        uint32_t requestedLen = len;
+        graph->sb = stream_buffer_create (requestedLen, itemSize);
+    }
+
+    return graph;
+}
+
+void graph_add_point (CinterGraph *graph, double x, double y)
+{
+    StreamBuffer *sb = graph->sb;
+    assert (sb);
+
+    if (graph->len == 0 &&
+        sb->counter == sb->len &&
+        sb->len <= MAX_VARIABLE_LENGTH)
+    {
+        pthread_mutex_lock (& graph->lock);
+        stream_buffer_resize (sb, sb->len << 1);
+        pthread_mutex_unlock (& graph->lock);
+    }
+
+    if (graph->doublePrecision)
+    {
+        double xy[2] = {x,y};
+        stream_buffer_insert (sb, xy);
+    }
+    else
+    {
+        float xy[2] = {x,y};
+        stream_buffer_insert (sb, xy);
+    }
+}
+
 static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
 {
     // FIXME: If both the left and right key of the same modifier gets pressed at
@@ -647,7 +696,6 @@ static int cinterplot_run_until_quit (CinterState *cs)
     double periodTime = 1.0 / fps;
     double lastFrameTsp = 0;
 
-    print_debug ("%d %d", cs->running, interrupted);
     while (cs->running && !interrupted)
     {
         cs->frameCounter++;

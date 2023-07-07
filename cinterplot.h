@@ -8,9 +8,12 @@ extern "C" {
 #include "common.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#include "stream_buffer.h"
 
-#define CINTERPLOT_INIT_WIDTH 1080
-#define CINTERPLOT_INIT_HEIGHT 600
+#define INITIAL_VARIABLE_LENGTH 16384
+#define MAX_VARIABLE_LENGTH     1048576
+#define CINTERPLOT_INIT_WIDTH   1080
+#define CINTERPLOT_INIT_HEIGHT  600
 #define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
 
@@ -22,6 +25,10 @@ typedef struct ColorScheme
 
 typedef struct CinterGraph
 {
+    int doublePrecision : 1;
+    StreamBuffer *sb;
+    uint32_t len;
+    pthread_mutex_t lock;
 
 } CinterGraph;
 
@@ -115,6 +122,9 @@ int compress_x (CinterState *cs);
 int expand_y (CinterState *cs);
 int compress_y (CinterState *cs);
 int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int margin);
+
+CinterGraph *graph_new (uint32_t len, int doublePrecision);
+void graph_add_point (CinterGraph *graph, double x, double y);
 
 #ifdef __cplusplus
 } /* end extern C */
