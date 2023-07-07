@@ -81,6 +81,9 @@ typedef struct CinterState
     SDL_Renderer *renderer;
     SDL_Texture  *texture;
 
+    int windowWidth;
+    int windowHeight;
+
     int frameCounter;
 
     int  (*on_mouse_pressed)  (struct CinterState *cs, int button);

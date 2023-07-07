@@ -453,13 +453,6 @@ static void plot_data (CinterState *cs, uint32_t *pixels, int w, int h)
     }
 }
 
-typedef struct
-{
-    int argc;
-    char **argv;
-    CinterState *cs;
-} UserData;
-
 int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int margin)
 {
     if (cs->subWindows || cs->nRows || cs->nCols)
@@ -468,15 +461,13 @@ int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int m
         return -1;
     }
 
-    int w, h;
-    if (SDL_QueryTexture (cs->texture, NULL, NULL, & w, & h))
-        exit_error ("failed to query texture");
-
+    cs->nRows    = nRows;
+    cs->nCols    = nCols;
     cs->bordered = bordered;
     cs->margin   = margin;
 
-    int subw = w / nCols - 2*cs->bordered - 2*cs->margin;
-    int subh = h / nCols - 2*cs->bordered - 2*cs->margin;
+    int subw = cs->windowWidth  / nCols - 2*cs->bordered - 2*cs->margin;
+    int subh = cs->windowHeight / nCols - 2*cs->bordered - 2*cs->margin;
 
     int n = nRows * nCols;
     cs->subWindows = safe_calloc (n, sizeof (cs->subWindows[0]));
@@ -494,11 +485,15 @@ int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int m
         sw->h    = subh;
     }
 
-    cs->nRows = nRows;
-    cs->nCols = nCols;
-
     return 0;
 }
+
+typedef struct
+{
+    int argc;
+    char **argv;
+    CinterState *cs;
+} UserData;
 
 int user_main (int argc, char **argv, CinterState *cs);
 static int userMainRetVal = 1;
@@ -533,6 +528,32 @@ static void signal_handler (int sig)
     interrupted = 1;
 }
 
+static void reinitialise_sdl_context (CinterState *cs)
+{
+    if (cs->texture)
+        SDL_DestroyTexture (cs->texture);
+    if (cs->renderer)
+        SDL_DestroyRenderer (cs->renderer);
+    if (cs->window)
+        SDL_DestroyWindow (cs->window);
+
+    cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                   cs->windowWidth, cs->windowHeight, SDL_WINDOW_SHOWN);
+    if (!cs->window)
+        exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
+
+    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
+    if (!cs->renderer)
+        exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
+
+    cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                     cs->windowWidth, cs->windowHeight);
+    if (!cs->texture)
+        exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
+
+    SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+}
+
 static CinterState *cinterplot_init (void)
 {
     CinterState *cs = safe_calloc (1, sizeof (*cs));
@@ -557,24 +578,15 @@ static CinterState *cinterplot_init (void)
     cs->margin           = 10;
     cs->frameCounter     = 0;
     cs->subWindows       = NULL;
+    cs->windowWidth      = CINTERPLOT_INIT_WIDTH;
+    cs->windowHeight     = CINTERPLOT_INIT_HEIGHT;
 
     signal (SIGINT, signal_handler);
 
     if (SDL_Init (SDL_INIT_VIDEO) < 0)
         exit_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
 
-    cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                   CINTERPLOT_INIT_WIDTH, CINTERPLOT_INIT_HEIGHT, SDL_WINDOW_SHOWN);
-    true_or_exit_error (cs->window != NULL, "Window could not be created: SDL Error: %s\n", SDL_GetError ());
-
-    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
-    true_or_exit_error (cs->renderer != NULL, "Renderer could not be created: SDL Error: %s\n", SDL_GetError ());
-
-    SDL_SetRenderDrawColor (cs->renderer, 0xff, 0xff, 0xff, 0xff);
-
-    cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                     CINTERPLOT_INIT_WIDTH, CINTERPLOT_INIT_HEIGHT);
-    true_or_exit_error (cs->texture != NULL, "Texture could not be created: SDL Error: %s\n", SDL_GetError ());
+    reinitialise_sdl_context (cs);
 
     update_image (cs, cs->texture, 1);
 
@@ -635,34 +647,21 @@ static int cinterplot_run_until_quit (CinterState *cs)
         {
             cs->toggleFullscreen = 0;
             cs->fullscreen = !cs->fullscreen;
-            SDL_DestroyRenderer (cs->renderer);
-            SDL_DestroyWindow (cs->window);
-            SDL_DestroyTexture (cs->texture);
-            SDL_Quit();
 
-            if (SDL_Init (SDL_INIT_VIDEO) < 0)
+            if (cs->fullscreen)
             {
-                print_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
-                return 1;
+                SDL_DisplayMode displayMode;
+                SDL_GetCurrentDisplayMode (0, & displayMode);
+                cs->windowWidth  = displayMode.w;
+                cs->windowHeight = displayMode.h;
+            }
+            else
+            {
+                cs->windowWidth  = CINTERPLOT_INIT_WIDTH;
+                cs->windowHeight = CINTERPLOT_INIT_HEIGHT;
             }
 
-            cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                           (cs->fullscreen ? 2560 : CINTERPLOT_INIT_WIDTH),
-                                           (cs->fullscreen ? 1600 : CINTERPLOT_INIT_HEIGHT),
-                                           SDL_WINDOW_SHOWN);
-
-            true_or_exit_error (cs->window != NULL, "Window could not be created! SDL Error: %s\n", SDL_GetError ());
-            cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
-
-            true_or_exit_error (cs->renderer != NULL, "Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
-            cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                             (cs->fullscreen ? 2560 : CINTERPLOT_INIT_WIDTH),
-                                             (cs->fullscreen ? 1600 : CINTERPLOT_INIT_HEIGHT));
-            assert (cs->texture);
-
-            SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
-            SDL_RenderPresent (cs->renderer);
-            usleep (100000);
+            reinitialise_sdl_context (cs);
         }
 
         double tsp = get_time ();
