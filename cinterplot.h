@@ -74,9 +74,24 @@ typedef struct SubWindow
 #define KMOD_ALT   4
 #define KMOD_CTRL  8
 
+typedef struct Mouse
+{
+    int x;
+    int y;
+    int lastX;
+    int lastY;
+    int pressX;
+    int pressY;
+    int releaseX;
+    int releaseY;
+    int clicks;
+    int button;
+} Mouse;
+
 typedef struct CinterState
 {
     uint32_t autoscale : 1;
+    uint32_t resetScaling : 1;
     uint32_t mouseEnabled : 1;
     uint32_t trackingEnabled : 1;
     uint32_t toggleFullscreen : 1;
@@ -89,14 +104,14 @@ typedef struct CinterState
     uint32_t forceRefresh : 1;
     uint32_t margin : 8;
 
-    uint32_t bgColor;
-    int32_t mouseX;
-    int32_t mouseY;
+    Mouse mouse;
 
     uint32_t nRows;
     uint32_t nCols;
+    float bgShade;
 
     SubWindow *subWindows;
+    SubWindow *zoomWindow;
 
     SDL_Window   *window;
     SDL_Renderer *renderer;
@@ -108,8 +123,8 @@ typedef struct CinterState
     int frameCounter;
     int pressedModifiers;
 
-    int  (*on_mouse_pressed)  (struct CinterState *cs, int button);
-    int  (*on_mouse_released) (struct CinterState *cs);
+    int  (*on_mouse_pressed)  (struct CinterState *cs, int xi, int yi, int button, int clicks);
+    int  (*on_mouse_released) (struct CinterState *cs, int xi, int yi);
     int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
     int  (*on_keyboard)       (struct CinterState *cs, int key, int mod, int pressed, int repeat);
     void (*plot_data)         (struct CinterState *cs, uint32_t *pixels);
@@ -117,7 +132,7 @@ typedef struct CinterState
 } CinterState;
 
 int autoscale (CinterState *cs);
-int background (CinterState *cs, uint32_t bgColor);
+int background (CinterState *cs, float bgShade);
 int toggle_mouse (CinterState *cs);
 int toggle_fullscreen (CinterState *cs);
 int quit (CinterState *cs);

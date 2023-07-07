@@ -228,7 +228,8 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 }
 
 int autoscale (CinterState *cs)                    { cs->autoscale = 1;        return 1; }
-int background (CinterState *cs, uint32_t bgColor) { cs->bgColor = bgColor;    return 1; }
+int reset_scaling (CinterState *cs)                { cs->resetScaling = 1;     return 1; }
+int background (CinterState *cs, float bgShade)    { cs->bgShade = bgShade;    return 1; }
 int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;    return 1; }
 int toggle_fullscreen (CinterState *cs)            { cs->toggleFullscreen = 1; return 1; }
 int quit (CinterState *cs)                         { cs->running = 0;          return 0; }
@@ -372,20 +373,28 @@ static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, ui
     }
 }
 
-static int on_mouse_pressed (CinterState *cs, int button)
+static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int clicks)
 {
+    cs->mouse.button = button;
+    cs->mouse.clicks = clicks;
+    cs->mouse.pressX = xi;
+    cs->mouse.pressY = yi;
+    print_debug ("%d %d %d %d", xi, yi, button, clicks);
     return 0;
 }
 
-static int on_mouse_released (CinterState *cs)
+static int on_mouse_released (CinterState *cs, int xi, int yi)
 {
+    cs->mouse.releaseX = xi;
+    cs->mouse.releaseY = yi;
+    print_debug ("%d %d", xi, yi);
     return 0;
 }
 
 static int on_mouse_motion (CinterState *cs, int xi, int yi)
 {
-    cs->mouseX = xi;
-    cs->mouseY = yi;
+    cs->mouse.x = xi;
+    cs->mouse.y = yi;
     return 1;
 }
 
@@ -403,7 +412,7 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t co
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->colorScheme = make_color_scheme (colorSpec, 16);
+    attacher->colorScheme = make_color_scheme (colorSpec, 8);
     attacher->lastGraphCounter = 0;
 
     SubWindow *sw = & cs->subWindows[row * cs->nCols + col];
@@ -478,33 +487,33 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     if (key == SDLK_LSHIFT || key == SDLK_RSHIFT)
     {
         if (pressed)
-            cs->pressedModifiers &= ~KMOD_SHIFT;
-        else
             cs->pressedModifiers |= KMOD_SHIFT;
+        else
+            cs->pressedModifiers &= ~KMOD_SHIFT;
         return 0;
     }
     else if (key == SDLK_LGUI || key == SDLK_RGUI)
     {
         if (pressed)
-            cs->pressedModifiers &= ~KMOD_GUI;
-        else
             cs->pressedModifiers |= KMOD_GUI;
+        else
+            cs->pressedModifiers &= ~KMOD_GUI;
         return 0;
     }
     else if (key == SDLK_LALT || key == SDLK_RALT)
     {
         if (pressed)
-            cs->pressedModifiers &= ~KMOD_ALT;
-        else
             cs->pressedModifiers |= KMOD_ALT;
+        else
+            cs->pressedModifiers &= ~KMOD_ALT;
         return 0;
     }
     else if (key == SDLK_LCTRL || key == SDLK_RCTRL)
     {
         if (pressed)
-            cs->pressedModifiers &= ~KMOD_CTRL;
-        else
             cs->pressedModifiers |= KMOD_CTRL;
+        else
+            cs->pressedModifiers &= ~KMOD_CTRL;
         return 0;
     }
 
@@ -516,6 +525,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
             switch (key)
             {
              case 'a': autoscale (cs); break;
+             case 's': reset_scaling (cs); break;
              case 'f': toggle_fullscreen (cs); break;
              case 'm': toggle_mouse (cs); break;
              case 'q': quit (cs); break;
@@ -539,7 +549,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                            if (index < 0)
                                index = 9;
                            float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
-                           cs->bgColor = make_gray (shades[index]);
+                           cs->bgShade = shades[index];
                            break;
                        }
              default: unhandled = 1;
@@ -610,8 +620,8 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
 
         if (xmin == xmax)
         {
-                xmin = xys[0][0];
-                xmax = xys[len-1][0];
+            xmin = xys[0][0];
+            xmax = xys[len-1][0];
         }
         release_access (& graph->insertAccess);
         //if (xmin == xmax)
@@ -668,8 +678,8 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
 
         if (xmin == xmax)
         {
-                xmin = xys[0][0];
-                xmax = xys[len-1][0];
+            xmin = xys[0][0];
+            xmax = xys[len-1][0];
         }
         release_access (& graph->insertAccess);
         //if (xmin == xmax)
@@ -713,43 +723,155 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     uint32_t nRows = cs->nRows;
     uint32_t forceRefresh = cs->forceRefresh;
     cs->forceRefresh = 0;
+    uint32_t bordered = cs->bordered;
+    uint32_t margin   = cs->margin;
 
-    uint32_t dy = h / nRows;
-    uint32_t dx = w / nCols;
+    uint32_t dy, dx;
+    if (cs->zoomWindow)
+    {
+        dy = h;
+        dx = w;
+        bordered = 0;
+        margin = 0;
+    }
+    else
+    {
+        dy = h / nRows;
+        dx = w / nCols;
+    }
 
-    uint32_t subHeight = dy - 2*cs->bordered - 2*cs->margin;
-    uint32_t subWidth  = dx - 2*cs->bordered - 2*cs->margin;
+    uint32_t subHeight = dy - 2*bordered - 2*margin;
+    uint32_t subWidth  = dx - 2*bordered - 2*margin;
 
-    int mouseCol = cs->mouseX / (int) dx;
-    int mouseRow = cs->mouseY / (int) dy;
+    int mouseCol, mouseRow;
+    int mousePressed  = 0;
+    int mouseReleased = 0;
+    Mouse relMouse = {.button = cs->mouse.button, .clicks = cs->mouse.clicks};
+
+    if (cs->mouse.pressX || cs->mouse.pressY)
+    {
+        mouseCol        = cs->mouse.pressX / (int) dx;
+        mouseRow        = cs->mouse.pressY / (int) dy;
+        relMouse.x      = cs->mouse.x      - mouseCol * (int) (dx - margin - bordered);
+        relMouse.y      = cs->mouse.y      - mouseRow * (int) (dy - margin - bordered);
+        relMouse.lastX  = cs->mouse.lastX  - mouseCol * (int) (dx - margin - bordered);
+        relMouse.lastY  = cs->mouse.lastY  - mouseRow * (int) (dy - margin - bordered);
+        relMouse.pressX = cs->mouse.pressX - mouseCol * (int) (dx - margin - bordered);
+        relMouse.pressY = cs->mouse.pressY - mouseRow * (int) (dy - margin - bordered);
+
+        if (cs->mouse.releaseX || cs->mouse.releaseY)
+        {
+            relMouse.releaseX = cs->mouse.releaseX - mouseCol * (int) (dx - margin - bordered);
+            relMouse.releaseY = cs->mouse.releaseY - mouseRow * (int) (dy - margin - bordered);
+
+            cs->mouse.releaseX = 0;
+            cs->mouse.releaseY = 0;
+            cs->mouse.pressX = 0;
+            cs->mouse.pressY = 0;
+
+            mouseReleased = 1;
+        }
+        else
+        {
+            mousePressed = 1;
+        }
+    }
+    else
+    {
+        mouseCol       = cs->mouse.x / (int) dx;
+        mouseRow       = cs->mouse.y / (int) dy;
+        relMouse.x     = cs->mouse.x     - mouseCol * (int) (dx - margin - bordered);
+        relMouse.y     = cs->mouse.y     - mouseRow * (int) (dy - margin - bordered);
+        relMouse.lastX = cs->mouse.lastX - mouseCol * (int) (dx - margin - bordered);
+        relMouse.lastY = cs->mouse.lastY - mouseRow * (int) (dy - margin - bordered);
+    }
+    cs->mouse.lastX = cs->mouse.x;
+    cs->mouse.lastY = cs->mouse.y;
+
     SubWindow *activeSw = NULL;
-    if (mouseCol >= 0 && mouseCol < nCols && mouseRow >= 0 && mouseRow < nRows)
+    if (cs->zoomWindow)
+        activeSw = cs->zoomWindow;
+    else if (mouseCol >= 0 && mouseCol < nCols && mouseRow >= 0 && mouseRow < nRows)
         activeSw = & cs->subWindows[(uint32_t) mouseRow * nCols + (uint32_t) mouseCol];
 
-
-    uint32_t activeColor   = MAKE_COLOR (255,255,255);
-    uint32_t inactiveColor = MAKE_COLOR (100,100,100);
-
-    for (uint32_t sy=0; sy < nRows; sy++)
+    if (mousePressed && cs->pressedModifiers == KMOD_GUI)
     {
-        uint32_t yOffset = dy * sy;
-        for (uint32_t sx=0; sx < nCols; sx++)
+        double dx = (double) (relMouse.x - relMouse.lastX) / subWidth  * (activeSw->xmax - activeSw->xmin);
+        double dy = (double) (relMouse.y - relMouse.lastY) / subHeight * (activeSw->ymax - activeSw->ymin);
+        activeSw->xmin -= dx;
+        activeSw->xmax -= dx;
+        activeSw->ymin -= dy;
+        activeSw->ymax -= dy;
+        mousePressed = 0;
+    }
+    else if (mouseReleased && !cs->pressedModifiers)
+    {
+        int x0 = relMouse.pressX;
+        int x1 = relMouse.releaseX;
+        int y0 = relMouse.pressY;
+        int y1 = relMouse.releaseY;
+        if (x0 > x1)
         {
-            uint32_t xOffset = dx * sx;
-            SubWindow *sw = & cs->subWindows[sy * nCols + sx];
+            x0 ^= x1;
+            x1 ^= x0;
+            x0 ^= x1;
+        }
 
-            if (cs->bordered)
+        if (y0 > y1)
+        {
+            y0 ^= y1;
+            y1 ^= y0;
+            y0 ^= y1;
+        }
+
+        if ((x1-x0) + (y1-y0) < 4)
+        {
+            cs->zoomWindow = cs->zoomWindow ? NULL : activeSw;
+            plot_data (cs, pixels);
+            return;
+        }
+        else
+        {
+            print_debug ("mouse released, old range: x:[%f, %f] y:[%f, %f]", activeSw->xmin, activeSw->xmax, activeSw->ymin, activeSw->ymax);
+            double newXmin = ((double) x0 / subWidth)  * (activeSw->xmax - activeSw->xmin) + activeSw->xmin;
+            double newXmax = ((double) x1 / subWidth)  * (activeSw->xmax - activeSw->xmin) + activeSw->xmin;
+            double newYmin = ((double) y0 / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
+            double newYmax = ((double) y1 / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
+            activeSw->xmin = newXmin;
+            activeSw->xmax = newXmax;
+            activeSw->ymin = newYmin;
+            activeSw->ymax = newYmax;
+            print_debug ("mouse released, new range: x:[%f, %f] y:[%f, %f]", activeSw->xmin, activeSw->xmax, activeSw->ymin, activeSw->ymax);
+        }
+    }
+
+    uint32_t activeColor    = make_gray (1.0f);
+    uint32_t inactiveColor  = make_gray (0.4f);
+    uint32_t crossHairColor = make_gray (0.6f);
+    uint32_t bgColor        = make_gray (cs->bgShade);
+    uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.08f : -0.08f));
+
+    for (uint32_t rowi=0; rowi < nRows; rowi++)
+    {
+        uint32_t yOffset = cs->zoomWindow ? 0 : dy * rowi;
+        for (uint32_t coli=0; coli < nCols; coli++)
+        {
+            uint32_t xOffset = cs->zoomWindow ? 0 : dx * coli;
+            SubWindow *sw = & cs->subWindows[rowi * nCols + coli];
+            if (cs->zoomWindow && cs->zoomWindow != sw)
+                continue;
+
+            if (bordered)
             {
-                uint32_t x0 = xOffset + cs->margin;
-                uint32_t y0 = yOffset + cs->margin;
-                uint32_t x1 = xOffset + dx - 1 - cs->margin;
-                uint32_t y1 = yOffset + dy - 1 - cs->margin;
-                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == activeSw) ? activeColor : inactiveColor);
+                uint32_t x0 = xOffset + margin;
+                uint32_t y0 = yOffset + margin;
+                uint32_t x1 = xOffset + dx - 1 - margin;
+                uint32_t y1 = yOffset + dy - 1 - margin;
+                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == activeSw && cs->mouseEnabled) ? activeColor : inactiveColor);
             }
 
-            uint32_t x0 = xOffset + cs->margin + cs->bordered;
-            uint32_t y0 = yOffset + cs->margin + cs->bordered;
-            uint32_t bgColor = cs->bgColor;
+            uint32_t x0 = xOffset + margin + bordered;
+            uint32_t y0 = yOffset + margin + bordered;
 
             for (uint32_t y=0; y<subHeight; y++)
                 for (uint32_t x=0; x<subWidth;  x++)
@@ -804,11 +926,38 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 {
                     for (uint32_t x=0; x<subWidth;  x++)
                     {
+                        uint32_t *pixel = & pixels[(y0+y)*w + (x0+x)];
                         int cnt = bins[y * subWidth + x];
-                        if (cnt > 0)
+                        if (cs->mouseEnabled && (cs->zoomWindow || (coli == mouseCol && rowi == mouseRow)) && (x == relMouse.x || y == relMouse.y))
+                            *pixel = crossHairColor;
+                        else if (cnt > 0)
                         {
                             uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
-                            pixels[(y0+y)*w + (x0+x)] = color;
+                            *pixel = color;
+                        }
+                        else if (mousePressed && (cs->zoomWindow || (coli == mouseCol && rowi == mouseRow)))
+                        {
+                            Mouse *r = & relMouse;
+                            int x0 = r->x;
+                            int x1 = r->pressX;
+                            int y0 = r->y;
+                            int y1 = r->pressY;
+
+                            if (x0 > x1)
+                            {
+                                x0 ^= x1;
+                                x1 ^= x0;
+                                x0 ^= x1;
+                            }
+                            if (y0 > y1)
+                            {
+                                y0 ^= y1;
+                                y1 ^= y0;
+                                y0 ^= y1;
+                            }
+
+                            if (x0 <= x && x <= x1 && y0 <= y && y <= y1)
+                                *pixel = selectColor;
                         }
                     }
                 }
@@ -838,8 +987,8 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
         sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
         sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
         sw->numAttachedGraphs = 0;
-        sw->xmin = 0;
-        sw->xmax = 0;
+        sw->xmin = -1;
+        sw->xmax =  1;
         sw->ymin = -1;
         sw->ymax =  1;
     }
@@ -919,6 +1068,7 @@ static CinterState *cinterplot_init (void)
     cs->plot_data         = plot_data;
 
     cs->autoscale        = 0;
+    cs->resetScaling     = 0;
     cs->mouseEnabled     = 1;
     cs->trackingEnabled  = 0;
     cs->toggleFullscreen = 0;
@@ -926,7 +1076,7 @@ static CinterState *cinterplot_init (void)
     cs->redraw           = 0;
     cs->redrawing        = 0;
     cs->running          = 1;
-    cs->bgColor          = make_gray (0.04f);
+    cs->bgShade          = 0.04f;
     cs->nRows            = 0;
     cs->nCols            = 0;
     cs->bordered         = 0;
@@ -935,6 +1085,7 @@ static CinterState *cinterplot_init (void)
     cs->frameCounter     = 0;
     cs->pressedModifiers = 0;
     cs->subWindows       = NULL;
+    cs->zoomWindow       = NULL;
     cs->windowWidth      = CINTERPLOT_INIT_WIDTH;
     cs->windowHeight     = CINTERPLOT_INIT_HEIGHT;
 
@@ -970,10 +1121,10 @@ static int cinterplot_run_until_quit (CinterState *cs)
              case SDL_QUIT:
                  return 0;
              case SDL_MOUSEBUTTONDOWN:
-                 cs->redraw |= cs->on_mouse_pressed (cs, sdlEvent.button.button);
+                 cs->redraw |= cs->on_mouse_pressed (cs, sdlEvent.button.x, sdlEvent.button.y, sdlEvent.button.button, sdlEvent.button.clicks);
                  break;
              case SDL_MOUSEBUTTONUP:
-                 cs->redraw |= cs->on_mouse_released (cs);
+                 cs->redraw |= cs->on_mouse_released (cs, sdlEvent.button.x, sdlEvent.button.y);
                  break;
              case SDL_MOUSEMOTION:
                  cs->redraw |= cs->on_mouse_motion (cs, sdlEvent.motion.x, sdlEvent.motion.y);
