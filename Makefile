@@ -6,7 +6,7 @@ LDFLEX  = -ll
 LIBEXT  = dylib
 
 CFLAGS  = -g -ggdb -Wall -Wno-deprecated -O3 -D_BSD_SOURCE -I$(TOPDIR)/core -I$(DRIVERDIR)
-CFLAGS += -Wall -Wno-deprecated -Os -I../core -ferror-limit=5
+CFLAGS += -Wall -Wno-deprecated -Os -I../core -ferror-limit=5 -Wconversion -Werror -Wno-unused-function
 CFLAGS += $(shell pkg-config --cflags gsl)
 CFLAGS += $(shell pkg-config --cflags sdl2)
 CFLAGS += $(shell pkg-config --cflags sdl2_image)

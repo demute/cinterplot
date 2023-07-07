@@ -79,7 +79,7 @@ void print_remaining_time (double startTime, double tsp, double doneRatio, int c
 char *parse_csv (char *str, int *argc, char ***argv, char sep, int inplace);
 double get_sorted_value_at_index (double *list, int n, int j);
 
-void internal_quicksort  (void *buf, size_t itemSize, size_t offset, int first, int last, int ascending);
+void internal_quicksort (void *buf, size_t itemSize, size_t offset, uint32_t first, uint32_t last, int ascending);
 
 enum {SORT_MODE_DESCENDING, SORT_MODE_ASCENDING};
 #define quicksort_double(buf,len,ascending) internal_quicksort (buf, sizeof ((buf)[0]), 0, 0, len-1, ascending);

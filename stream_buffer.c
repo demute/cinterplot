@@ -123,7 +123,7 @@ int stream_buffer_get (StreamBuffer *sb, void *_buf, uint32_t *len)
 {
     assert (_buf);
     void **buf = (void **) _buf;
-    *len = MIN (sb->counter, sb->len);
+    *len = (uint32_t) MIN (sb->counter, sb->len);
     uint32_t indexStop = ((sb->index - 1) & (sb->len - 1)) + sb->len;
     uint32_t indexStart = indexStop - *len + 1;
     *buf = (void*) & ((uint8_t *) sb->buf) [sb->itemSize * indexStart];
@@ -131,21 +131,21 @@ int stream_buffer_get (StreamBuffer *sb, void *_buf, uint32_t *len)
     return 0;
 }
 
-uint32_t stream_buffer_counter_to_index (StreamBuffer* sb, uint64_t counter)
+int stream_buffer_counter_to_index (StreamBuffer* sb, uint64_t counter)
 {
-    int len = MIN (sb->counter, sb->len);
+    uint32_t len = (uint32_t) MIN (sb->counter, sb->len);
     if (counter > sb->counter || (sb->counter - counter) >= len)
         return -1;
 
     uint32_t diff = (uint32_t) (sb->counter - counter);
-    return len - diff - 1;
+    return (int) (len - diff - 1);
 }
 
 uint64_t stream_buffer_index_to_counter (StreamBuffer* sb, uint32_t index)
 {
-    int len = MIN (sb->counter, sb->len);
+    int len = (int) MIN (sb->counter, sb->len);
     int currentIndex = len - 1;
-    int diff = currentIndex - index;
+    int diff = currentIndex - (int) index;
     if (diff > len || diff < 0)
         exit_error ("index %d out of range [0,%d)", index, len);
 

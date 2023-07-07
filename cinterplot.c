@@ -98,7 +98,7 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
     return -1;
 }
 
-#define MAX_NUM_VERTICES 16
+#define MAX_NUM_VERTICES 16u
 static void make_color_scheme (char *spec, ColorScheme *scheme)
 {
     int argc;
@@ -107,9 +107,9 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
     if (!copy)
         exit_error ("bug");
 
-    int nVertices = argc;
+    uint32_t nVertices = (uint32_t) argc;
     if (nVertices > MAX_NUM_VERTICES)
-        exit_error ("nVertices(%d) > MAX_NUM_VERTICES(%d) at '%s'", nVertices, MAX_NUM_VERTICES, spec);
+        exit_error ("nVertices(%u) > MAX_NUM_VERTICES(%u) at '%s'", nVertices, MAX_NUM_VERTICES, spec);
 
     RGB vertices[MAX_NUM_VERTICES];
     for (int i=0; i<argc; i++)
@@ -120,7 +120,7 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
             int r,g,b;
             if (sscanf (& str[1], "%02x%02x%02x", & r, & g, & b) != 3)
                 exit_error ("parse error at '%s' in str spec '%s'", str, spec);
-            float s = 1.0 / 255.0;
+            float s = 1.0f / 255.0f;
             vertices[i].r = r * s;
             vertices[i].g = g * s;
             vertices[i].b = b * s;
@@ -132,11 +132,11 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
             if (sscanf (str, "%d/%d", & colorIndex, & numColors) != 2)
                 exit_error ("parse error at '%s' in str spec '%s'", str, spec);
             Lab oklab;
-            oklab.L = 0.7;
-            float C = 0.5;
-            float h = (2 * M_PI * colorIndex) / numColors;
-            oklab.a = C * cos(h);
-            oklab.b = C * sin(h);
+            oklab.L = 0.7f;
+            float C = 0.5f;
+            float h = (float) ((2 * M_PI * colorIndex) / numColors);
+            oklab.a = C * cosf(h);
+            oklab.b = C * sinf(h);
             oklab_to_srgb (& oklab, & vertices[i]);
 
         }
@@ -145,7 +145,7 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
             int r,g,b;
             if (get_color_by_name (str, & r, & g, & b) < 0)
                 exit_error ("parse error at '%s' in color spec '%s'", str, spec);
-            float s = 1.0 / 255.0;
+            float s = 1.0f / 255.0f;
             vertices[i].r = r * s;
             vertices[i].g = g * s;
             vertices[i].b = b * s;
@@ -157,27 +157,27 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
     if (nVertices == 1)
     {
         uint32_t color = rgb2color (& vertices[0]);
-        int n = scheme->nLevels;
-        for (int i=0; i<n; i++)
+        uint32_t n = scheme->nLevels;
+        for (uint32_t i=0; i<n; i++)
             scheme->colors[i] = color;
     }
     else
     {
-        int offset = 0;
+        uint32_t offset = 0;
         for (int v=0; v<nVertices-1; v++)
         {
             Lab c0, c1;
             srgb_to_oklab (& vertices[v],   & c0);
             srgb_to_oklab (& vertices[v+1], & c1);
 
-            int len = scheme->nLevels / (nVertices - 1);
+            uint32_t len = scheme->nLevels / (nVertices - 1);
             if (v == 0)
             {
-                int rest = scheme->nLevels - len * (nVertices - 1);
+                uint32_t rest = scheme->nLevels - len * (nVertices - 1);
                 len += rest;
             }
 
-            for (int i=0; i<len; i++)
+            for (uint32_t i=0; i<len; i++)
             {
                 float w1;
                 if (v+1 == nVertices-1)
@@ -260,13 +260,20 @@ int compress_y (CinterState *cs)
 }
 
 
-static void lineRGBA (uint32_t *pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
+static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, uint32_t _y0, uint32_t _x1, uint32_t _y1, uint32_t color)
 {
     if (!pixels)
         return;
 
-    int xabs = abs (x0 - x1);
-    int yabs = abs (y0 - y1);
+    int w  = (int) _w;
+    int h  = (int) _w;
+    int x0 = (int) _x0;
+    int y0 = (int) _y0;
+    int x1 = (int) _x1;
+    int y1 = (int) _y1;
+
+    int xabs = (x1 > x0) ? x1 - x0 : x0 - x1;
+    int yabs = (y1 > y0) ? y1 - y0 : y0 - y1;
 
     if (xabs > yabs)
     {
@@ -311,7 +318,7 @@ static void lineRGBA (uint32_t *pixels, int w, int h, int x0, int y0, int x1, in
     }
 }
 
-static void draw_rect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
+static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t color)
 {
     if (x1 < x0)
     {
@@ -328,12 +335,12 @@ static void draw_rect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, i
     if (!pixels)
         return;
 
-    for (int yi=y0; yi<=y1 && yi<h; yi++)
+    for (uint32_t yi=y0; yi<=y1 && yi<h; yi++)
     {
         pixels[yi*w + x0] = color;
         pixels[yi*w + x1] = color;
     }
-    for (int xi=x0; xi<=x1 && xi<w; xi++)
+    for (uint32_t xi=x0; xi<=x1 && xi<w; xi++)
     {
         pixels[y0*w + xi] = color;
         pixels[y1*w + xi] = color;
@@ -422,7 +429,7 @@ void graph_add_point (CinterGraph *graph, double x, double y)
     }
     else
     {
-        float xy[2] = {x,y};
+        float xy[2] = {(float) x, (float) y};
         stream_buffer_insert (sb, xy);
     }
 }
@@ -521,37 +528,40 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
 #ifndef randf
 #define randf() ((double) rand () / ((double) RAND_MAX+1))
 #endif
-static void plot_data (CinterState *cs, uint32_t *pixels, int w, int h)
+static void plot_data (CinterState *cs, uint32_t *pixels)
 {
-    int nCols = cs->nCols;
-    int nRows = cs->nRows;
-    int dy = h / nRows;
-    int dx = w / nCols;
+    uint32_t w     = cs->windowWidth;
+    uint32_t h     = cs->windowHeight;
+    uint32_t nCols = cs->nCols;
+    uint32_t nRows = cs->nRows;
 
-    int mouseCol = cs->mouseX / dx;
-    int mouseRow = cs->mouseY / dy;
+    uint32_t dy = h / nRows;
+    uint32_t dx = w / nCols;
+
+    int mouseCol = cs->mouseX / (int) dx;
+    int mouseRow = cs->mouseY / (int) dy;
     SubWindow *activeSw = NULL;
     if (mouseCol >= 0 && mouseCol < nCols && mouseRow >= 0 && mouseRow < nRows)
-        activeSw = & cs->subWindows[mouseRow * nCols + mouseCol];
+        activeSw = & cs->subWindows[(uint32_t) mouseRow * nCols + (uint32_t) mouseCol];
 
 
     uint32_t activeColor   = MAKE_COLOR (255,255,255);
     uint32_t inactiveColor = MAKE_COLOR (100,100,100);
 
-    for (int sy=0; sy < nRows; sy++)
+    for (uint32_t sy=0; sy < nRows; sy++)
     {
-        int yOffset = dy * sy;
-        for (int sx=0; sx < nCols; sx++)
+        uint32_t yOffset = dy * sy;
+        for (uint32_t sx=0; sx < nCols; sx++)
         {
-            int xOffset = dx * sx;
+            uint32_t xOffset = dx * sx;
             SubWindow *sw = & cs->subWindows[sy * nCols + sx];
 
             if (cs->bordered)
             {
-                int x0 = xOffset + cs->margin;
-                int y0 = yOffset + cs->margin;
-                int x1 = xOffset + dx - cs->margin;
-                int y1 = yOffset + dy - cs->margin;
+                uint32_t x0 = xOffset + cs->margin;
+                uint32_t y0 = yOffset + cs->margin;
+                uint32_t x1 = xOffset + dx - cs->margin;
+                uint32_t y1 = yOffset + dy - cs->margin;
                 draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == activeSw) ? activeColor : inactiveColor);
             }
 
@@ -562,7 +572,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels, int w, int h)
     }
 }
 
-int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int margin)
+int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin)
 {
     if (cs->subWindows || cs->nRows || cs->nCols)
     {
@@ -575,12 +585,12 @@ int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int m
     cs->bordered = bordered;
     cs->margin   = margin;
 
-    int subw = cs->windowWidth  / nCols - 2*cs->bordered - 2*cs->margin;
-    int subh = cs->windowHeight / nCols - 2*cs->bordered - 2*cs->margin;
+    uint32_t subw = cs->windowWidth  / nCols - 2*cs->bordered - 2*cs->margin;
+    uint32_t subh = cs->windowHeight / nCols - 2*cs->bordered - 2*cs->margin;
 
-    int n = nRows * nCols;
+    uint32_t n = nRows * nCols;
     cs->subWindows = safe_calloc (n, sizeof (cs->subWindows[0]));
-    for (int i=0; i<n; i++)
+    for (uint32_t i=0; i<n; i++)
     {
         SubWindow *sw = & cs->subWindows[i];
         sw->attachedGraphs = NULL;
@@ -615,10 +625,6 @@ static void *userMainCaller (void *_data)
 
 static void update_image (CinterState *cs, SDL_Texture *texture, int init)
 {
-    int w, h;
-    if (SDL_QueryTexture (texture, NULL, NULL, & w, & h))
-        exit_error ("failed to query texture");
-
     uint32_t* pixels;
     int wb;
     int status = SDL_LockTexture (texture, NULL, (void**) & pixels, & wb);
@@ -626,9 +632,9 @@ static void update_image (CinterState *cs, SDL_Texture *texture, int init)
         exit_error ("texture: %p, status: %d: %s\n", (void*) texture, status, SDL_GetError());
 
     if (init)
-        memset (pixels, 0x11, sizeof (uint32_t) * (uint32_t) w * (uint32_t) h);
+        memset (pixels, 0x11, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
     else
-        cs->plot_data (cs, pixels, w, h);
+        cs->plot_data (cs, pixels);
     SDL_UnlockTexture (texture);
 }
 
@@ -647,7 +653,7 @@ static void reinitialise_sdl_context (CinterState *cs)
         SDL_DestroyWindow (cs->window);
 
     cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                   cs->windowWidth, cs->windowHeight, SDL_WINDOW_SHOWN);
+                                   (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_SHOWN);
     if (!cs->window)
         exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
 
@@ -656,7 +662,7 @@ static void reinitialise_sdl_context (CinterState *cs)
         exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
 
     cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                     cs->windowWidth, cs->windowHeight);
+                                     (int) cs->windowWidth, (int) cs->windowHeight);
     if (!cs->texture)
         exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
@@ -756,8 +762,10 @@ static int cinterplot_run_until_quit (CinterState *cs)
             {
                 SDL_DisplayMode displayMode;
                 SDL_GetCurrentDisplayMode (0, & displayMode);
-                cs->windowWidth  = displayMode.w;
-                cs->windowHeight = displayMode.h;
+                assert (displayMode.w > 0);
+                assert (displayMode.h > 0);
+                cs->windowWidth  = (uint32_t) displayMode.w;
+                cs->windowHeight = (uint32_t) displayMode.h;
             }
             else
             {

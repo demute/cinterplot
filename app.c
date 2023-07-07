@@ -80,10 +80,10 @@ int user_main (int argc, char **argv, CinterState *cs)
     //twisterDev = midi_init ("Midi Fighter Twister");
     //midi_connect (twisterDev);
 
-    int nRows = 2;
-    int nCols = 2;
-    int bordered = 1;
-    int margin = 2;
+    uint32_t nRows = 2;
+    uint32_t nCols = 2;
+    uint32_t bordered = 1;
+    uint32_t margin = 2;
 
     if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;

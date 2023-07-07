@@ -19,7 +19,7 @@ extern "C" {
 
 typedef struct ColorScheme
 {
-    int nLevels;
+    uint32_t nLevels;
     uint32_t *colors;
 } ColorScheme;
 
@@ -34,8 +34,8 @@ typedef struct CinterGraph
 
 typedef struct Histogram
 {
-    int w;
-    int h;
+    uint32_t w;
+    uint32_t h;
     int *count;
 } Histogram;
 
@@ -50,16 +50,16 @@ typedef struct GraphAttacher
 typedef struct SubWindow
 {
     GraphAttacher **attachedGraphs;
-    int maxNumAttachedGraphs;
-    int numAttachedGraphs;
+    uint32_t maxNumAttachedGraphs;
+    uint32_t numAttachedGraphs;
 
     float xmin;
     float xmax;
     float ymin;
     float ymax;
 
-    int w;
-    int h;
+    uint32_t w;
+    uint32_t h;
 } SubWindow;
 
 #define KMOD_SHIFT 1
@@ -81,8 +81,8 @@ typedef struct CinterState
     uint32_t margin : 8;
 
     uint32_t bgColor;
-    uint32_t mouseX;
-    uint32_t mouseY;
+    int32_t mouseX;
+    int32_t mouseY;
 
     uint32_t nRows;
     uint32_t nCols;
@@ -103,7 +103,7 @@ typedef struct CinterState
     int  (*on_mouse_released) (struct CinterState *cs);
     int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
     int  (*on_keyboard)       (struct CinterState *cs, int key, int mod, int pressed, int repeat);
-    void (*plot_data)         (struct CinterState *cs, uint32_t *pixels, int w, int h);
+    void (*plot_data)         (struct CinterState *cs, uint32_t *pixels);
 
 } CinterState;
 
@@ -121,7 +121,7 @@ int expand_x (CinterState *cs);
 int compress_x (CinterState *cs);
 int expand_y (CinterState *cs);
 int compress_y (CinterState *cs);
-int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int margin);
+int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
 
 CinterGraph *graph_new (uint32_t len, int doublePrecision);
 void graph_add_point (CinterGraph *graph, double x, double y);

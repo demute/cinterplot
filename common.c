@@ -204,14 +204,14 @@ void print_remaining_time (double startTime, double tsp, double doneRatio, int c
     } \
 } while (0)
 
-void internal_quicksort  (void *buf, size_t itemSize, size_t offset, int first, int last, int ascending)
+void internal_quicksort (void *buf, size_t itemSize, size_t offset, uint32_t first, uint32_t last, int ascending)
 {
     if (first >= last)
         return;
 
-    int pivot = first;
-    int i = first;
-    int j = last;
+    uint32_t pivot = first;
+    uint32_t i = first;
+    uint32_t j = last;
 
     while (i < j)
     {

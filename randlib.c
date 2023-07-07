@@ -10,10 +10,10 @@
 
 gsl_rng* r_global = NULL;
 
-void randlib_init (int seed)
+void randlib_init (uint64_t seed)
 {
     if (!seed)
-        seed = (int) time (NULL);
+        seed = (uint64_t) time (NULL);
 
     const gsl_rng_type* rngType;
     gsl_rng_env_setup ();
@@ -61,10 +61,10 @@ static inline double cauchy ()
     return ctrans (drand48 () - 0.5);
 }
 
-double* heavy_tail_ncube (int dim)
+double* heavy_tail_ncube (uint32_t dim)
 {
     static double* coords = NULL;
-    static int maxDim = 0;
+    static uint32_t maxDim = 0;
 
     if (maxDim < dim)
     {
@@ -77,14 +77,14 @@ double* heavy_tail_ncube (int dim)
     double length = cauchy ();
 
     double sum = 0.0;
-    for (int i=0; i<dim; i++)
+    for (uint32_t i=0; i<dim; i++)
     {
         coords[i] = drand48 () - 0.5;
         sum += coords[i] * coords[i];
     }
     double radius = sqrt (sum);
 
-    for (int i=0; i<dim; i++)
+    for (uint32_t i=0; i<dim; i++)
         coords[i] = length * (coords[i] / radius);
 
     return coords;

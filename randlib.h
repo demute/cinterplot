@@ -16,7 +16,7 @@ extern "C" {
 
 extern gsl_rng* r_global;
 
-void randlib_init (int seed);
+void randlib_init (uint64_t seed);
 
 #define rnorm(sigma) gsl_ran_gaussian_ziggurat (r_global, sigma)
 #define runif(a,b) gsl_ran_flat (r_global, a, b)
@@ -36,7 +36,7 @@ double va_rdisc (va_list valist);
 #define hyper_lomax(dst,len,shape,scale) va_hyper_rand (dst, len, va_rlomax, 2, shape, scale)
 double va_rlomax (va_list valist);
 
-double* heavy_tail_ncube (int dim);
+double* heavy_tail_ncube (uint32_t dim);
 
 #ifdef __cplusplus
 } /* end extern C */
