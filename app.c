@@ -83,21 +83,21 @@ int user_main (int argc, char **argv, CinterState *cs)
     uint32_t nRows = 2;
     uint32_t nCols = 3;
     uint32_t bordered = 1;
-    uint32_t margin = 2;
+    uint32_t margin = 4;
 
     if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
     CinterGraph *sineGraph[6];
     for (int i=0; i<6; i++)
-       sineGraph[i] = graph_new (500000, 1);
+       sineGraph[i] = graph_new (1000000, 1);
 
-    graph_attach (cs, sineGraph[0], 0, 0, 'p', "red yellow green");
-    graph_attach (cs, sineGraph[1], 0, 1, 'p', "white black white");
-    graph_attach (cs, sineGraph[2], 0, 2, 'p', "black blue yellow");
-    graph_attach (cs, sineGraph[3], 1, 0, 'p', "magenta purple");
-    graph_attach (cs, sineGraph[4], 1, 1, 'p', "black red white");
-    graph_attach (cs, sineGraph[5], 1, 2, 'p', "chocolate brown red");
+    graph_attach (cs, sineGraph[0], 0, 0, 'p', "red orange white");
+    graph_attach (cs, sineGraph[1], 0, 1, 'p', "purple blue white");
+    graph_attach (cs, sineGraph[2], 0, 2, 'p', "blue yellow white");
+    graph_attach (cs, sineGraph[3], 1, 0, 'p', "brown turquoise white");
+    graph_attach (cs, sineGraph[4], 1, 1, 'p', "violet indigo white");
+    graph_attach (cs, sineGraph[5], 1, 2, 'p', "chocolate brown red yellow");
 
     double v = 0;
     uint64_t t = 0;
@@ -108,19 +108,22 @@ int user_main (int argc, char **argv, CinterState *cs)
         while (cs->paused && cs->running)
             usleep (10000);
 
-        for (int i=0; i<6; i++)
+        //if (t < 500000)
         {
-            v += (1.0 / 1024.0) * 1.3;
-            if (v > 1)
-                v -= 1;
+            for (int i=0; i<6; i++)
+            {
+                v += (1.0 / 1024.0) * 1.3;
+                if (v > 5)
+                    v -= 5;
 
-            double f = 0.99;
-            double *r = heavy_tail_ncube (6);
-            a[i] = f * a[i] + (1-f) * r[i] * 0.1;
-            double y = a[i] * sin (2 * M_PI * v);
-            //double x = cos (2 * M_PI * v);
-            double x = t;
-            graph_add_point (sineGraph[i], x, y);
+                double f = 0.99;
+                double *r = heavy_tail_ncube (6);
+                a[i] = f * a[i] + (1-f) * r[i] * 0.1;
+                double y = a[i] * sin (2 * M_PI * v * a[i] * (i+1));
+                double x = a[i] * cos (2 * M_PI * v * a[i] * (i+1));
+                //double x = t;
+                graph_add_point (sineGraph[i], x, y);
+            }
         }
         t++;
         cs->redraw = 1;
