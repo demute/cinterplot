@@ -88,22 +88,19 @@ int user_main (int argc, char **argv, CinterState *cs)
     if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
-    CinterGraph *sineGraph = graph_new (0, 0);
+    CinterGraph *sineGraph = graph_new (1024, 0);
+    graph_attach (cs, sineGraph, 0, 0, 'p', "red yellow");
+
     double v = 0;
-    for (int i=0; i<1024; i++)
+    while (cs->running)
     {
-        v += (1.0 / 1024.0) * 0.1;
+        usleep (1000);
+
+        v += (1.0 / 1024.0) * 1.3;
         double y = sin (2 * M_PI * v);
         double x = cos (2 * M_PI * v);
         graph_add_point (sineGraph, x, y);
-    }
-
-    graph_attach (cs, sineGraph, 0, 0, 'p', "red");
-
-    while (cs->running)
-    {
-        print_debug ("do things here");
-        sleep (1);
+        cs->redraw = 1;
     }
 
     return 0;

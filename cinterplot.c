@@ -98,7 +98,6 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
     return -1;
 }
 
-#define MAX_NUM_VERTICES 16u
 static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 {
     ColorScheme *scheme = safe_calloc (1, sizeof (*scheme));
@@ -199,12 +198,14 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
                 if (offset + i >= nLevels)
                     exit_error ("bug");
                 scheme->colors[offset + i] = rgb2color (& rgb);
+                print_debug ("scheme[%d]: %f %f %f", offset + i, rgb.r, rgb.g, rgb.b);
             }
             offset += len;
         }
         if (offset != nLevels)
             exit_error ("bug");
     }
+
     return scheme;
 }
 
@@ -213,6 +214,7 @@ int background (CinterState *cs, uint32_t bgColor)      { cs->bgColor = bgColor;
 int toggle_mouse (CinterState *cs)                      { cs->mouseEnabled ^= 1;                   return 1; }
 int toggle_fullscreen (CinterState *cs)                 { cs->toggleFullscreen = 1;                return 1; }
 int quit (CinterState *cs)                              { cs->running = 0;                         return 0; }
+int force_refresh (CinterState *cs)                     { cs->forceRefresh = 0;                    return 0; }
 int toggle_tracking (CinterState *cs)                   { cs->trackingEnabled ^= 1;                return 1; }
 
 int move_left (CinterState *cs)
@@ -384,8 +386,20 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t co
     GraphAttacher *attacher = safe_calloc (1, sizeof (*attacher));
     attacher->graph = graph;
     attacher->plotType = plotType;
-    attacher->hist = NULL;
-    attacher->colorScheme = make_color_scheme (colorSpec, 16);
+    attacher->hist.w = 0;
+    attacher->hist.h = 0;
+    attacher->hist.bins = NULL;
+    attacher->colorScheme = make_color_scheme (colorSpec, 3);
+    attacher->lastGraphCounter = 0;
+
+    SubWindow *sw = & cs->subWindows[row * cs->nCols + col];
+    if (sw->numAttachedGraphs >= sw->maxNumAttachedGraphs)
+    {
+        print_error ("maximum number of attached graphs reached");
+        return -1;
+    }
+
+    sw->attachedGraphs[sw->numAttachedGraphs++] = attacher;
     return 0;
 }
 
@@ -487,6 +501,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
              case 'f': toggle_fullscreen (cs); break;
              case 'm': toggle_mouse (cs); break;
              case 'q': quit (cs); break;
+             case 'r': force_refresh (cs); break;
              case 't': toggle_tracking (cs); break;
                        //case 'x': exit_zoom (cs); break;
 
@@ -529,18 +544,57 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     return 0;
 }
 
-#ifndef randf
-#define randf() ((double) rand () / ((double) RAND_MAX+1))
-#endif
+void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
+{
+    int *bins  = hist->bins;
+    uint32_t w = hist->w;
+    uint32_t h = hist->h;
+    float xmin = hist->xmin;
+    float xmax = hist->xmax;
+    float ymin = hist->ymin;
+    float ymax = hist->ymax;
+
+    pthread_mutex_lock (& graph->lock);
+
+    if (graph->doublePrecision)
+        exit_error ("double precision not supported yet");
+
+    float (*xys)[2];
+    uint32_t len;
+    stream_buffer_get (graph->sb, & xys, & len);
+
+    uint32_t nBins = w * h;
+    for (uint32_t i=0; i<nBins; i++)
+        bins[i] = 0;
+
+    for (uint32_t i=0; i<len; i++)
+    {
+        float x = xys[i][0];
+        float y = xys[i][1];
+
+        int xi = (int) (w * (x - xmin) / (xmax - xmin));
+        int yi = (int) (h * (y - ymin) / (ymax - ymin));
+        if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+            bins[(uint32_t) yi*w + (uint32_t) xi]++;
+    }
+
+    pthread_mutex_unlock (& graph->lock);
+}
+
 static void plot_data (CinterState *cs, uint32_t *pixels)
 {
     uint32_t w     = cs->windowWidth;
     uint32_t h     = cs->windowHeight;
     uint32_t nCols = cs->nCols;
     uint32_t nRows = cs->nRows;
+    uint32_t forceRefresh = cs->forceRefresh;
+    cs->forceRefresh = 0;
 
     uint32_t dy = h / nRows;
     uint32_t dx = w / nCols;
+
+    uint32_t subHeight = dy - 2*cs->bordered - 2*cs->margin;
+    uint32_t subWidth  = dx - 2*cs->bordered - 2*cs->margin;
 
     int mouseCol = cs->mouseX / (int) dx;
     int mouseRow = cs->mouseY / (int) dy;
@@ -564,14 +618,71 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             {
                 uint32_t x0 = xOffset + cs->margin;
                 uint32_t y0 = yOffset + cs->margin;
-                uint32_t x1 = xOffset + dx - cs->margin;
-                uint32_t y1 = yOffset + dy - cs->margin;
+                uint32_t x1 = xOffset + dx - 1 - cs->margin;
+                uint32_t y1 = yOffset + dy - 1 - cs->margin;
                 draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == activeSw) ? activeColor : inactiveColor);
             }
 
-            // Här vill vi ta alla histogram som finns och plotta dem en efter en. För alla subkoordinater tar vi
-            // ut histogramkoordinater och pixelkoordinater, sedan applicerar vi färgen colorScheme->colors[binCount]
-            // på denna pixel. Inte svårare än så!
+            for (int i=0; i<sw->numAttachedGraphs; i++)
+            {
+                GraphAttacher *attacher = sw->attachedGraphs[i];
+                Histogram *hist = & attacher->hist;
+
+                int updateHistogram =
+                    (forceRefresh) ||
+                    (attacher->lastGraphCounter != attacher->graph->sb->counter) ||
+                    (hist->xmin != sw->xmin) ||
+                    (hist->xmax != sw->xmax) ||
+                    (hist->ymin != sw->ymin) ||
+                    (hist->ymax != sw->ymax);
+
+                if (hist->bins == NULL)
+                {
+                    hist->w = subWidth;
+                    hist->h = subHeight;
+                    hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                    updateHistogram = 1;
+                }
+                else if (hist->w != subWidth || hist->h != subHeight)
+                {
+                    free (hist->bins);
+                    hist->w = subWidth;
+                    hist->h = subHeight;
+                    hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                    updateHistogram = 1;
+                }
+
+                if (updateHistogram)
+                {
+                    hist->xmin = sw->xmin;
+                    hist->xmax = sw->xmax;
+                    hist->ymin = sw->ymin;
+                    hist->ymax = sw->ymax;
+                    make_histogram (hist, attacher->graph, attacher->plotType);
+                }
+                else
+                {
+                    foobar;
+                }
+
+                int *bins = hist->bins;
+                uint32_t *colors = attacher->colorScheme->colors;
+                uint32_t nLevels = attacher->colorScheme->nLevels;
+                uint32_t x0 = xOffset + cs->margin + cs->bordered;
+                uint32_t y0 = yOffset + cs->margin + cs->bordered;
+                for (uint32_t y=0; y<subHeight; y++)
+                {
+                    for (uint32_t x=0; x<subWidth;  x++)
+                    {
+                        int cnt = bins[y * subWidth + x];
+                        if (cnt > 0)
+                        {
+                            uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
+                            pixels[(y0+y)*w + (x0+x)] = color;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -589,23 +700,18 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
     cs->bordered = bordered;
     cs->margin   = margin;
 
-    uint32_t subw = cs->windowWidth  / nCols - 2*cs->bordered - 2*cs->margin;
-    uint32_t subh = cs->windowHeight / nCols - 2*cs->bordered - 2*cs->margin;
-
     uint32_t n = nRows * nCols;
     cs->subWindows = safe_calloc (n, sizeof (cs->subWindows[0]));
     for (uint32_t i=0; i<n; i++)
     {
         SubWindow *sw = & cs->subWindows[i];
-        sw->attachedGraphs = NULL;
-        sw->maxNumAttachedGraphs = 0;
+        sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
+        sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
         sw->numAttachedGraphs = 0;
-        sw->xmin = 0;
-        sw->xmax = 0;
-        sw->ymin = 0;
-        sw->ymax = 0;
-        sw->w    = subw;
-        sw->h    = subh;
+        sw->xmin = -1;
+        sw->xmax =  1;
+        sw->ymin = -1;
+        sw->ymax =  1;
     }
 
     return 0;
@@ -791,6 +897,8 @@ static int cinterplot_run_until_quit (CinterState *cs)
             cs->redrawing = 0;
             cs->redraw = 0;
         }
+        else
+            usleep (100);
     }
 
     return 0;

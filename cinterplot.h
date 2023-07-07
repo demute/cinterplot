@@ -12,6 +12,8 @@ extern "C" {
 
 #define INITIAL_VARIABLE_LENGTH 16384
 #define MAX_VARIABLE_LENGTH     1048576
+#define MAX_NUM_ATTACHED_GRAPHS 32
+#define MAX_NUM_VERTICES        16
 #define CINTERPLOT_INIT_WIDTH   1080
 #define CINTERPLOT_INIT_HEIGHT  600
 #define CINTERPLOT_TITLE "Cinterplot"
@@ -34,16 +36,22 @@ typedef struct CinterGraph
 
 typedef struct Histogram
 {
+    float xmin;
+    float xmax;
+    float ymin;
+    float ymax;
+
     uint32_t w;
     uint32_t h;
-    int *count;
+    int *bins;
 } Histogram;
 
 typedef struct GraphAttacher
 {
     CinterGraph *graph;
     ColorScheme *colorScheme;
-    Histogram   *hist;
+    Histogram    hist;
+    uint64_t     lastGraphCounter;
     char         plotType;
 } GraphAttacher;
 
@@ -57,9 +65,6 @@ typedef struct SubWindow
     float xmax;
     float ymin;
     float ymax;
-
-    uint32_t w;
-    uint32_t h;
 } SubWindow;
 
 #define KMOD_SHIFT 1
@@ -78,6 +83,7 @@ typedef struct CinterState
     uint32_t redrawing : 1;
     uint32_t running : 1;
     uint32_t bordered : 1;
+    uint32_t forceRefresh : 1;
     uint32_t margin : 8;
 
     uint32_t bgColor;
