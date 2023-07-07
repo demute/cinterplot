@@ -2,6 +2,7 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#include <stdatomic.h>
 
 #include "cinterplot.h"
 #include "font.c"
@@ -9,6 +10,18 @@
 
 extern const unsigned int font[256][8];
 static int interrupted = 0;
+
+static inline void wait_for_access (atomic_flag* accessFlag)
+{
+    while (atomic_flag_test_and_set(accessFlag))
+        continue;
+}
+
+static inline void release_access (atomic_flag* accessFlag)
+{
+    atomic_flag_clear (accessFlag);
+}
+
 
 static uint32_t rgb2color (RGB *rgb)
 {
@@ -29,6 +42,12 @@ static uint32_t rgb2color (RGB *rgb)
     int bi = (int) (255 * b);
 
     return MAKE_COLOR (ri,gi,bi);
+}
+
+static uint32_t make_gray (float a)
+{
+    RGB rgb = {a,a,a};
+    return rgb2color (& rgb);
 }
 
 typedef struct RGBNames
@@ -198,7 +217,6 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
                 if (offset + i >= nLevels)
                     exit_error ("bug");
                 scheme->colors[offset + i] = rgb2color (& rgb);
-                print_debug ("scheme[%d]: %f %f %f", offset + i, rgb.r, rgb.g, rgb.b);
             }
             offset += len;
         }
@@ -209,13 +227,14 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
     return scheme;
 }
 
-int autoscale (CinterState *cs)                         { cs->autoscale = 1;                       return 1; }
-int background (CinterState *cs, uint32_t bgColor)      { cs->bgColor = bgColor;                   return 1; }
-int toggle_mouse (CinterState *cs)                      { cs->mouseEnabled ^= 1;                   return 1; }
-int toggle_fullscreen (CinterState *cs)                 { cs->toggleFullscreen = 1;                return 1; }
-int quit (CinterState *cs)                              { cs->running = 0;                         return 0; }
-int force_refresh (CinterState *cs)                     { cs->forceRefresh = 0;                    return 0; }
-int toggle_tracking (CinterState *cs)                   { cs->trackingEnabled ^= 1;                return 1; }
+int autoscale (CinterState *cs)                    { cs->autoscale = 1;        return 1; }
+int background (CinterState *cs, uint32_t bgColor) { cs->bgColor = bgColor;    return 1; }
+int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;    return 1; }
+int toggle_fullscreen (CinterState *cs)            { cs->toggleFullscreen = 1; return 1; }
+int quit (CinterState *cs)                         { cs->running = 0;          return 0; }
+int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;     return 0; }
+int toggle_tracking (CinterState *cs)              { cs->trackingEnabled ^= 1; return 1; }
+int toggle_paused (CinterState *cs)                { cs->paused ^= 1;          return 1; }
 
 int move_left (CinterState *cs)
 {
@@ -370,11 +389,6 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
     return 1;
 }
 
-#define COLOR_DARK_GRAY  MAKE_COLOR ( 73, 73, 73)
-#define COLOR_GRAY       MAKE_COLOR (111,111,111)
-#define COLOR_LIGHT_GRAY MAKE_COLOR (144,144,144)
-#define COLOR_WHITE_GRAY MAKE_COLOR (182,182,182)
-
 int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t col, char plotType, char *colorSpec)
 {
     if (row >= cs->nRows || col >= cs->nCols)
@@ -389,7 +403,7 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t co
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->colorScheme = make_color_scheme (colorSpec, 3);
+    attacher->colorScheme = make_color_scheme (colorSpec, 16);
     attacher->lastGraphCounter = 0;
 
     SubWindow *sw = & cs->subWindows[row * cs->nCols + col];
@@ -408,7 +422,8 @@ CinterGraph *graph_new (uint32_t len, int doublePrecision)
     CinterGraph *graph = safe_calloc (1, sizeof (*graph));
     graph->len = len;
     graph->doublePrecision = doublePrecision;
-    pthread_mutex_init (& graph->lock, NULL);
+    atomic_flag_clear (& graph->readAccess);
+    atomic_flag_clear (& graph->insertAccess);
 
     size_t itemSize = doublePrecision ? 2 * sizeof (double) : 2 * sizeof (float);
 
@@ -435,15 +450,18 @@ void graph_add_point (CinterGraph *graph, double x, double y)
         sb->counter == sb->len &&
         sb->len <= MAX_VARIABLE_LENGTH)
     {
-        pthread_mutex_lock (& graph->lock);
+
+        wait_for_access (& graph->readAccess);
         stream_buffer_resize (sb, sb->len << 1);
-        pthread_mutex_unlock (& graph->lock);
+        release_access (& graph->readAccess);
     }
 
     if (graph->doublePrecision)
     {
         double xy[2] = {x,y};
+        wait_for_access (& graph->insertAccess);
         stream_buffer_insert (sb, xy);
+        release_access (& graph->insertAccess);
     }
     else
     {
@@ -504,11 +522,26 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
              case 'r': force_refresh (cs); break;
              case 't': toggle_tracking (cs); break;
                        //case 'x': exit_zoom (cs); break;
+             case ' ': toggle_paused (cs); break;
 
-             case '7': background (cs, COLOR_DARK_GRAY); break;
-             case '8': background (cs, COLOR_GRAY); break;
-             case '9': background (cs, COLOR_LIGHT_GRAY); break;
-             case '0': background (cs, COLOR_WHITE_GRAY); break;
+             case '0':
+             case '1':
+             case '2':
+             case '3':
+             case '4':
+             case '5':
+             case '6':
+             case '7':
+             case '8':
+             case '9':
+                       {
+                           int index = key - '1';
+                           if (index < 0)
+                               index = 9;
+                           float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
+                           cs->bgColor = make_gray (shades[index]);
+                           break;
+                       }
              default: unhandled = 1;
             }
         }
@@ -549,36 +582,127 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
     int *bins  = hist->bins;
     uint32_t w = hist->w;
     uint32_t h = hist->h;
-    float xmin = hist->xmin;
-    float xmax = hist->xmax;
-    float ymin = hist->ymin;
-    float ymax = hist->ymax;
 
-    pthread_mutex_lock (& graph->lock);
+    wait_for_access (& graph->readAccess);
 
     if (graph->doublePrecision)
-        exit_error ("double precision not supported yet");
-
-    float (*xys)[2];
-    uint32_t len;
-    stream_buffer_get (graph->sb, & xys, & len);
-
-    uint32_t nBins = w * h;
-    for (uint32_t i=0; i<nBins; i++)
-        bins[i] = 0;
-
-    for (uint32_t i=0; i<len; i++)
     {
-        float x = xys[i][0];
-        float y = xys[i][1];
+        double xmin = hist->xmin;
+        double xmax = hist->xmax;
+        double ymin = hist->ymin;
+        double ymax = hist->ymax;
 
-        int xi = (int) (w * (x - xmin) / (xmax - xmin));
-        int yi = (int) (h * (y - ymin) / (ymax - ymin));
-        if (xi >= 0 && xi < w && yi >= 0 && yi < h)
-            bins[(uint32_t) yi*w + (uint32_t) xi]++;
+        double (*xys)[2];
+        uint32_t len;
+        wait_for_access (& graph->insertAccess);
+        stream_buffer_get (graph->sb, & xys, & len);
+        if (!len)
+        {
+            release_access (& graph->insertAccess);
+            release_access (& graph->readAccess);
+            return;
+        }
+        if (graph->len && graph->len < len)
+        {
+            xys += (len - graph->len);
+            len = graph->len;
+        }
+
+        if (xmin == xmax)
+        {
+                xmin = xys[0][0];
+                xmax = xys[len-1][0];
+        }
+        release_access (& graph->insertAccess);
+        //if (xmin == xmax)
+        //{
+        //    xmin = DBL_MAX;
+        //    xmax = -DBL_MAX;
+        //    for (uint32_t i=0; i<len; i++)
+        //    {
+        //        double x = xys[i][0];
+        //        if (xmin > x)
+        //            xmin = x;
+        //        if (xmax < x)
+        //            xmax = x;
+        //    }
+        //}
+
+        uint32_t nBins = w * h;
+        for (uint32_t i=0; i<nBins; i++)
+            bins[i] = 0;
+
+        for (uint32_t i=0; i<len; i++)
+        {
+            double x = xys[i][0];
+            double y = xys[i][1];
+
+            int xi = (int) (w * (x - xmin) / (xmax - xmin));
+            int yi = (int) (h * (y - ymin) / (ymax - ymin));
+            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+                bins[(uint32_t) yi*w + (uint32_t) xi]++;
+        }
+    }
+    else
+    {
+        float xmin = (float) hist->xmin;
+        float xmax = (float) hist->xmax;
+        float ymin = (float) hist->ymin;
+        float ymax = (float) hist->ymax;
+
+        float (*xys)[2];
+        uint32_t len;
+        wait_for_access (& graph->insertAccess);
+        stream_buffer_get (graph->sb, & xys, & len);
+        if (!len)
+        {
+            release_access (& graph->insertAccess);
+            release_access (& graph->readAccess);
+            return;
+        }
+        if (graph->len && graph->len < len)
+        {
+            xys += (len - graph->len);
+            len = graph->len;
+        }
+
+        if (xmin == xmax)
+        {
+                xmin = xys[0][0];
+                xmax = xys[len-1][0];
+        }
+        release_access (& graph->insertAccess);
+        //if (xmin == xmax)
+        //{
+        //    xmin = DBL_MAX;
+        //    xmax = -DBL_MAX;
+        //    for (uint32_t i=0; i<len; i++)
+        //    {
+        //        float x = xys[i][0];
+        //        if (xmin > x)
+        //            xmin = x;
+        //        if (xmax < x)
+        //            xmax = x;
+        //    }
+        //}
+
+        uint32_t nBins = w * h;
+        for (uint32_t i=0; i<nBins; i++)
+            bins[i] = 0;
+
+        for (uint32_t i=0; i<len; i++)
+        {
+            float x = xys[i][0];
+            float y = xys[i][1];
+
+            int xi = (int) (w * (x - xmin) / (xmax - xmin));
+            int yi = (int) (h * (y - ymin) / (ymax - ymin));
+            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+                bins[(uint32_t) yi*w + (uint32_t) xi]++;
+        }
     }
 
-    pthread_mutex_unlock (& graph->lock);
+    release_access (& graph->readAccess);
 }
 
 static void plot_data (CinterState *cs, uint32_t *pixels)
@@ -623,6 +747,14 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == activeSw) ? activeColor : inactiveColor);
             }
 
+            uint32_t x0 = xOffset + cs->margin + cs->bordered;
+            uint32_t y0 = yOffset + cs->margin + cs->bordered;
+            uint32_t bgColor = cs->bgColor;
+
+            for (uint32_t y=0; y<subHeight; y++)
+                for (uint32_t x=0; x<subWidth;  x++)
+                    pixels[(y0+y)*w + (x0+x)] = bgColor;
+
             for (int i=0; i<sw->numAttachedGraphs; i++)
             {
                 GraphAttacher *attacher = sw->attachedGraphs[i];
@@ -662,14 +794,12 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 }
                 else
                 {
-                    foobar;
+                    //foobar;
                 }
 
                 int *bins = hist->bins;
                 uint32_t *colors = attacher->colorScheme->colors;
                 uint32_t nLevels = attacher->colorScheme->nLevels;
-                uint32_t x0 = xOffset + cs->margin + cs->bordered;
-                uint32_t y0 = yOffset + cs->margin + cs->bordered;
                 for (uint32_t y=0; y<subHeight; y++)
                 {
                     for (uint32_t x=0; x<subWidth;  x++)
@@ -708,8 +838,8 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
         sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
         sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
         sw->numAttachedGraphs = 0;
-        sw->xmin = -1;
-        sw->xmax =  1;
+        sw->xmin = 0;
+        sw->xmax = 0;
         sw->ymin = -1;
         sw->ymax =  1;
     }
@@ -796,10 +926,11 @@ static CinterState *cinterplot_init (void)
     cs->redraw           = 0;
     cs->redrawing        = 0;
     cs->running          = 1;
-    cs->bgColor          = COLOR_DARK_GRAY;
+    cs->bgColor          = make_gray (0.04f);
     cs->nRows            = 0;
     cs->nCols            = 0;
     cs->bordered         = 0;
+    cs->paused           = 0;
     cs->margin           = 10;
     cs->frameCounter     = 0;
     cs->pressedModifiers = 0;
@@ -940,4 +1071,3 @@ int main (int argc, char **argv)
 
     return userMainRetVal ? userMainRetVal : ret;
 }
-

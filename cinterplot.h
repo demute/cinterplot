@@ -8,6 +8,7 @@ extern "C" {
 #include "common.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#include <stdatomic.h>
 #include "stream_buffer.h"
 
 #define INITIAL_VARIABLE_LENGTH 16384
@@ -30,16 +31,17 @@ typedef struct CinterGraph
     int doublePrecision : 1;
     StreamBuffer *sb;
     uint32_t len;
-    pthread_mutex_t lock;
+    atomic_flag readAccess;
+    atomic_flag insertAccess;
 
 } CinterGraph;
 
 typedef struct Histogram
 {
-    float xmin;
-    float xmax;
-    float ymin;
-    float ymax;
+    double xmin;
+    double xmax;
+    double ymin;
+    double ymax;
 
     uint32_t w;
     uint32_t h;
@@ -61,10 +63,10 @@ typedef struct SubWindow
     uint32_t maxNumAttachedGraphs;
     uint32_t numAttachedGraphs;
 
-    float xmin;
-    float xmax;
-    float ymin;
-    float ymax;
+    double xmin;
+    double xmax;
+    double ymin;
+    double ymax;
 } SubWindow;
 
 #define KMOD_SHIFT 1
@@ -83,6 +85,7 @@ typedef struct CinterState
     uint32_t redrawing : 1;
     uint32_t running : 1;
     uint32_t bordered : 1;
+    uint32_t paused : 1;
     uint32_t forceRefresh : 1;
     uint32_t margin : 8;
 
