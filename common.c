@@ -64,36 +64,38 @@ char *parse_csv (char *str, int *argc, char ***argv, char sep, int inplace)
     if (!str)
         return NULL;
 
-    char *copy = inplace ? str : strdup (str);
-    assert (copy);
+    char *modStr = inplace ? str : strdup (str);
+    assert (modStr);
 
     int cnt = 1;
-    int len = (int) strlen (copy);
+    int len = (int) strlen (modStr);
     for (int i=0; i<len; i++)
-        if (copy[i] == sep)
+        if (modStr[i] == sep)
             cnt++;
 
     char **strings = (char**) malloc ((uint32_t) cnt * sizeof (char*));
     assert (strings);
 
 
-    int i = 0;
-    strings[i++] = copy;
-    while (*copy)
+    int argi=0, i=0;
+    strings[argi++] = modStr;
+    while (modStr[i])
     {
-        if (*copy == sep)
+        if (modStr[i] == sep)
         {
-            *copy++ = '\0';
-            strings[i++] = copy;
+            modStr[i++] = '\0';
+            strings[argi++] = & modStr[i];
         }
         else
-            copy++;
+        {
+            i++;
+        }
     }
 
     *argc = cnt;
     *argv = strings;
 
-    return copy;
+    return modStr;
 }
 
 void copy_file (char* from, char* to)
