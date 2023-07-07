@@ -81,11 +81,11 @@ typedef struct CinterState
     uint32_t margin : 8;
 
     uint32_t bgColor;
-    int mouseX;
-    int mouseY;
+    uint32_t mouseX;
+    uint32_t mouseY;
 
-    int nRows;
-    int nCols;
+    uint32_t nRows;
+    uint32_t nCols;
 
     SubWindow *subWindows;
 
@@ -93,8 +93,8 @@ typedef struct CinterState
     SDL_Renderer *renderer;
     SDL_Texture  *texture;
 
-    int windowWidth;
-    int windowHeight;
+    uint32_t windowWidth;
+    uint32_t windowHeight;
 
     int frameCounter;
     int pressedModifiers;
@@ -125,6 +125,7 @@ int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int m
 
 CinterGraph *graph_new (uint32_t len, int doublePrecision);
 void graph_add_point (CinterGraph *graph, double x, double y);
+int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t col, char plotType, char *colorSpec);
 
 #ifdef __cplusplus
 } /* end extern C */

@@ -99,7 +99,7 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
 }
 
 #define MAX_NUM_VERTICES 16
-static void compute_color_scheme (char *spec, ColorScheme *scheme)
+static void make_color_scheme (char *spec, ColorScheme *scheme)
 {
     int argc;
     char **argv;
@@ -361,6 +361,22 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 #define COLOR_GRAY       MAKE_COLOR (111,111,111)
 #define COLOR_LIGHT_GRAY MAKE_COLOR (144,144,144)
 #define COLOR_WHITE_GRAY MAKE_COLOR (182,182,182)
+
+int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t col, char plotType, char *colorSpec)
+{
+    if (row >= cs->nRows || col >= cs->nCols)
+    {
+        print_error ("row/col %d/%d out of range", row, col);
+        return -1;
+    }
+
+    GraphAttacher *attacher = safe_calloc (1, sizeof (*attacher));
+    attacher->graph = graph;
+    attacher->plotType = plotType;
+    attacher->hist = NULL;
+    make_color_scheme (colorSpec, & attacher->colorScheme);
+    return 0;
+}
 
 CinterGraph *graph_new (uint32_t len, int doublePrecision)
 {

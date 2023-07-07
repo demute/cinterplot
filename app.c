@@ -98,6 +98,8 @@ int user_main (int argc, char **argv, CinterState *cs)
         graph_add_point (sineGraph, x, y);
     }
 
+    graph_attach (cs, sineGraph, 0, 0, 'p', "red");
+
     while (cs->running)
     {
         print_debug ("do things here");
