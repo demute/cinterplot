@@ -81,6 +81,7 @@ int stream_buffer_resize (StreamBuffer *sb, uint32_t newLen)
     sb->len     = newLen;
     sb->index   = copyLen;
     sb->counter = copyLen;
+    return 0;
 }
 
 int stream_buffer_destroy (StreamBuffer* sb)
