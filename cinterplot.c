@@ -340,9 +340,6 @@ static void draw_rect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, i
     }
 }
 
-
-#define SDLK_APPLE_KEY 1073742051
-
 static int on_mouse_pressed (CinterState *cs, int button)
 {
     return 0;
@@ -365,25 +362,72 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 #define COLOR_LIGHT_GRAY MAKE_COLOR (144,144,144)
 #define COLOR_WHITE_GRAY MAKE_COLOR (182,182,182)
 
-static int on_keyboard (CinterState *cs, int key, int pressed, int repeat)
+static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
 {
+    // FIXME: If both the left and right key of the same modifier gets pressed at
+    // the same time and then one gets released, the state of pressedModifiers
+    // gets zeroed out
+    if (key == SDLK_LSHIFT || key == SDLK_RSHIFT)
+    {
+        if (pressed)
+            cs->pressedModifiers &= ~KMOD_SHIFT;
+        else
+            cs->pressedModifiers |= KMOD_SHIFT;
+        return 0;
+    }
+    else if (key == SDLK_LGUI || key == SDLK_RGUI)
+    {
+        if (pressed)
+            cs->pressedModifiers &= ~KMOD_GUI;
+        else
+            cs->pressedModifiers |= KMOD_GUI;
+        return 0;
+    }
+    else if (key == SDLK_LALT || key == SDLK_RALT)
+    {
+        if (pressed)
+            cs->pressedModifiers &= ~KMOD_ALT;
+        else
+            cs->pressedModifiers |= KMOD_ALT;
+        return 0;
+    }
+    else if (key == SDLK_LCTRL || key == SDLK_RCTRL)
+    {
+        if (pressed)
+            cs->pressedModifiers &= ~KMOD_CTRL;
+        else
+            cs->pressedModifiers |= KMOD_CTRL;
+        return 0;
+    }
+
     int unhandled = 0;
     if (pressed && !repeat)
     {
-        switch (key)
+        if (mod == 0)
         {
-         case 'a': autoscale (cs); break;
-         case 'f': toggle_fullscreen (cs); break;
-         case 'm': toggle_mouse (cs); break;
-         case 'q': quit (cs); break;
-         case 't': toggle_tracking (cs); break;
-         //case 'x': exit_zoom (cs); break;
+            switch (key)
+            {
+             case 'a': autoscale (cs); break;
+             case 'f': toggle_fullscreen (cs); break;
+             case 'm': toggle_mouse (cs); break;
+             case 'q': quit (cs); break;
+             case 't': toggle_tracking (cs); break;
+                       //case 'x': exit_zoom (cs); break;
 
-         case '7': background (cs, COLOR_DARK_GRAY); break;
-         case '8': background (cs, COLOR_GRAY); break;
-         case '9': background (cs, COLOR_LIGHT_GRAY); break;
-         case '0': background (cs, COLOR_WHITE_GRAY); break;
-         default: unhandled = 1;
+             case '7': background (cs, COLOR_DARK_GRAY); break;
+             case '8': background (cs, COLOR_GRAY); break;
+             case '9': background (cs, COLOR_LIGHT_GRAY); break;
+             case '0': background (cs, COLOR_WHITE_GRAY); break;
+             default: unhandled = 1;
+            }
+        }
+        else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
+        {
+            unhandled = 1;
+        }
+        else
+        {
+            unhandled = 1;
         }
     }
 
@@ -395,16 +439,16 @@ static int on_keyboard (CinterState *cs, int key, int pressed, int repeat)
          case SDLK_RIGHT: move_right (cs); break;
          case SDLK_UP: move_up (cs); break;
          case SDLK_DOWN: move_down (cs); break;
-         case 'e': expand_x (cs); break;
-         case 'c': compress_x (cs); break;
-         case '+': expand_y (cs); break;
-         case '-': compress_y (cs); break;
+         case '+': expand_x (cs); break;
+         case '-': compress_x (cs); break;
+         case '.': expand_y (cs); break;
+         case ',': compress_y (cs); break;
          default: unhandled = 1;
         }
     }
 
     if (unhandled)
-        print_debug ("key: %c, pressed: %d, repeat: %d", key, pressed, repeat);
+        print_debug ("key: %c (%d), pressed: %d, repeat: %d", key, key, pressed, repeat);
 
     return 0;
 }
@@ -577,6 +621,7 @@ static CinterState *cinterplot_init (void)
     cs->bordered         = 0;
     cs->margin           = 10;
     cs->frameCounter     = 0;
+    cs->pressedModifiers = 0;
     cs->subWindows       = NULL;
     cs->windowWidth      = CINTERPLOT_INIT_WIDTH;
     cs->windowHeight     = CINTERPLOT_INIT_HEIGHT;
@@ -629,13 +674,8 @@ static int cinterplot_run_until_quit (CinterState *cs)
                      int pressed = sdlEvent.key.state == SDL_PRESSED;
                      int key = sdlEvent.key.keysym.sym;
                      int mod = sdlEvent.key.keysym.mod;
-                     if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
-                     {
-                         if ('a' <= key && key <= 'z')
-                             key &= ~0x20;
-                     }
 
-                     cs->redraw |= cs->on_keyboard (cs, key, pressed, repeat);
+                     cs->redraw |= cs->on_keyboard (cs, key, mod, pressed, repeat);
                      break;
                  }
              default:

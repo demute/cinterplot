@@ -55,6 +55,11 @@ typedef struct SubWindow
     int h;
 } SubWindow;
 
+#define KMOD_SHIFT 1
+#define KMOD_GUI   2
+#define KMOD_ALT   4
+#define KMOD_CTRL  8
+
 typedef struct CinterState
 {
     uint32_t autoscale : 1;
@@ -85,11 +90,12 @@ typedef struct CinterState
     int windowHeight;
 
     int frameCounter;
+    int pressedModifiers;
 
     int  (*on_mouse_pressed)  (struct CinterState *cs, int button);
     int  (*on_mouse_released) (struct CinterState *cs);
     int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
-    int  (*on_keyboard)       (struct CinterState *cs, int c, int pressed, int repeat);
+    int  (*on_keyboard)       (struct CinterState *cs, int key, int mod, int pressed, int repeat);
     void (*plot_data)         (struct CinterState *cs, uint32_t *pixels, int w, int h);
 
 } CinterState;
