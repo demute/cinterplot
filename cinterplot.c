@@ -10,12 +10,6 @@
 extern const unsigned int font[256][8];
 static int interrupted = 0;
 
-typedef struct ColorScheme
-{
-    int nLevels;
-    uint32_t *colors;
-} ColorScheme;
-
 static uint32_t rgb2color (RGB *rgb)
 {
     float r = rgb->r;
@@ -216,7 +210,6 @@ int toggle_mouse (CinterState *cs)                      { cs->mouseEnabled ^= 1;
 int toggle_fullscreen (CinterState *cs)                 { cs->toggleFullscreen = 1;                return 1; }
 int quit (CinterState *cs)                              { cs->running = 0;                         return 0; }
 int toggle_tracking (CinterState *cs)                   { cs->trackingEnabled ^= 1;                return 1; }
-int colorscheme (CinterState *cs, int colorSchemeIndex) { cs->colorSchemeIndex = colorSchemeIndex; return 1; }
 
 int move_left (CinterState *cs)
 {
@@ -318,7 +311,7 @@ static void lineRGBA (uint32_t *pixels, int w, int h, int x0, int y0, int x1, in
     }
 }
 
-static void printRect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
+static void draw_rect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, int y1, uint32_t color)
 {
     if (x1 < x0)
     {
@@ -334,9 +327,17 @@ static void printRect (uint32_t* pixels, int w, int h, int x0, int y0, int x1, i
     }
     if (!pixels)
         return;
+
     for (int yi=y0; yi<=y1 && yi<h; yi++)
-        for (int xi=x0; xi<=x1 && xi<w; xi++)
-            pixels[yi*w + xi]=color;
+    {
+        pixels[yi*w + x0] = color;
+        pixels[yi*w + x1] = color;
+    }
+    for (int xi=x0; xi<=x1 && xi<w; xi++)
+    {
+        pixels[y0*w + xi] = color;
+        pixels[y1*w + xi] = color;
+    }
 }
 
 
@@ -354,6 +355,8 @@ static int on_mouse_released (CinterState *cs)
 
 static int on_mouse_motion (CinterState *cs, int xi, int yi)
 {
+    cs->mouseX = xi;
+    cs->mouseY = yi;
     return 1;
 }
 
@@ -375,13 +378,6 @@ static int on_keyboard (CinterState *cs, int key, int pressed, int repeat)
          case 'q': quit (cs); break;
          case 't': toggle_tracking (cs); break;
          //case 'x': exit_zoom (cs); break;
-
-         case '1': // fall through
-         case '2': // fall through
-         case '3': // fall through
-         case '4': // fall through
-         case '5': // fall through
-         case '6': colorscheme (cs, key - '1'); break;
 
          case '7': background (cs, COLOR_DARK_GRAY); break;
          case '8': background (cs, COLOR_GRAY); break;
@@ -413,14 +409,49 @@ static int on_keyboard (CinterState *cs, int key, int pressed, int repeat)
     return 0;
 }
 
+#ifndef randf
+#define randf() ((double) rand () / ((double) RAND_MAX+1))
+#endif
 static void plot_data (CinterState *cs, uint32_t *pixels, int w, int h)
 {
-    foobar;
-    static uint8_t cnt = 0;
-    cnt++;
-    memset (pixels, cnt, sizeof (uint32_t) * (uint32_t) w * (uint32_t) h);
-}
+    int nCols = cs->nCols;
+    int nRows = cs->nRows;
+    int dy = h / nRows;
+    int dx = w / nCols;
 
+    int mouseCol = cs->mouseX / dx;
+    int mouseRow = cs->mouseY / dy;
+    SubWindow *activeSw = NULL;
+    if (mouseCol >= 0 && mouseCol < nCols && mouseRow >= 0 && mouseRow < nRows)
+        activeSw = & cs->subWindows[mouseRow * nCols + mouseCol];
+
+
+    uint32_t activeColor   = MAKE_COLOR (255,255,255);
+    uint32_t inactiveColor = MAKE_COLOR (100,100,100);
+
+    for (int sy=0; sy < nRows; sy++)
+    {
+        int yOffset = dy * sy;
+        for (int sx=0; sx < nCols; sx++)
+        {
+            int xOffset = dx * sx;
+            SubWindow *sw = & cs->subWindows[sy * nCols + sx];
+
+            if (cs->bordered)
+            {
+                int x0 = xOffset + cs->margin;
+                int y0 = yOffset + cs->margin;
+                int x1 = xOffset + dx - cs->margin;
+                int y1 = yOffset + dy - cs->margin;
+                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == activeSw) ? activeColor : inactiveColor);
+            }
+
+            // Här vill vi ta alla histogram som finns och plotta dem en efter en. För alla subkoordinater tar vi
+            // ut histogramkoordinater och pixelkoordinater, sedan applicerar vi färgen colorScheme->colors[binCount]
+            // på denna pixel. Inte svårare än så!
+        }
+    }
+}
 
 typedef struct
 {
@@ -428,6 +459,46 @@ typedef struct
     char **argv;
     CinterState *cs;
 } UserData;
+
+int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int margin)
+{
+    if (cs->subWindows || cs->nRows || cs->nCols)
+    {
+        print_error ("cs->subWindows must not have been set previously");
+        return -1;
+    }
+
+    int w, h;
+    if (SDL_QueryTexture (cs->texture, NULL, NULL, & w, & h))
+        exit_error ("failed to query texture");
+
+    cs->bordered = bordered;
+    cs->margin   = margin;
+
+    int subw = w / nCols - 2*cs->bordered - 2*cs->margin;
+    int subh = h / nCols - 2*cs->bordered - 2*cs->margin;
+
+    int n = nRows * nCols;
+    cs->subWindows = safe_calloc (n, sizeof (cs->subWindows[0]));
+    for (int i=0; i<n; i++)
+    {
+        SubWindow *sw = & cs->subWindows[i];
+        sw->attachedGraphs = NULL;
+        sw->maxNumAttachedGraphs = 0;
+        sw->numAttachedGraphs = 0;
+        sw->xmin = 0;
+        sw->xmax = 0;
+        sw->ymin = 0;
+        sw->ymax = 0;
+        sw->w    = subw;
+        sw->h    = subh;
+    }
+
+    cs->nRows = nRows;
+    cs->nCols = nCols;
+
+    return 0;
+}
 
 int user_main (int argc, char **argv, CinterState *cs);
 static int userMainRetVal = 1;
@@ -470,7 +541,7 @@ static CinterState *cinterplot_init (void)
     cs->on_mouse_motion   = on_mouse_motion;
     cs->on_keyboard       = on_keyboard;
     cs->plot_data         = plot_data;
-    
+
     cs->autoscale        = 0;
     cs->mouseEnabled     = 1;
     cs->trackingEnabled  = 0;
@@ -480,12 +551,12 @@ static CinterState *cinterplot_init (void)
     cs->redrawing        = 0;
     cs->running          = 1;
     cs->bgColor          = COLOR_DARK_GRAY;
-    cs->colorSchemeIndex = 0;
     cs->nRows            = 0;
     cs->nCols            = 0;
-    cs->activeGraphIndex = 0;
-    cs->graphs           = NULL;
+    cs->bordered         = 0;
+    cs->margin           = 10;
     cs->frameCounter     = 0;
+    cs->subWindows       = NULL;
 
     signal (SIGINT, signal_handler);
 
@@ -623,6 +694,7 @@ int main (int argc, char **argv)
 {
     // SDL, at least on my version of macOS, prevents SDL from running on any other thread
     // than the main thread
+    sranddev ();
 
     CinterState *cs = cinterplot_init ();
     if (!cs)

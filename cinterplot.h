@@ -14,10 +14,46 @@ extern "C" {
 #define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
 
+typedef struct ColorScheme
+{
+    int nLevels;
+    uint32_t *colors;
+} ColorScheme;
+
 typedef struct CinterGraph
 {
 
 } CinterGraph;
+
+typedef struct Histogram
+{
+    int w;
+    int h;
+    int *count;
+} Histogram;
+
+typedef struct GraphAttacher
+{
+    CinterGraph *graph;
+    ColorScheme  colorScheme;
+    Histogram   *hist;
+    char         plotType;
+} GraphAttacher;
+
+typedef struct SubWindow
+{
+    GraphAttacher **attachedGraphs;
+    int maxNumAttachedGraphs;
+    int numAttachedGraphs;
+
+    float xmin;
+    float xmax;
+    float ymin;
+    float ymax;
+
+    int w;
+    int h;
+} SubWindow;
 
 typedef struct CinterState
 {
@@ -29,15 +65,17 @@ typedef struct CinterState
     uint32_t redraw : 1;
     uint32_t redrawing : 1;
     uint32_t running : 1;
+    uint32_t bordered : 1;
+    uint32_t margin : 8;
 
     uint32_t bgColor;
+    int mouseX;
+    int mouseY;
 
-    int colorSchemeIndex;
     int nRows;
     int nCols;
 
-    int activeGraphIndex;
-    CinterGraph **graphs;
+    SubWindow *subWindows;
 
     SDL_Window   *window;
     SDL_Renderer *renderer;
@@ -59,7 +97,6 @@ int toggle_mouse (CinterState *cs);
 int toggle_fullscreen (CinterState *cs);
 int quit (CinterState *cs);
 int toggle_tracking (CinterState *cs);
-int colorscheme (CinterState *cs, int colorSchemeIndex);
 int move_left (CinterState *cs);
 int move_right (CinterState *cs);
 int move_up (CinterState *cs);
@@ -68,6 +105,7 @@ int expand_x (CinterState *cs);
 int compress_x (CinterState *cs);
 int expand_y (CinterState *cs);
 int compress_y (CinterState *cs);
+int make_sub_windows (CinterState *cs, int nRows, int nCols, int bordered, int margin);
 
 #ifdef __cplusplus
 } /* end extern C */
