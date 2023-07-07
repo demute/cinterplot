@@ -99,12 +99,16 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
 }
 
 #define MAX_NUM_VERTICES 16u
-static void make_color_scheme (char *spec, ColorScheme *scheme)
+static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 {
+    ColorScheme *scheme = safe_calloc (1, sizeof (*scheme));
+    scheme->colors      = safe_calloc (nLevels, sizeof (scheme->colors[0]));
+    scheme->nLevels     = nLevels;
+
     int argc;
     char **argv;
-    char *copy = parse_csv (spec, & argc, & argv, ' ', 0);
-    if (!copy)
+    char *modStr = parse_csv (spec, & argc, & argv, ' ', 0);
+    if (!modStr)
         exit_error ("bug");
 
     uint32_t nVertices = (uint32_t) argc;
@@ -151,14 +155,13 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
             vertices[i].b = b * s;
         }
     }
-    free (copy);
+    free (modStr);
     free (argv);
 
     if (nVertices == 1)
     {
         uint32_t color = rgb2color (& vertices[0]);
-        uint32_t n = scheme->nLevels;
-        for (uint32_t i=0; i<n; i++)
+        for (uint32_t i=0; i<nLevels; i++)
             scheme->colors[i] = color;
     }
     else
@@ -170,10 +173,10 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
             srgb_to_oklab (& vertices[v],   & c0);
             srgb_to_oklab (& vertices[v+1], & c1);
 
-            uint32_t len = scheme->nLevels / (nVertices - 1);
+            uint32_t len = nLevels / (nVertices - 1);
             if (v == 0)
             {
-                uint32_t rest = scheme->nLevels - len * (nVertices - 1);
+                uint32_t rest = nLevels - len * (nVertices - 1);
                 len += rest;
             }
 
@@ -193,15 +196,16 @@ static void make_color_scheme (char *spec, ColorScheme *scheme)
                 };
                 RGB rgb;
                 oklab_to_srgb (& c, & rgb);
-                if (offset + i >= scheme->nLevels)
+                if (offset + i >= nLevels)
                     exit_error ("bug");
                 scheme->colors[offset + i] = rgb2color (& rgb);
             }
             offset += len;
         }
-        if (offset != scheme->nLevels)
+        if (offset != nLevels)
             exit_error ("bug");
     }
+    return scheme;
 }
 
 int autoscale (CinterState *cs)                         { cs->autoscale = 1;                       return 1; }
@@ -381,7 +385,7 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t co
     attacher->graph = graph;
     attacher->plotType = plotType;
     attacher->hist = NULL;
-    make_color_scheme (colorSpec, & attacher->colorScheme);
+    attacher->colorScheme = make_color_scheme (colorSpec, 16);
     return 0;
 }
 

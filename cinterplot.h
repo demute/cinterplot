@@ -42,7 +42,7 @@ typedef struct Histogram
 typedef struct GraphAttacher
 {
     CinterGraph *graph;
-    ColorScheme  colorScheme;
+    ColorScheme *colorScheme;
     Histogram   *hist;
     char         plotType;
 } GraphAttacher;
