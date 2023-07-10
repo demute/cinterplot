@@ -100,10 +100,11 @@ int user_main (int argc, char **argv, CinterState *cs)
         return 1;
 
     CinterGraph *sineGraph[n];
+    char plotType[6] = {'p','l','s','p','l','s'};
     for (int i=0; i<n; i++)
     {
         sineGraph[i] = graph_new (1000000, 1);
-        graph_attach (cs, sineGraph[i], (uint32_t) i, 'p', colorSchemes[i % 6]);
+        graph_attach (cs, sineGraph[i], (uint32_t) i, plotType[i], colorSchemes[i % 6]);
     }
 
     double v = 0;

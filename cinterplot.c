@@ -313,9 +313,9 @@ int autoscale (SubWindow *sw)
         return 0;
 
     sw->dataRange.x0 = xmin;
-    sw->dataRange.y0 = ymin;
+    sw->dataRange.y0 = ymax;
     sw->dataRange.x1 = xmax;
-    sw->dataRange.y1 = ymax;
+    sw->dataRange.y1 = ymin;
 
     return 1;
 }
@@ -501,6 +501,59 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
         int y = y0;
         if (x>=0 && y>=0 && x<w && y<h)
             pixels[y*w+x] = color;
+    }
+}
+
+static void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1)
+{
+    int *bins = hist->bins;
+
+    int w = (int) hist->w;
+    int h = (int) hist->h;
+
+    int xabs = (x1 > x0) ? x1 - x0 : x0 - x1;
+    int yabs = (y1 > y0) ? y1 - y0 : y0 - y1;
+
+    if (xabs > yabs)
+    {
+        int xstart = ((x0 < x1) ? x0 : x1);
+        int xstop  = xstart + xabs;
+
+        if (xstart <   0) xstart = 0;
+        if (xstart > w-1) xstart = w-1;
+        if (xstop <    0) xstop  = 0;
+        if (xstop >  w-1) xstop  = w-1;
+
+        for (int x=xstart; x<=xstop; x++)
+        {
+            int y = (int) (y0 + ((double) (x - x0) / (x1 - x0) * (y1 - y0) + 0.5));
+            if (x>=0 && y>=0 && x<w && y<h)
+                bins[y*w+x]++;
+        }
+    }
+    else if (yabs >= xabs && y0 != y1)
+    {
+        int ystart = ((y0 < y1) ? y0 : y1);
+        int ystop  = ystart + yabs;
+
+        if (ystart <   0) ystart = 0;
+        if (ystart > h-1) ystart = h-1;
+        if (ystop <    0) ystop  = 0;
+        if (ystop >  h-1) ystop  = h-1;
+
+        for (int y=ystart; y<=ystop; y++)
+        {
+            int x = (int) (x0 + ((double) (y - y0) / (y1 - y0) * (x1 - x0) + 0.5));
+            if (x>=0 && y>=0 && x<w && y<h)
+                bins[y*w+x]++;
+        }
+    }
+    else
+    {
+        int x = x0;
+        int y = y0;
+        if (x>=0 && y>=0 && x<w && y<h)
+            bins[y*w+x]++;
     }
 }
 
@@ -1033,30 +1086,64 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             xys += (len - graph->len);
             len = graph->len;
         }
-
-        if (xmin == xmax)
-        {
-            xmin = xys[0][0];
-            xmax = xys[len-1][0];
-        }
         release_access (& graph->insertAccess);
 
         uint32_t nBins = w * h;
         for (uint32_t i=0; i<nBins; i++)
             bins[i] = 0;
 
-        for (uint32_t i=0; i<len; i++)
+        double invXRange = 1.0 / (xmax - xmin);
+        double invYRange = 1.0 / (ymax - ymin);
+        if (plotType == 'p')
         {
-            double x = xys[i][0];
-            double y = xys[i][1];
-
-            int xi = (int) ((w-1) * (x - xmin) / (xmax - xmin));
-            int yi = (int) ((h-1) * (y - ymin) / (ymax - ymin));
-            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+            for (uint32_t i=0; i<len; i++)
             {
-                bins[(uint32_t) yi*w + (uint32_t) xi]++;
+                double x = xys[i][0];
+                double y = xys[i][1];
+                int xi = (int) ((w-1) * (x - xmin) * invXRange);
+                int yi = (int) ((h-1) * (y - ymin) * invYRange);
+                if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+                    bins[(uint32_t) yi*w + (uint32_t) xi]++;
             }
         }
+        else if (plotType == 'l')
+        {
+            for (uint32_t i=1; i<len-1; i++)
+            {
+                double x0 = xys[i][0];
+                double y0 = xys[i][1];
+                double x1 = xys[i+1][0];
+                double y1 = xys[i+1][1];
+
+                int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+                int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+                int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+                int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+                histogram_line (hist, xi0, yi0, xi1, yi1);
+            }
+        }
+        else if (plotType == 's')
+        {
+            for (uint32_t i=1; i<len-1; i++)
+            {
+                double x0 = xys[i][0];
+                double y0 = xys[i][1];
+                double x1 = xys[i+1][0];
+                double y1 = xys[i+1][1];
+
+                int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+                int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+                int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+                int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+                histogram_line (hist, xi0, yi0, xi1, yi0);
+                histogram_line (hist, xi1, yi0, xi1, yi1);
+            }
+        }
+        else
+        {
+            exit_error ("unknown plot type '%c'", plotType);
+        }
+
     }
     else
     {
@@ -1079,12 +1166,6 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
         {
             xys += (len - graph->len);
             len = graph->len;
-        }
-
-        if (xmin == xmax)
-        {
-            xmin = xys[0][0];
-            xmax = xys[len-1][0];
         }
         release_access (& graph->insertAccess);
 
@@ -1396,8 +1477,8 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
 
             sw->dataRange.x0 = -1;
             sw->dataRange.x1 =  1;
-            sw->dataRange.y0 = -1;
-            sw->dataRange.y1 =  1;
+            sw->dataRange.y0 =  1;
+            sw->dataRange.y1 = -1;
 
             sw->windowArea.x0 = (ci    ) * dx;
             sw->windowArea.x1 = (ci + 1) * dx;
