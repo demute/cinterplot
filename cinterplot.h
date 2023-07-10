@@ -15,7 +15,7 @@ extern "C" {
 #define MAX_VARIABLE_LENGTH     1048576
 #define MAX_NUM_ATTACHED_GRAPHS 32
 #define MAX_NUM_VERTICES        16
-#define CINTERPLOT_INIT_WIDTH   1080
+#define CINTERPLOT_INIT_WIDTH   1100
 #define CINTERPLOT_INIT_HEIGHT  600
 #define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
@@ -36,12 +36,23 @@ typedef struct CinterGraph
 
 } CinterGraph;
 
+typedef struct Area
+{
+    double x0;
+    double x1;
+    double y0;
+    double y1;
+} Area;
+
+typedef struct Position
+{
+    double x;
+    double y;
+} Position;
+
 typedef struct Histogram
 {
-    double xmin;
-    double xmax;
-    double ymin;
-    double ymax;
+    Area dataRange;
 
     uint32_t w;
     uint32_t h;
@@ -63,12 +74,14 @@ typedef struct SubWindow
     uint32_t maxNumAttachedGraphs;
     uint32_t numAttachedGraphs;
 
-    double xmin;
-    double xmax;
-    double ymin;
-    double ymax;
+    Position mouseDataPos;
+    Area dataRange;
+    Area windowArea;
+    Area selectedWindowArea0;
+    Area selectedWindowArea1;
 } SubWindow;
 
+#define KMOD_NONE  0
 #define KMOD_SHIFT 1
 #define KMOD_GUI   2
 #define KMOD_ALT   4
@@ -96,6 +109,7 @@ typedef struct CinterState
     uint32_t trackingEnabled : 1;
     uint32_t statuslineEnabled : 1;
     uint32_t toggleFullscreen : 1;
+    uint32_t zoomEnabled : 1;
     uint32_t fullscreen : 1;
     uint32_t redraw : 1;
     uint32_t redrawing : 1;
@@ -105,14 +119,16 @@ typedef struct CinterState
     uint32_t forceRefresh : 1;
     uint32_t margin : 8;
 
+    int mouseState;
+    Position mouseWindowPos;
+
     Mouse mouse;
 
-    uint32_t nRows;
-    uint32_t nCols;
     float bgShade;
 
+    uint32_t numSubWindows;
     SubWindow *subWindows;
-    SubWindow *zoomWindow;
+    SubWindow *activeSw;
 
     SDL_Window   *window;
     SDL_Renderer *renderer;
@@ -150,7 +166,7 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
 
 CinterGraph *graph_new (uint32_t len, int doublePrecision);
 void graph_add_point (CinterGraph *graph, double x, double y);
-int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t col, char plotType, char *colorSpec);
+int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec);
 
 #ifdef __cplusplus
 } /* end extern C */

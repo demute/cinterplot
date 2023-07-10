@@ -72,7 +72,6 @@ int twister_poll (void *twisterDev)
     return 0;
 }
 
-
 int user_main (int argc, char **argv, CinterState *cs)
 {
     randlib_init (0);
@@ -86,17 +85,6 @@ int user_main (int argc, char **argv, CinterState *cs)
     uint32_t bordered = 1;
     uint32_t margin = 4;
 
-    if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
-        return 1;
-
-    CinterGraph *sineGraph[n];
-    for (int i=0; i<n; i++)
-       sineGraph[i] = graph_new (1000000, 1);
-
-    //char *colorSchemes[n];
-    //for (int i=0; i<n; i++)
-    //{
-    //}
     char *colorSchemes[6] =
     {
         "red orange white",
@@ -107,11 +95,14 @@ int user_main (int argc, char **argv, CinterState *cs)
         "chocolate brown red yellow"
     };
 
-    for (uint32_t i=0; i<n; i++)
+    if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
+        return 1;
+
+    CinterGraph *sineGraph[n];
+    for (int i=0; i<n; i++)
     {
-        uint32_t row = i / nCols;
-        uint32_t col = i - row * nCols;
-        graph_attach (cs, sineGraph[i], row, col, 'p', colorSchemes[i % 6]);
+        sineGraph[i] = graph_new (1000000, 1);
+        graph_attach (cs, sineGraph[i], (uint32_t) i, 'p', colorSchemes[i % 6]);
     }
 
     double v = 0;
@@ -146,5 +137,3 @@ int user_main (int argc, char **argv, CinterState *cs)
 
     return 0;
 }
-
-

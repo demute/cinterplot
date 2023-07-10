@@ -8,6 +8,37 @@
 #include "font.c"
 #include "oklab.h"
 
+#define STATUSLINE_HEIGHT 20
+
+enum
+{
+    MOUSE_HOVER_MODE_NONE,
+    MOUSE_HOVER_MODE_WINDOW,
+    MOUSE_HOVER_MODE_BORDER_L,
+    MOUSE_HOVER_MODE_BORDER_R,
+    MOUSE_HOVER_MODE_BORDER_T,
+    MOUSE_HOVER_MODE_BORDER_B,
+    MOUSE_HOVER_MODE_CORNER_TL,
+    MOUSE_HOVER_MODE_CORNER_TR,
+    MOUSE_HOVER_MODE_CORNER_BL,
+    MOUSE_HOVER_MODE_CORNER_BR,
+};
+
+enum
+{
+    MOUSE_STATE_NONE,
+    MOUSE_STATE_MOVING,
+    MOUSE_STATE_SELECTING,
+    MOUSE_STATE_RESIZING_L,
+    MOUSE_STATE_RESIZING_R,
+    MOUSE_STATE_RESIZING_T,
+    MOUSE_STATE_RESIZING_B,
+    MOUSE_STATE_RESIZING_TL,
+    MOUSE_STATE_RESIZING_TR,
+    MOUSE_STATE_RESIZING_BL,
+    MOUSE_STATE_RESIZING_BR,
+};
+
 extern const unsigned int font[256][8];
 static int interrupted = 0;
 
@@ -374,27 +405,264 @@ static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, ui
     }
 }
 
+static void window_pos_to_data_pos (const Area *srcArea, const Position *srcPos, const Area *dstArea, Position *dstPos)
+{
+    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
+    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
+    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
+    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
+}
+
+static void get_active_area (CinterState *cs, Area *src, Area *dst)
+{
+    uint32_t w = cs->windowWidth;
+    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+
+    double xp = (double) (cs->bordered + cs->margin) / w;
+    double yp = (double) (cs->bordered + cs->margin) / h;
+
+    double epsw = 1.0 / cs->windowWidth;
+    double epsh = 1.0 / cs->windowHeight;
+    if (cs->zoomEnabled)
+    {
+        dst->x0 = 0.0 + xp;
+        dst->y0 = 0.0 + yp;
+        dst->x1 = 1.0 - xp - epsw;
+        dst->y1 = 1.0 - yp - epsh;
+    }
+    else
+    {
+        dst->x0 = src->x0 + xp;
+        dst->y0 = src->y0 + yp;
+        dst->x1 = src->x1 - xp - epsw;
+        dst->y1 = src->y1 - yp - epsh;
+    }
+}
+
 
 static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int clicks)
 {
-    cs->mouse.button = button;
-    cs->mouse.clicks = clicks;
-    cs->mouse.pressX = xi;
-    cs->mouse.pressY = yi;
-    print_debug ("%d %d %d %d", xi, yi, button, clicks);
-    return 0;
+    if (cs->activeSw == NULL)
+    {
+        cs->mouseState = MOUSE_STATE_NONE;
+        return 0;
+    }
+    //SubWindow *sw = cs->activeSw;
+
+    switch (cs->pressedModifiers)
+    {
+     case KMOD_NONE:
+         {
+             cs->mouseState = MOUSE_STATE_SELECTING;
+             uint32_t w = cs->windowWidth;
+             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+             cs->mouseWindowPos.x = (double) xi / w;
+             cs->mouseWindowPos.y = (double) yi / h;
+             cs->activeSw->selectedWindowArea0.x0 = cs->mouseWindowPos.x;
+             cs->activeSw->selectedWindowArea0.y0 = cs->mouseWindowPos.y;
+             break;
+         }
+     case KMOD_GUI:
+         {
+             cs->mouseState = MOUSE_STATE_MOVING;
+             break;
+         }
+     default:
+         break;
+    }
+
+    return 1;
 }
 
 static int on_mouse_released (CinterState *cs, int xi, int yi)
 {
-    cs->mouse.releaseX = xi;
-    cs->mouse.releaseY = yi;
-    print_debug ("%d %d", xi, yi);
-    return 0;
+    switch (cs->mouseState)
+    {
+     case MOUSE_STATE_SELECTING:
+         {
+             Area *sel = & cs->activeSw->selectedWindowArea1;
+             if (sel->x0 == sel->x1 && sel->y0 == sel->y1)
+                 cs->zoomEnabled ^= 1;
+             else
+             {
+
+                 SubWindow *sw = cs->activeSw;
+                 Area *dr  = & sw->dataRange;
+                 Area *swa = & sw->selectedWindowArea1;
+                 Area activeArea;
+                 get_active_area (cs, & sw->windowArea, & activeArea);
+                 Position wPos0 = {swa->x0, swa->y0};
+                 Position wPos1 = {swa->x1, swa->y1};
+                 Position dPos0, dPos1;
+
+                 window_pos_to_data_pos (& activeArea, & wPos0, & sw->dataRange, & dPos0);
+                 window_pos_to_data_pos (& activeArea, & wPos1, & sw->dataRange, & dPos1);
+
+                 dr->x0 = dPos0.x;
+                 dr->y0 = dPos0.y;
+                 dr->x1 = dPos1.x;
+                 dr->y1 = dPos1.y;
+                 //print ("zoom to new area [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+                 sel->x0 = sel->x1 = sel->y0 = sel->y1 = NaN;
+             }
+             break;
+         }
+     default:
+         {
+             // do nothing
+         }
+    }
+
+    cs->mouseState = MOUSE_STATE_NONE;
+
+    return 1;
 }
 
 static int on_mouse_motion (CinterState *cs, int xi, int yi)
 {
+    switch (cs->mouseState)
+    {
+     case MOUSE_STATE_NONE:
+         {
+             uint32_t w = cs->windowWidth;
+             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+             Area activeArea;
+
+             if (!cs->zoomEnabled)
+                 cs->activeSw = NULL;
+
+             for (int i=0; i<cs->numSubWindows; i++)
+             {
+                 SubWindow *sw = cs->zoomEnabled ? cs->activeSw : & cs->subWindows[i];
+                 get_active_area (cs, & sw->windowArea, & activeArea);
+
+                 cs->mouseWindowPos.x = (double) xi / w;
+                 cs->mouseWindowPos.y = (double) yi / h;
+                 window_pos_to_data_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+
+                 if (activeArea.x0 <= cs->mouseWindowPos.x && cs->mouseWindowPos.x <= activeArea.x1 &&
+                     activeArea.y0 <= cs->mouseWindowPos.y && cs->mouseWindowPos.y <= activeArea.y1)
+                     cs->activeSw = sw;
+
+                 if (cs->zoomEnabled)
+                     break;
+             }
+
+             break;
+         }
+     case MOUSE_STATE_MOVING:
+         {
+             Position oldPos = {cs->mouseWindowPos.x, cs->mouseWindowPos.y};
+             uint32_t w = cs->windowWidth;
+             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+             cs->mouseWindowPos.x = (double) xi / w;
+             cs->mouseWindowPos.y = (double) yi / h;
+             SubWindow *sw = cs->activeSw;
+             Area *dr = & sw->dataRange;
+             double dx = (cs->mouseWindowPos.x - oldPos.x);
+             double dy = (cs->mouseWindowPos.y - oldPos.y);
+             dx /= (sw->windowArea.x1 - sw->windowArea.x0);
+             dy /= (sw->windowArea.y1 - sw->windowArea.y0);
+             dx *= dr->x1 - dr->x0;
+             dy *= dr->y1 - dr->y0;
+
+             printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+             dr->x0 -= dx;
+             dr->x1 -= dx;
+             dr->y0 -= dy;
+             dr->y1 -= dy;
+             print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+
+             break;
+         }
+     case MOUSE_STATE_SELECTING:
+         {
+             uint32_t w = cs->windowWidth;
+             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+             cs->mouseWindowPos.x = (double) xi / w;
+             cs->mouseWindowPos.y = (double) yi / h;
+             Area *a0 = & cs->activeSw->selectedWindowArea0;
+             Area *a1 = & cs->activeSw->selectedWindowArea1;
+             a0->x1 = cs->mouseWindowPos.x;
+             a0->y1 = cs->mouseWindowPos.y;
+             if (a0->x0 < a0->x1)
+             {
+                 a1->x0 = a0->x0;
+                 a1->x1 = a0->x1;
+             }
+             else
+             {
+                 a1->x0 = a0->x1;
+                 a1->x1 = a0->x0;
+             }
+             if (a0->y0 < a0->y1)
+             {
+                 a1->y0 = a0->y0;
+                 a1->y1 = a0->y1;
+             }
+             else
+             {
+                 a1->y0 = a0->y1;
+                 a1->y1 = a0->y0;
+             }
+
+             double minDiffX = 10.0 / w;
+             double minDiffY = 10.0 / h;
+
+             double dx = a1->x1 - a1->x0;
+             double dy = a1->y1 - a1->y0;
+
+             if (dx >= minDiffX || dy >= minDiffY)
+             {
+                 Area *wa = & cs->activeSw->windowArea;
+                 if (dx < minDiffX)
+                 {
+                     a1->x0 = wa->x0;
+                     a1->x1 = wa->x1;
+                 }
+                 if (dy < minDiffY)
+                 {
+                     a1->y0 = wa->y0;
+                     a1->y1 = wa->y1;
+                 }
+             }
+             break;
+         }
+     case MOUSE_STATE_RESIZING_L:
+         {
+             break;
+         }
+     case MOUSE_STATE_RESIZING_R:
+         {
+             break;
+         }
+     case MOUSE_STATE_RESIZING_T:
+         {
+             break;
+         }
+     case MOUSE_STATE_RESIZING_B:
+         {
+             break;
+         }
+     case MOUSE_STATE_RESIZING_TL:
+         {
+             break;
+         }
+     case MOUSE_STATE_RESIZING_TR:
+         {
+             break;
+         }
+     case MOUSE_STATE_RESIZING_BL:
+         {
+             break;
+         }
+     case MOUSE_STATE_RESIZING_BR:
+         {
+             break;
+         }
+     default:
+         exit_error ("bug");
+    }
     cs->mouse.x = xi;
     cs->mouse.y = yi;
     return 1;
@@ -509,11 +777,11 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     return 0;
 }
 
-int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t col, char plotType, char *colorSpec)
+int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec)
 {
-    if (row >= cs->nRows || col >= cs->nCols)
+    if (windowIndex >= cs->numSubWindows)
     {
-        print_error ("row/col %d/%d out of range", row, col);
+        print_error ("windowIndex %d out of range", windowIndex);
         return -1;
     }
 
@@ -526,7 +794,7 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t co
     attacher->colorScheme = make_color_scheme (colorSpec, 8);
     attacher->lastGraphCounter = 0;
 
-    SubWindow *sw = & cs->subWindows[row * cs->nCols + col];
+    SubWindow *sw = & cs->subWindows[windowIndex];
     if (sw->numAttachedGraphs >= sw->maxNumAttachedGraphs)
     {
         print_error ("maximum number of attached graphs reached");
@@ -600,10 +868,10 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
 
     if (graph->doublePrecision)
     {
-        double xmin = hist->xmin;
-        double xmax = hist->xmax;
-        double ymin = hist->ymin;
-        double ymax = hist->ymax;
+        double xmin = hist->dataRange.x0;
+        double xmax = hist->dataRange.x1;
+        double ymin = hist->dataRange.y0;
+        double ymax = hist->dataRange.y1;
 
         double (*xys)[2];
         uint32_t len;
@@ -650,18 +918,20 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             double x = xys[i][0];
             double y = xys[i][1];
 
-            int xi = (int) (w * (x - xmin) / (xmax - xmin));
-            int yi = (int) (h * (y - ymin) / (ymax - ymin));
+            int xi = (int) ((w-1) * (x - xmin) / (xmax - xmin));
+            int yi = (int) ((h-1) * (y - ymin) / (ymax - ymin));
             if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+            {
                 bins[(uint32_t) yi*w + (uint32_t) xi]++;
+            }
         }
     }
     else
     {
-        float xmin = (float) hist->xmin;
-        float xmax = (float) hist->xmax;
-        float ymin = (float) hist->ymin;
-        float ymax = (float) hist->ymax;
+        float xmin = (float) hist->dataRange.x0;
+        float xmax = (float) hist->dataRange.x1;
+        float ymin = (float) hist->dataRange.y0;
+        float ymax = (float) hist->dataRange.y1;
 
         float (*xys)[2];
         uint32_t len;
@@ -774,327 +1044,237 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
 
 static void plot_data (CinterState *cs, uint32_t *pixels)
 {
-    uint32_t w     = cs->windowWidth;
-    uint32_t h     = cs->windowHeight;
-    uint32_t nCols = cs->nCols;
-    uint32_t nRows = cs->nRows;
-    uint32_t forceRefresh = cs->forceRefresh;
-    cs->forceRefresh = 0;
-    uint32_t bordered = cs->bordered;
-    uint32_t margin   = cs->margin;
-    int snap = 20;
-
-    if (cs->statuslineEnabled)
-        h -= 20;
-
-    uint32_t dy, dx;
-    if (cs->zoomWindow)
-    {
-        dy = h;
-        dx = w;
-        bordered = 0;
-        margin = 0;
-    }
-    else
-    {
-        dy = h / nRows;
-        dx = w / nCols;
-    }
-
-    uint32_t subHeight = dy - 2*bordered - 2*margin;
-    uint32_t subWidth  = dx - 2*bordered - 2*margin;
-
-    int mouseCol, mouseRow;
-    int mousePressed  = 0;
-    int mouseReleased = 0;
-    Mouse relMouse = {.button = cs->mouse.button, .clicks = cs->mouse.clicks};
-
-    if (cs->mouse.pressX || cs->mouse.pressY)
-    {
-        mouseCol        = cs->mouse.pressX / (int) dx;
-        mouseRow        = cs->mouse.pressY / (int) dy;
-        if (cs->zoomWindow)
-        {
-            mouseCol = 0;
-            mouseRow = 0;
-        }
-        relMouse.x      = cs->mouse.x      - mouseCol * (int) dx - (int) margin - (int) bordered;
-        relMouse.y      = cs->mouse.y      - mouseRow * (int) dy - (int) margin - (int) bordered;
-        relMouse.lastX  = cs->mouse.lastX  - mouseCol * (int) dx - (int) margin - (int) bordered;
-        relMouse.lastY  = cs->mouse.lastY  - mouseRow * (int) dy - (int) margin - (int) bordered;
-        relMouse.pressX = cs->mouse.pressX - mouseCol * (int) dx - (int) margin - (int) bordered;
-        relMouse.pressY = cs->mouse.pressY - mouseRow * (int) dy - (int) margin - (int) bordered;
-
-        if (cs->mouse.releaseX || cs->mouse.releaseY)
-        {
-            relMouse.releaseX = cs->mouse.releaseX - mouseCol * (int) dx - (int) margin - (int) bordered;
-            relMouse.releaseY = cs->mouse.releaseY - mouseRow * (int) dy - (int) margin - (int) bordered;
-
-            cs->mouse.releaseX = 0;
-            cs->mouse.releaseY = 0;
-            cs->mouse.pressX = 0;
-            cs->mouse.pressY = 0;
-
-            mouseReleased = 1;
-        }
-        else
-        {
-            mousePressed = 1;
-        }
-    }
-    else
-    {
-        mouseCol       = cs->mouse.x / (int) dx;
-        mouseRow       = cs->mouse.y / (int) dy;
-        if (cs->zoomWindow)
-        {
-            mouseCol = 0;
-            mouseRow = 0;
-        }
-        relMouse.x     = cs->mouse.x     - mouseCol * (int) dx - (int) margin - (int) bordered;
-        relMouse.y     = cs->mouse.y     - mouseRow * (int) dy - (int) margin - (int) bordered;
-        relMouse.lastX = cs->mouse.lastX - mouseCol * (int) dx - (int) margin - (int) bordered;
-        relMouse.lastY = cs->mouse.lastY - mouseRow * (int) dy - (int) margin - (int) bordered;
-    }
-    cs->mouse.lastX = cs->mouse.x;
-    cs->mouse.lastY = cs->mouse.y;
-
-    SubWindow *activeSw = NULL;
-    if (cs->zoomWindow)
-        activeSw = cs->zoomWindow;
-    else if (mouseCol >= 0 && mouseCol < nCols && mouseRow >= 0 && mouseRow < nRows)
-        activeSw = & cs->subWindows[(uint32_t) mouseRow * nCols + (uint32_t) mouseCol];
-
-    if (mousePressed && cs->pressedModifiers == KMOD_GUI)
-    {
-        double dx = (double) (relMouse.x - relMouse.lastX) / subWidth  * (activeSw->xmax - activeSw->xmin);
-        double dy = (double) (relMouse.y - relMouse.lastY) / subHeight * (activeSw->ymax - activeSw->ymin);
-        activeSw->xmin -= dx;
-        activeSw->xmax -= dx;
-        activeSw->ymin -= dy;
-        activeSw->ymax -= dy;
-        mousePressed = 0;
-    }
-    else if (mouseReleased && !cs->pressedModifiers)
-    {
-        int x0 = relMouse.pressX;
-        int x1 = relMouse.releaseX;
-        int y0 = relMouse.pressY;
-        int y1 = relMouse.releaseY;
-        if (x0 > x1)
-        {
-            x0 ^= x1;
-            x1 ^= x0;
-            x0 ^= x1;
-        }
-
-        if (y0 > y1)
-        {
-            y0 ^= y1;
-            y1 ^= y0;
-            y0 ^= y1;
-        }
-
-        if ((x1-x0) + (y1-y0) < 4)
-        {
-            cs->zoomWindow = cs->zoomWindow ? NULL : activeSw;
-            plot_data (cs, pixels);
-            return;
-        }
-        else
-        {
-            print_debug ("mouse released, old range: x:[%f, %f] y:[%f, %f]", activeSw->xmin, activeSw->xmax, activeSw->ymin, activeSw->ymax);
-            double newXmin = ((double) x0 / subWidth)  * (activeSw->xmax - activeSw->xmin) + activeSw->xmin;
-            double newXmax = ((double) x1 / subWidth)  * (activeSw->xmax - activeSw->xmin) + activeSw->xmin;
-            double newYmin = ((double) y0 / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
-            double newYmax = ((double) y1 / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
-            if ((x1-x0 < snap && y1-y0 < snap) || x1-x0 >= snap)
-            {
-                activeSw->xmin = newXmin;
-                activeSw->xmax = newXmax;
-            }
-            if ((x1-x0 < snap && y1-y0 < snap) || y1-y0 >= snap)
-            {
-                activeSw->ymin = newYmin;
-                activeSw->ymax = newYmax;
-            }
-            print_debug ("mouse released, new range: x:[%f, %f] y:[%f, %f]", activeSw->xmin, activeSw->xmax, activeSw->ymin, activeSw->ymax);
-        }
-    }
-
-    if (cs->statuslineEnabled && activeSw)
-    {
-        uint32_t textColor = make_gray (0.9f);
-        int transparent = 1;
-        uint32_t x0 = 10;
-        uint32_t y0 = cs->windowHeight - 20;
-        char message[256];
-        double xCoord = ((double) relMouse.x / subWidth)  * (activeSw->xmax - activeSw->xmin) + activeSw->xmin;
-        double yCoord = ((double) relMouse.y / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
-        snprintf (message, sizeof (message), "(x,y) = (%f,%f)", xCoord, yCoord);
-        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, message);
-    }
-
     uint32_t activeColor    = make_gray (1.0f);
     uint32_t inactiveColor  = make_gray (0.4f);
     uint32_t crossHairColor = make_gray (0.6f);
     uint32_t bgColor        = make_gray (cs->bgShade);
     uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.2f : -0.2f));
 
-    for (uint32_t rowi=0; rowi < nRows; rowi++)
+    uint32_t forceRefresh = cs->forceRefresh;
+    cs->forceRefresh = 0;
+
+    uint32_t w = cs->windowWidth;
+    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+
+    for (uint32_t wi=0; wi < (cs->numSubWindows); wi++)
     {
-        uint32_t yOffset = cs->zoomWindow ? 0 : dy * rowi;
-        for (uint32_t coli=0; coli < nCols; coli++)
+        SubWindow *sw = & cs->subWindows[wi];
+
+        uint32_t x0, y0, x1, y1;
+
+        if (cs->zoomEnabled)
         {
-            uint32_t xOffset = cs->zoomWindow ? 0 : dx * coli;
-            SubWindow *sw = & cs->subWindows[rowi * nCols + coli];
-            if (cs->zoomWindow && cs->zoomWindow != sw)
+            if (cs->activeSw != sw)
                 continue;
 
-            if (bordered)
+            x0 = cs->margin;
+            y0 = cs->margin;
+            x1 = w - cs->margin;
+            y1 = h - cs->margin;
+        }
+        else
+        {
+            if (sw->windowArea.x0 > sw->windowArea.x1) exit_error ("bug");
+            if (sw->windowArea.y0 > sw->windowArea.y1) exit_error ("bug");
+
+            x0 = (uint32_t) (sw->windowArea.x0 * w) + cs->margin;
+            y0 = (uint32_t) (sw->windowArea.y0 * h) + cs->margin;
+            x1 = (uint32_t) (sw->windowArea.x1 * w) - cs->margin;
+            y1 = (uint32_t) (sw->windowArea.y1 * h) - cs->margin;
+
+            if (x0 >= w) exit_error ("bug");
+            if (x1 >= w) exit_error ("bug");
+            if (y0 >= h) exit_error ("bug");
+            if (y1 >= h) exit_error ("bug");
+
+            if (cs->bordered)
             {
-                uint32_t x0 = xOffset + margin;
-                uint32_t y0 = yOffset + margin;
-                uint32_t x1 = xOffset + dx - 1 - margin;
-                uint32_t y1 = yOffset + dy - 1 - margin;
-                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == activeSw && cs->mouseEnabled) ? activeColor : inactiveColor);
+                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == cs->activeSw && cs->mouseEnabled) ? activeColor : inactiveColor);
+                x0++; y0++; x1--; y1--;
+            }
+        }
+        uint32_t subWidth  = x1 - x0;
+        uint32_t subHeight = y1 - y0;
+        if (subWidth > w || subHeight > h)
+            exit_error ("bug");
+
+        for (uint32_t y=y0; y<y1; y++)
+            for (uint32_t x=x0; x<x1;  x++)
+                pixels[y*w + x] = bgColor;
+
+        for (int i=0; i<sw->numAttachedGraphs; i++)
+        {
+            GraphAttacher *attacher = sw->attachedGraphs[i];
+            Histogram *hist = & attacher->hist;
+
+            int updateHistogram =
+                (forceRefresh) ||
+                (attacher->lastGraphCounter != attacher->graph->sb->counter) ||
+                (hist->dataRange.x0 != sw->dataRange.x0) ||
+                (hist->dataRange.x1 != sw->dataRange.x1) ||
+                (hist->dataRange.y0 != sw->dataRange.y0) ||
+                (hist->dataRange.y1 != sw->dataRange.y1);
+
+            if (hist->bins == NULL)
+            {
+                hist->w = subWidth;
+                hist->h = subHeight;
+                hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                updateHistogram = 1;
+            }
+            else if (hist->w != subWidth || hist->h != subHeight)
+            {
+                free (hist->bins);
+                hist->w = subWidth;
+                hist->h = subHeight;
+                hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                updateHistogram = 1;
             }
 
-            uint32_t x0 = xOffset + margin + bordered;
-            uint32_t y0 = yOffset + margin + bordered;
-
-            for (uint32_t y=0; y<subHeight; y++)
-                for (uint32_t x=0; x<subWidth;  x++)
-                    pixels[(y0+y)*w + (x0+x)] = bgColor;
-
-            for (int i=0; i<sw->numAttachedGraphs; i++)
+            if (updateHistogram)
             {
-                GraphAttacher *attacher = sw->attachedGraphs[i];
-                Histogram *hist = & attacher->hist;
+                hist->dataRange.x0 = sw->dataRange.x0;
+                hist->dataRange.x1 = sw->dataRange.x1;
+                hist->dataRange.y0 = sw->dataRange.y0;
+                hist->dataRange.y1 = sw->dataRange.y1;
+                make_histogram (hist, attacher->graph, attacher->plotType);
+            }
+            else
+            {
+                //foobar;
+            }
 
-                int updateHistogram =
-                    (forceRefresh) ||
-                    (attacher->lastGraphCounter != attacher->graph->sb->counter) ||
-                    (hist->xmin != sw->xmin) ||
-                    (hist->xmax != sw->xmax) ||
-                    (hist->ymin != sw->ymin) ||
-                    (hist->ymax != sw->ymax);
+            int *bins = hist->bins;
+            uint32_t *colors = attacher->colorScheme->colors;
+            uint32_t nLevels = attacher->colorScheme->nLevels;
 
-                if (hist->bins == NULL)
-                {
-                    hist->w = subWidth;
-                    hist->h = subHeight;
-                    hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
-                    updateHistogram = 1;
-                }
-                else if (hist->w != subWidth || hist->h != subHeight)
-                {
-                    free (hist->bins);
-                    hist->w = subWidth;
-                    hist->h = subHeight;
-                    hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
-                    updateHistogram = 1;
-                }
+            uint32_t mousePosX = (uint32_t) (cs->mouseWindowPos.x * w);
+            uint32_t mousePosY = (uint32_t) (cs->mouseWindowPos.y * h);
 
-                if (updateHistogram)
+            for (uint32_t yi=0; yi<subHeight; yi++)
+            {
+                for (uint32_t xi=0; xi<subWidth;  xi++)
                 {
-                    hist->xmin = sw->xmin;
-                    hist->xmax = sw->xmax;
-                    hist->ymin = sw->ymin;
-                    hist->ymax = sw->ymax;
-                    make_histogram (hist, attacher->graph, attacher->plotType);
-                }
-                else
-                {
-                    //foobar;
-                }
+                    uint32_t x = x0 + xi;
+                    uint32_t y = y0 + yi;
 
-                int *bins = hist->bins;
-                uint32_t *colors = attacher->colorScheme->colors;
-                uint32_t nLevels = attacher->colorScheme->nLevels;
-                for (uint32_t y=0; y<subHeight; y++)
-                {
-                    for (uint32_t x=0; x<subWidth;  x++)
+                    int regionSelected;
+                    if (isnan (sw->selectedWindowArea1.x0) || isnan (sw->selectedWindowArea1.x1) ||
+                        isnan (sw->selectedWindowArea1.y0) || isnan (sw->selectedWindowArea1.y1))
                     {
-                        uint32_t *pixel = & pixels[(y0+y)*w + (x0+x)];
-                        int cnt = bins[y * subWidth + x];
-                        if (cs->mouseEnabled && (cs->zoomWindow || (coli == mouseCol && rowi == mouseRow)) && (x == relMouse.x || y == relMouse.y))
-                            *pixel = crossHairColor;
-                        else if (cnt > 0)
-                        {
-                            uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
-                            *pixel = color;
-                        }
-                        else if (mousePressed && (cs->zoomWindow || (coli == mouseCol && rowi == mouseRow)))
-                        {
-                            Mouse *r = & relMouse;
-                            int x0 = r->x;
-                            int x1 = r->pressX;
-                            int y0 = r->y;
-                            int y1 = r->pressY;
-
-                            if (x0 > x1)
-                            {
-                                x0 ^= x1;
-                                x1 ^= x0;
-                                x0 ^= x1;
-                            }
-                            if (y0 > y1)
-                            {
-                                y0 ^= y1;
-                                y1 ^= y0;
-                                y0 ^= y1;
-                            }
-
-                            if (x1 - x0 > snap || y1 - y0 > snap)
-                            {
-                                if (x1 - x0 < snap)
-                                {
-                                    x0 = 0;
-                                    x1 = (int) subWidth;
-                                }
-                                else if (y1 - y0 < snap)
-                                {
-                                    y0 = 0;
-                                    y1 = (int) subHeight;
-                                }
-                            }
-
-                            if (x0 <= x && x <= x1 && y0 <= y && y <= y1)
-                                *pixel = selectColor;
-                        }
+                        regionSelected = 0;
                     }
+                    else
+                    {
+
+                        uint32_t x0 = (uint32_t) (sw->selectedWindowArea1.x0 * w);
+                        uint32_t y0 = (uint32_t) (sw->selectedWindowArea1.y0 * h);
+                        uint32_t x1 = (uint32_t) (sw->selectedWindowArea1.x1 * w);
+                        uint32_t y1 = (uint32_t) (sw->selectedWindowArea1.y1 * h);
+                        if (x0 <= x && x <= x1 && y0 <= y && y <= y1)
+                            regionSelected = 1;
+                        else
+                            regionSelected = 0;
+                    }
+
+                    uint32_t *pixel = & pixels[y*w + x];
+                    int cnt = bins[yi * subWidth + xi];
+                    if (cs->mouseEnabled && sw == cs->activeSw && (x == mousePosX || y == mousePosY))
+                        *pixel = crossHairColor;
+                    else if (cnt > 0)
+                    {
+                        uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
+                        *pixel = color;
+                    }
+                    else if (regionSelected)
+                        *pixel = selectColor;
+
+                    //else if (mousePressed && (cs->zoomWindow || (coli == mouseCol && rowi == mouseRow)))
+                    //{
+                    //    Mouse *r = & relMouse;
+                    //    int x0 = r->x;
+                    //    int x1 = r->pressX;
+                    //    int y0 = r->y;
+                    //    int y1 = r->pressY;
+
+
+                    //    if (x1 - x0 > snap || y1 - y0 > snap)
+                    //    {
+                    //        if (x1 - x0 < snap)
+                    //        {
+                    //            x0 = 0;
+                    //            x1 = (int) subWidth;
+                    //        }
+                    //        else if (y1 - y0 < snap)
+                    //        {
+                    //            y0 = 0;
+                    //            y1 = (int) subHeight;
+                    //        }
+                    //    }
+
+                    //    if (x0 <= xi && xi <= x1 && y0 <= yi && yi <= y1)
+                    //        *pixel = selectColor;
+                    //}
                 }
             }
         }
+    }
+    if (cs->statuslineEnabled && cs->activeSw)
+    {
+        uint32_t textColor = make_gray (0.9f);
+        int transparent = 1;
+        uint32_t x0 = 10;
+        uint32_t y0 = cs->windowHeight - STATUSLINE_HEIGHT;
+        char message[256];
+        double mx = cs->activeSw->mouseDataPos.x;
+        double my = cs->activeSw->mouseDataPos.y;
+        snprintf (message, sizeof (message), "(x,y) = (%f,%f)", mx, my);
+        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, message);
     }
 }
 
 int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin)
 {
-    if (cs->subWindows || cs->nRows || cs->nCols)
+    if (cs->subWindows)
     {
         print_error ("cs->subWindows must not have been set previously");
         return -1;
     }
 
-    cs->nRows    = nRows;
-    cs->nCols    = nCols;
+    cs->numSubWindows = nRows * nCols;
     cs->bordered = bordered;
     cs->margin   = margin;
 
     uint32_t n = nRows * nCols;
     cs->subWindows = safe_calloc (n, sizeof (cs->subWindows[0]));
-    for (uint32_t i=0; i<n; i++)
+
+    double dy = 1.0 / nRows;
+    double dx = 1.0 / nCols;
+
+    for (uint32_t ri=0; ri<nRows; ri++)
     {
-        SubWindow *sw = & cs->subWindows[i];
-        sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
-        sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
-        sw->numAttachedGraphs = 0;
-        sw->xmin = -1;
-        sw->xmax =  1;
-        sw->ymin = -1;
-        sw->ymax =  1;
+        for (uint32_t ci=0; ci<nCols; ci++)
+        {
+            SubWindow *sw = & cs->subWindows[ri * nCols + ci];
+            sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
+            sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
+            sw->numAttachedGraphs = 0;
+
+            sw->selectedWindowArea0.x0 = NaN;
+            sw->selectedWindowArea0.x1 = NaN;
+            sw->selectedWindowArea0.y0 = NaN;
+            sw->selectedWindowArea0.y1 = NaN;
+
+            sw->dataRange.x0 = -1;
+            sw->dataRange.x1 =  1;
+            sw->dataRange.y0 = -1;
+            sw->dataRange.y1 =  1;
+
+            sw->windowArea.x0 = (ci    ) * dx;
+            sw->windowArea.x1 = (ci + 1) * dx;
+            sw->windowArea.y0 = (ri    ) * dy;
+            sw->windowArea.y1 = (ri + 1) * dy;
+        }
     }
 
     return 0;
@@ -1176,21 +1356,19 @@ static CinterState *cinterplot_init (void)
     cs->mouseEnabled      = 1;
     cs->trackingEnabled   = 0;
     cs->statuslineEnabled = 1;
+    cs->zoomEnabled       = 0;
     cs->toggleFullscreen  = 0;
     cs->fullscreen        = 0;
     cs->redraw            = 0;
     cs->redrawing         = 0;
     cs->running           = 1;
     cs->bgShade           = 0.04f;
-    cs->nRows             = 0;
-    cs->nCols             = 0;
     cs->bordered          = 0;
     cs->paused            = 0;
     cs->margin            = 10;
     cs->frameCounter      = 0;
     cs->pressedModifiers  = 0;
     cs->subWindows        = NULL;
-    cs->zoomWindow        = NULL;
     cs->windowWidth       = CINTERPLOT_INIT_WIDTH;
     cs->windowHeight      = CINTERPLOT_INIT_HEIGHT;
 
