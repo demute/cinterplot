@@ -39,8 +39,8 @@ typedef struct CinterGraph
 typedef struct Area
 {
     double x0;
-    double x1;
     double y0;
+    double x1;
     double y1;
 } Area;
 
@@ -103,12 +103,9 @@ typedef struct Mouse
 
 typedef struct CinterState
 {
-    uint32_t autoscale : 1;
-    uint32_t resetScaling : 1;
     uint32_t mouseEnabled : 1;
     uint32_t trackingEnabled : 1;
     uint32_t statuslineEnabled : 1;
-    uint32_t toggleFullscreen : 1;
     uint32_t zoomEnabled : 1;
     uint32_t fullscreen : 1;
     uint32_t redraw : 1;
@@ -148,10 +145,9 @@ typedef struct CinterState
 
 } CinterState;
 
-int autoscale (CinterState *cs);
-int background (CinterState *cs, float bgShade);
+int autoscale (SubWindow *sw);
 int toggle_mouse (CinterState *cs);
-int toggle_fullscreen (CinterState *cs);
+int set_fullscreen (CinterState *cs, uint32_t fullscreen);
 int quit (CinterState *cs);
 int toggle_tracking (CinterState *cs);
 int move_left (CinterState *cs);

@@ -258,65 +258,147 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
     return scheme;
 }
 
-int autoscale (CinterState *cs)                    { cs->autoscale = 1;          return 1; }
-int reset_scaling (CinterState *cs)                { cs->resetScaling = 1;       return 1; }
-int background (CinterState *cs, float bgShade)    { cs->bgShade = bgShade;      return 1; }
+int autoscale (SubWindow *sw)
+{
+    if (!sw)
+        return 0;
+
+    double xmin =  DBL_MAX;
+    double xmax = -DBL_MAX;
+    double ymin =  DBL_MAX;
+    double ymax = -DBL_MAX;
+
+    GraphAttacher **ag = sw->attachedGraphs;
+    for (int i=0; i<sw->numAttachedGraphs; i++)
+    {
+        CinterGraph *graph = ag[i]->graph;
+        wait_for_access (& graph->readAccess);
+        wait_for_access (& graph->insertAccess);
+
+        if (graph->doublePrecision)
+        {
+            double (*xys)[2];
+            uint32_t len;
+            stream_buffer_get (graph->sb, & xys, & len);
+            for (uint32_t i=0; i<len; i++)
+            {
+                double x = xys[i][0];
+                double y = xys[i][1];
+                if (xmin > x) xmin = x;
+                if (xmax < x) xmax = x;
+                if (ymin > y) ymin = y;
+                if (ymax < y) ymax = y;
+            }
+        }
+        else
+        {
+            float (*xys)[2];
+            uint32_t len;
+            stream_buffer_get (graph->sb, & xys, & len);
+            for (uint32_t i=0; i<len; i++)
+            {
+                double x = (double) xys[i][0];
+                double y = (double) xys[i][1];
+                if (xmin > x) xmin = x;
+                if (xmax < x) xmax = x;
+                if (ymin > y) ymin = y;
+                if (ymax < y) ymax = y;
+            }
+        }
+        release_access (& graph->insertAccess);
+        release_access (& graph->readAccess);
+    }
+
+    if (xmin == DBL_MAX || xmax == -DBL_MAX || ymin == DBL_MAX || ymax == -DBL_MAX)
+        return 0;
+
+    sw->dataRange.x0 = xmin;
+    sw->dataRange.y0 = ymin;
+    sw->dataRange.x1 = xmax;
+    sw->dataRange.y1 = ymax;
+
+    return 1;
+}
+
 int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;      return 1; }
 int toggle_statusline (CinterState *cs)            { cs->statuslineEnabled ^= 1; return 1; }
-int toggle_fullscreen (CinterState *cs)            { cs->toggleFullscreen = 1;   return 1; }
 int quit (CinterState *cs)                         { cs->running = 0;            return 0; }
 int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;       return 0; }
 int toggle_tracking (CinterState *cs)              { cs->trackingEnabled ^= 1;   return 1; }
 int toggle_paused (CinterState *cs)                { cs->paused ^= 1;            return 1; }
 
-int move_left (CinterState *cs)
+int zoom (SubWindow *sw, double xf, double yf)
 {
-    //CinterGraph *g = cs->graphs[cs->activeGraphIndex];
+    Area *dr = & sw->dataRange;
+    double dx = (dr->x1 - dr->x0) * xf;
+    double dy = (dr->y1 - dr->y0) * yf;
+    dr->x0 += dx;
+    dr->x1 -= dx;
+    dr->y0 += dy;
+    dr->y1 -= dy;
     return 1;
 }
 
-int move_right (CinterState *cs)
+int move (SubWindow *sw, double xf, double yf)
 {
-    foobar;
+    Area *dr = & sw->dataRange;
+    double dx = (dr->x1 - dr->x0) * xf;
+    double dy = (dr->y1 - dr->y0) * yf;
+    dr->x0 -= dx;
+    dr->x1 -= dx;
+    dr->y0 -= dy;
+    dr->y1 -= dy;
     return 1;
 }
 
-int move_up (CinterState *cs)
+static void reinitialise_sdl_context (CinterState *cs)
 {
-    foobar;
-    return 1;
+    if (cs->texture)
+        SDL_DestroyTexture (cs->texture);
+    if (cs->renderer)
+        SDL_DestroyRenderer (cs->renderer);
+    if (cs->window)
+        SDL_DestroyWindow (cs->window);
+
+    cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                   (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_SHOWN);
+    if (!cs->window)
+        exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
+
+    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
+    if (!cs->renderer)
+        exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
+
+    cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                     (int) cs->windowWidth, (int) cs->windowHeight);
+    if (!cs->texture)
+        exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
+
+    SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
 }
 
-int move_down (CinterState *cs)
+int set_fullscreen (CinterState *cs, uint32_t fullscreen)
 {
-    foobar;
+    cs->fullscreen = fullscreen;
+
+    if (cs->fullscreen)
+    {
+        SDL_DisplayMode displayMode;
+        SDL_GetCurrentDisplayMode (0, & displayMode);
+        assert (displayMode.w > 0);
+        assert (displayMode.h > 0);
+        cs->windowWidth  = (uint32_t) displayMode.w;
+        cs->windowHeight = (uint32_t) displayMode.h;
+    }
+    else
+    {
+        cs->windowWidth  = CINTERPLOT_INIT_WIDTH;
+        cs->windowHeight = CINTERPLOT_INIT_HEIGHT;
+    }
+
+    reinitialise_sdl_context (cs);
     return 1;
 }
-
-int expand_x (CinterState *cs)
-{
-    foobar;
-    return 1;
-}
-
-int compress_x (CinterState *cs)
-{
-    foobar;
-    return 1;
-}
-
-int expand_y (CinterState *cs)
-{
-    foobar;
-    return 1;
-}
-
-int compress_y (CinterState *cs)
-{
-    foobar;
-    return 1;
-}
-
 
 static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, uint32_t _y0, uint32_t _x1, uint32_t _y1, uint32_t color)
 {
@@ -405,12 +487,12 @@ static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, ui
     }
 }
 
-static void window_pos_to_data_pos (const Area *srcArea, const Position *srcPos, const Area *dstArea, Position *dstPos)
+static void window_pos_to_data_pos (const Area *winArea, const Position *winPos, const Area *dataArea, Position *dataPos)
 {
-    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
-    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
-    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
-    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
+    double xf = (winPos->x - winArea->x0) / (winArea->x1 - winArea->x0);
+    double yf = (winPos->y - winArea->y0) / (winArea->y1 - winArea->y0);
+    dataPos->x = xf * (dataArea->x1 - dataArea->x0) + dataArea->x0;
+    dataPos->y = yf * (dataArea->y1 - dataArea->y0) + dataArea->y0;
 }
 
 static void get_active_area (CinterState *cs, Area *src, Area *dst)
@@ -423,20 +505,11 @@ static void get_active_area (CinterState *cs, Area *src, Area *dst)
 
     double epsw = 1.0 / cs->windowWidth;
     double epsh = 1.0 / cs->windowHeight;
-    if (cs->zoomEnabled)
-    {
-        dst->x0 = 0.0 + xp;
-        dst->y0 = 0.0 + yp;
-        dst->x1 = 1.0 - xp - epsw;
-        dst->y1 = 1.0 - yp - epsh;
-    }
-    else
-    {
-        dst->x0 = src->x0 + xp;
-        dst->y0 = src->y0 + yp;
-        dst->x1 = src->x1 - xp - epsw;
-        dst->y1 = src->y1 - yp - epsh;
-    }
+
+    dst->x0 = src->x0 + xp;
+    dst->y0 = src->y0 + yp;
+    dst->x1 = src->x1 - xp - epsw;
+    dst->y1 = src->y1 - yp - epsh;
 }
 
 
@@ -460,6 +533,13 @@ static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int cl
              cs->mouseWindowPos.y = (double) yi / h;
              cs->activeSw->selectedWindowArea0.x0 = cs->mouseWindowPos.x;
              cs->activeSw->selectedWindowArea0.y0 = cs->mouseWindowPos.y;
+             cs->activeSw->selectedWindowArea0.x1 = cs->mouseWindowPos.x;
+             cs->activeSw->selectedWindowArea0.y1 = cs->mouseWindowPos.y;
+
+             cs->activeSw->selectedWindowArea1.x0 = cs->mouseWindowPos.x;
+             cs->activeSw->selectedWindowArea1.y0 = cs->mouseWindowPos.y;
+             cs->activeSw->selectedWindowArea1.x1 = cs->mouseWindowPos.x;
+             cs->activeSw->selectedWindowArea1.y1 = cs->mouseWindowPos.y;
              break;
          }
      case KMOD_GUI:
@@ -480,8 +560,9 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
     {
      case MOUSE_STATE_SELECTING:
          {
-             Area *sel = & cs->activeSw->selectedWindowArea1;
-             if (sel->x0 == sel->x1 && sel->y0 == sel->y1)
+             Area *swa0 = & cs->activeSw->selectedWindowArea0;
+             Area *swa1 = & cs->activeSw->selectedWindowArea1;
+             if (swa1->x0 == swa1->x1 && swa1->y0 == swa1->y1)
                  cs->zoomEnabled ^= 1;
              else
              {
@@ -490,7 +571,8 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
                  Area *dr  = & sw->dataRange;
                  Area *swa = & sw->selectedWindowArea1;
                  Area activeArea;
-                 get_active_area (cs, & sw->windowArea, & activeArea);
+                 Area zoomWindowArea = {0,0,1,1};
+                 get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
                  Position wPos0 = {swa->x0, swa->y0};
                  Position wPos1 = {swa->x1, swa->y1};
                  Position dPos0, dPos1;
@@ -502,9 +584,10 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
                  dr->y0 = dPos0.y;
                  dr->x1 = dPos1.x;
                  dr->y1 = dPos1.y;
-                 //print ("zoom to new area [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
-                 sel->x0 = sel->x1 = sel->y0 = sel->y1 = NaN;
+                 print ("zoom to new area [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
              }
+             swa0->x0 = swa0->x1 = swa0->y0 = swa0->y1 = NaN;
+             swa1->x0 = swa1->x1 = swa1->y0 = swa1->y1 = NaN;
              break;
          }
      default:
@@ -533,8 +616,19 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 
              for (int i=0; i<cs->numSubWindows; i++)
              {
-                 SubWindow *sw = cs->zoomEnabled ? cs->activeSw : & cs->subWindows[i];
-                 get_active_area (cs, & sw->windowArea, & activeArea);
+                 SubWindow *sw;
+                 if (cs->zoomEnabled)
+                 {
+                     sw = cs->activeSw;
+                     Area zoomWindowArea = {0,0,1,1};
+                     get_active_area (cs, & zoomWindowArea, & activeArea);
+                 }
+                 else
+                 {
+                     sw = & cs->subWindows[i];
+                     get_active_area (cs, & sw->windowArea, & activeArea);
+                 }
+
 
                  cs->mouseWindowPos.x = (double) xi / w;
                  cs->mouseWindowPos.y = (double) yi / h;
@@ -561,8 +655,11 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
              Area *dr = & sw->dataRange;
              double dx = (cs->mouseWindowPos.x - oldPos.x);
              double dy = (cs->mouseWindowPos.y - oldPos.y);
-             dx /= (sw->windowArea.x1 - sw->windowArea.x0);
-             dy /= (sw->windowArea.y1 - sw->windowArea.y0);
+             if (!cs->zoomEnabled)
+             {
+                 dx /= (sw->windowArea.x1 - sw->windowArea.x0);
+                 dy /= (sw->windowArea.y1 - sw->windowArea.y0);
+             }
              dx *= dr->x1 - dr->x0;
              dy *= dr->y1 - dr->y0;
 
@@ -581,49 +678,50 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
              uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
              cs->mouseWindowPos.x = (double) xi / w;
              cs->mouseWindowPos.y = (double) yi / h;
-             Area *a0 = & cs->activeSw->selectedWindowArea0;
-             Area *a1 = & cs->activeSw->selectedWindowArea1;
-             a0->x1 = cs->mouseWindowPos.x;
-             a0->y1 = cs->mouseWindowPos.y;
-             if (a0->x0 < a0->x1)
+             Area *swa0 = & cs->activeSw->selectedWindowArea0;
+             Area *swa1 = & cs->activeSw->selectedWindowArea1;
+             swa0->x1 = cs->mouseWindowPos.x;
+             swa0->y1 = cs->mouseWindowPos.y;
+             if (swa0->x0 < swa0->x1)
              {
-                 a1->x0 = a0->x0;
-                 a1->x1 = a0->x1;
+                 swa1->x0 = swa0->x0;
+                 swa1->x1 = swa0->x1;
              }
              else
              {
-                 a1->x0 = a0->x1;
-                 a1->x1 = a0->x0;
+                 swa1->x0 = swa0->x1;
+                 swa1->x1 = swa0->x0;
              }
-             if (a0->y0 < a0->y1)
+             if (swa0->y0 < swa0->y1)
              {
-                 a1->y0 = a0->y0;
-                 a1->y1 = a0->y1;
+                 swa1->y0 = swa0->y0;
+                 swa1->y1 = swa0->y1;
              }
              else
              {
-                 a1->y0 = a0->y1;
-                 a1->y1 = a0->y0;
+                 swa1->y0 = swa0->y1;
+                 swa1->y1 = swa0->y0;
              }
 
-             double minDiffX = 10.0 / w;
-             double minDiffY = 10.0 / h;
+             double minDiffX = 16.0 / w;
+             double minDiffY = 16.0 / h;
 
-             double dx = a1->x1 - a1->x0;
-             double dy = a1->y1 - a1->y0;
+             double dx = swa1->x1 - swa1->x0;
+             double dy = swa1->y1 - swa1->y0;
 
              if (dx >= minDiffX || dy >= minDiffY)
              {
-                 Area *wa = & cs->activeSw->windowArea;
+                 Area zoomWindowArea = {0,0,1,1};
+                 Area *wa = cs->zoomEnabled ? & zoomWindowArea : & cs->activeSw->windowArea;
                  if (dx < minDiffX)
                  {
-                     a1->x0 = wa->x0;
-                     a1->x1 = wa->x1;
+                     swa1->x0 = wa->x0;
+                     swa1->x1 = wa->x1;
                  }
                  if (dy < minDiffY)
                  {
-                     a1->y0 = wa->y0;
-                     a1->y1 = wa->y1;
+                     swa1->y0 = wa->y0;
+                     swa1->y1 = wa->y1;
                  }
              }
              break;
@@ -713,9 +811,8 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         {
             switch (key)
             {
-             case 'a': autoscale (cs); break;
-             case 'r': reset_scaling (cs); break;
-             case 'f': toggle_fullscreen (cs); break;
+             case 'a': autoscale (cs->activeSw); break;
+             case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
              case 'm': toggle_mouse (cs); break;
              case 's': toggle_statusline (cs); break;
              case 'q': quit (cs); break;
@@ -755,18 +852,20 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         }
     }
 
-    else if (pressed)
+    if (pressed)
     {
+        double zf = 0.05;
+        double mf = 0.025;
         switch (key)
         {
-         case SDLK_LEFT: move_left (cs); break;
-         case SDLK_RIGHT: move_right (cs); break;
-         case SDLK_UP: move_up (cs); break;
-         case SDLK_DOWN: move_down (cs); break;
-         case '+': expand_x (cs); break;
-         case '-': compress_x (cs); break;
-         case '.': expand_y (cs); break;
-         case ',': compress_y (cs); break;
+         case '+': zoom (cs->activeSw,  zf,  zf); break;
+         case '-': zoom (cs->activeSw, -zf, -zf); break;
+         case ',': zoom (cs->activeSw, -zf,  0.00); break;
+         case '.': zoom (cs->activeSw,  zf,  0.00); break;
+         case SDLK_UP:    move (cs->activeSw,  0.00, -mf); break;
+         case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
+         case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
+         case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
          default: unhandled = 1;
         }
     }
@@ -868,10 +967,10 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
 
     if (graph->doublePrecision)
     {
-        double xmin = hist->dataRange.x0;
-        double xmax = hist->dataRange.x1;
-        double ymin = hist->dataRange.y0;
-        double ymax = hist->dataRange.y1;
+        double xmin = (double) hist->dataRange.x0;
+        double xmax = (double) hist->dataRange.x1;
+        double ymin = (double) hist->dataRange.y0;
+        double ymax = (double) hist->dataRange.y1;
 
         double (*xys)[2];
         uint32_t len;
@@ -978,10 +1077,12 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             float x = xys[i][0];
             float y = xys[i][1];
 
-            int xi = (int) (w * (x - xmin) / (xmax - xmin));
-            int yi = (int) (h * (y - ymin) / (ymax - ymin));
+            int xi = (int) ((w-1) * (x - xmin) / (xmax - xmin));
+            int yi = (int) ((h-1) * (y - ymin) / (ymax - ymin));
             if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+            {
                 bins[(uint32_t) yi*w + (uint32_t) xi]++;
+            }
         }
     }
 
@@ -1265,6 +1366,11 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
             sw->selectedWindowArea0.y0 = NaN;
             sw->selectedWindowArea0.y1 = NaN;
 
+            sw->selectedWindowArea1.x0 = NaN;
+            sw->selectedWindowArea1.x1 = NaN;
+            sw->selectedWindowArea1.y0 = NaN;
+            sw->selectedWindowArea1.y1 = NaN;
+
             sw->dataRange.x0 = -1;
             sw->dataRange.x1 =  1;
             sw->dataRange.y0 = -1;
@@ -1316,32 +1422,6 @@ static void signal_handler (int sig)
     interrupted = 1;
 }
 
-static void reinitialise_sdl_context (CinterState *cs)
-{
-    if (cs->texture)
-        SDL_DestroyTexture (cs->texture);
-    if (cs->renderer)
-        SDL_DestroyRenderer (cs->renderer);
-    if (cs->window)
-        SDL_DestroyWindow (cs->window);
-
-    cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                   (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_SHOWN);
-    if (!cs->window)
-        exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
-
-    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
-    if (!cs->renderer)
-        exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
-
-    cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                     (int) cs->windowWidth, (int) cs->windowHeight);
-    if (!cs->texture)
-        exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
-
-    SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
-}
-
 static CinterState *cinterplot_init (void)
 {
     CinterState *cs = safe_calloc (1, sizeof (*cs));
@@ -1351,13 +1431,10 @@ static CinterState *cinterplot_init (void)
     cs->on_keyboard       = on_keyboard;
     cs->plot_data         = plot_data;
 
-    cs->autoscale         = 0;
-    cs->resetScaling      = 0;
     cs->mouseEnabled      = 1;
     cs->trackingEnabled   = 0;
     cs->statuslineEnabled = 1;
     cs->zoomEnabled       = 0;
-    cs->toggleFullscreen  = 0;
     cs->fullscreen        = 0;
     cs->redraw            = 0;
     cs->redrawing         = 0;
@@ -1426,29 +1503,6 @@ static int cinterplot_run_until_quit (CinterState *cs)
              default:
                  break;
             }
-        }
-
-        if (cs->toggleFullscreen)
-        {
-            cs->toggleFullscreen = 0;
-            cs->fullscreen = !cs->fullscreen;
-
-            if (cs->fullscreen)
-            {
-                SDL_DisplayMode displayMode;
-                SDL_GetCurrentDisplayMode (0, & displayMode);
-                assert (displayMode.w > 0);
-                assert (displayMode.h > 0);
-                cs->windowWidth  = (uint32_t) displayMode.w;
-                cs->windowHeight = (uint32_t) displayMode.h;
-            }
-            else
-            {
-                cs->windowWidth  = CINTERPLOT_INIT_WIDTH;
-                cs->windowHeight = CINTERPLOT_INIT_HEIGHT;
-            }
-
-            reinitialise_sdl_context (cs);
         }
 
         double tsp = get_time ();
