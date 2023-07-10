@@ -320,6 +320,52 @@ int autoscale (SubWindow *sw)
     return 1;
 }
 
+int continuous_scroll_update (SubWindow *sw)
+{
+    double xmin =  DBL_MAX;
+    double xmax = -DBL_MAX;
+
+    GraphAttacher **ag = sw->attachedGraphs;
+    for (int i=0; i<sw->numAttachedGraphs; i++)
+    {
+        CinterGraph *graph = ag[i]->graph;
+        wait_for_access (& graph->readAccess);
+        wait_for_access (& graph->insertAccess);
+
+        if (graph->doublePrecision)
+        {
+            double (*xys)[2];
+            uint32_t len;
+            stream_buffer_get (graph->sb, & xys, & len);
+            double x0 = xys[0][0];
+            double x1 = xys[len-1][0];
+            if (xmin > x0) xmin = x0;
+            if (xmax < x1) xmax = x1;
+        }
+        else
+        {
+            float (*xys)[2];
+            uint32_t len;
+            stream_buffer_get (graph->sb, & xys, & len);
+            float x0 = xys[0][0];
+            float x1 = xys[len-1][0];
+            if (xmin > x0) xmin = x0;
+            if (xmax < x1) xmax = x1;
+        }
+        release_access (& graph->insertAccess);
+        release_access (& graph->readAccess);
+    }
+
+    if (xmin == DBL_MAX || xmax == -DBL_MAX)
+        return 0;
+
+    sw->dataRange.x0 = xmin;
+    sw->dataRange.x1 = xmax;
+
+    return 1;
+}
+
+
 int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;      return 1; }
 int toggle_statusline (CinterState *cs)            { cs->statuslineEnabled ^= 1; return 1; }
 int quit (CinterState *cs)                         { cs->running = 0;            return 0; }
@@ -873,7 +919,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     if (unhandled)
         print_debug ("key: %c (%d), pressed: %d, repeat: %d", key, key, pressed, repeat);
 
-    return 0;
+    return 1;
 }
 
 int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec)
@@ -994,19 +1040,6 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             xmax = xys[len-1][0];
         }
         release_access (& graph->insertAccess);
-        //if (xmin == xmax)
-        //{
-        //    xmin = DBL_MAX;
-        //    xmax = -DBL_MAX;
-        //    for (uint32_t i=0; i<len; i++)
-        //    {
-        //        double x = xys[i][0];
-        //        if (xmin > x)
-        //            xmin = x;
-        //        if (xmax < x)
-        //            xmax = x;
-        //    }
-        //}
 
         uint32_t nBins = w * h;
         for (uint32_t i=0; i<nBins; i++)
@@ -1054,19 +1087,6 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             xmax = xys[len-1][0];
         }
         release_access (& graph->insertAccess);
-        //if (xmin == xmax)
-        //{
-        //    xmin = DBL_MAX;
-        //    xmax = -DBL_MAX;
-        //    for (uint32_t i=0; i<len; i++)
-        //    {
-        //        float x = xys[i][0];
-        //        if (xmin > x)
-        //            xmin = x;
-        //        if (xmax < x)
-        //            xmax = x;
-        //    }
-        //}
 
         uint32_t nBins = w * h;
         for (uint32_t i=0; i<nBins; i++)
@@ -1202,6 +1222,9 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         for (uint32_t y=y0; y<y1; y++)
             for (uint32_t x=x0; x<x1;  x++)
                 pixels[y*w + x] = bgColor;
+
+        if (cs->continuousScroll && !cs->paused)
+            continuous_scroll_update (sw);
 
         for (int i=0; i<sw->numAttachedGraphs; i++)
         {
@@ -1436,18 +1459,24 @@ static CinterState *cinterplot_init (void)
     cs->statuslineEnabled = 1;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;
+    cs->continuousScroll  = 0;
     cs->redraw            = 0;
     cs->redrawing         = 0;
     cs->running           = 1;
-    cs->bgShade           = 0.04f;
     cs->bordered          = 0;
     cs->paused            = 0;
+    cs->forceRefresh      = 0;
     cs->margin            = 10;
+
     cs->frameCounter      = 0;
     cs->pressedModifiers  = 0;
+
+    cs->bgShade           = 0.04f;
     cs->subWindows        = NULL;
     cs->windowWidth       = CINTERPLOT_INIT_WIDTH;
     cs->windowHeight      = CINTERPLOT_INIT_HEIGHT;
+
+    cs->mouseState = MOUSE_STATE_NONE;
 
     signal (SIGINT, signal_handler);
 

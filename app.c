@@ -79,6 +79,7 @@ int user_main (int argc, char **argv, CinterState *cs)
     //twisterDev = midi_init ("Midi Fighter Twister");
     //midi_connect (twisterDev);
 
+    cs->continuousScroll = 1;
     const uint32_t nRows = 2;
     const uint32_t nCols = 3;
     const uint32_t n = nRows * nCols;
@@ -126,8 +127,8 @@ int user_main (int argc, char **argv, CinterState *cs)
                 double *r = heavy_tail_ncube (n);
                 a[i] = f * a[i] + (1-f) * r[i] * 0.1;
                 double y = a[i] * sin (2 * M_PI * v * a[i] * (i+1));
-                double x = a[i] * cos (2 * M_PI * v * a[i] * (i+1));
-                //double x = t;
+                //double x = a[i] * cos (2 * M_PI * v * a[i] * (i+1));
+                double x = t;
                 graph_add_point (sineGraph[i], x, y);
             }
         }

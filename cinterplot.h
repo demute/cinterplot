@@ -108,6 +108,7 @@ typedef struct CinterState
     uint32_t statuslineEnabled : 1;
     uint32_t zoomEnabled : 1;
     uint32_t fullscreen : 1;
+    uint32_t continuousScroll : 1;
     uint32_t redraw : 1;
     uint32_t redrawing : 1;
     uint32_t running : 1;
