@@ -94,6 +94,7 @@ typedef struct CinterState
     uint32_t resetScaling : 1;
     uint32_t mouseEnabled : 1;
     uint32_t trackingEnabled : 1;
+    uint32_t statuslineEnabled : 1;
     uint32_t toggleFullscreen : 1;
     uint32_t fullscreen : 1;
     uint32_t redraw : 1;

@@ -227,15 +227,16 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
     return scheme;
 }
 
-int autoscale (CinterState *cs)                    { cs->autoscale = 1;        return 1; }
-int reset_scaling (CinterState *cs)                { cs->resetScaling = 1;     return 1; }
-int background (CinterState *cs, float bgShade)    { cs->bgShade = bgShade;    return 1; }
-int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;    return 1; }
-int toggle_fullscreen (CinterState *cs)            { cs->toggleFullscreen = 1; return 1; }
-int quit (CinterState *cs)                         { cs->running = 0;          return 0; }
-int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;     return 0; }
-int toggle_tracking (CinterState *cs)              { cs->trackingEnabled ^= 1; return 1; }
-int toggle_paused (CinterState *cs)                { cs->paused ^= 1;          return 1; }
+int autoscale (CinterState *cs)                    { cs->autoscale = 1;          return 1; }
+int reset_scaling (CinterState *cs)                { cs->resetScaling = 1;       return 1; }
+int background (CinterState *cs, float bgShade)    { cs->bgShade = bgShade;      return 1; }
+int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;      return 1; }
+int toggle_statusline (CinterState *cs)            { cs->statuslineEnabled ^= 1; return 1; }
+int toggle_fullscreen (CinterState *cs)            { cs->toggleFullscreen = 1;   return 1; }
+int quit (CinterState *cs)                         { cs->running = 0;            return 0; }
+int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;       return 0; }
+int toggle_tracking (CinterState *cs)              { cs->trackingEnabled ^= 1;   return 1; }
+int toggle_paused (CinterState *cs)                { cs->paused ^= 1;            return 1; }
 
 int move_left (CinterState *cs)
 {
@@ -373,6 +374,7 @@ static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, ui
     }
 }
 
+
 static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int clicks)
 {
     cs->mouse.button = button;
@@ -396,6 +398,115 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
     cs->mouse.x = xi;
     cs->mouse.y = yi;
     return 1;
+}
+
+static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
+{
+    // FIXME: If both the left and right key of the same modifier gets pressed at
+    // the same time and then one gets released, the state of pressedModifiers
+    // gets zeroed out
+    if (key == SDLK_LSHIFT || key == SDLK_RSHIFT)
+    {
+        if (pressed)
+            cs->pressedModifiers |= KMOD_SHIFT;
+        else
+            cs->pressedModifiers &= ~KMOD_SHIFT;
+        return 0;
+    }
+    else if (key == SDLK_LGUI || key == SDLK_RGUI)
+    {
+        if (pressed)
+            cs->pressedModifiers |= KMOD_GUI;
+        else
+            cs->pressedModifiers &= ~KMOD_GUI;
+        return 0;
+    }
+    else if (key == SDLK_LALT || key == SDLK_RALT)
+    {
+        if (pressed)
+            cs->pressedModifiers |= KMOD_ALT;
+        else
+            cs->pressedModifiers &= ~KMOD_ALT;
+        return 0;
+    }
+    else if (key == SDLK_LCTRL || key == SDLK_RCTRL)
+    {
+        if (pressed)
+            cs->pressedModifiers |= KMOD_CTRL;
+        else
+            cs->pressedModifiers &= ~KMOD_CTRL;
+        return 0;
+    }
+
+    int unhandled = 0;
+    if (pressed && !repeat)
+    {
+        if (mod == 0)
+        {
+            switch (key)
+            {
+             case 'a': autoscale (cs); break;
+             case 'r': reset_scaling (cs); break;
+             case 'f': toggle_fullscreen (cs); break;
+             case 'm': toggle_mouse (cs); break;
+             case 's': toggle_statusline (cs); break;
+             case 'q': quit (cs); break;
+             case 'e': force_refresh (cs); break;
+             case 't': toggle_tracking (cs); break;
+                       //case 'x': exit_zoom (cs); break;
+             case ' ': toggle_paused (cs); break;
+
+             case '0':
+             case '1':
+             case '2':
+             case '3':
+             case '4':
+             case '5':
+             case '6':
+             case '7':
+             case '8':
+             case '9':
+                       {
+                           int index = key - '1';
+                           if (index < 0)
+                               index = 9;
+                           float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
+                           cs->bgShade = shades[index];
+                           break;
+                       }
+             default: unhandled = 1;
+            }
+        }
+        else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
+        {
+            unhandled = 1;
+        }
+        else
+        {
+            unhandled = 1;
+        }
+    }
+
+    else if (pressed)
+    {
+        switch (key)
+        {
+         case SDLK_LEFT: move_left (cs); break;
+         case SDLK_RIGHT: move_right (cs); break;
+         case SDLK_UP: move_up (cs); break;
+         case SDLK_DOWN: move_down (cs); break;
+         case '+': expand_x (cs); break;
+         case '-': compress_x (cs); break;
+         case '.': expand_y (cs); break;
+         case ',': compress_y (cs); break;
+         default: unhandled = 1;
+        }
+    }
+
+    if (unhandled)
+        print_debug ("key: %c (%d), pressed: %d, repeat: %d", key, key, pressed, repeat);
+
+    return 0;
 }
 
 int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t row, uint32_t col, char plotType, char *colorSpec)
@@ -477,114 +588,6 @@ void graph_add_point (CinterGraph *graph, double x, double y)
         float xy[2] = {(float) x, (float) y};
         stream_buffer_insert (sb, xy);
     }
-}
-
-static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
-{
-    // FIXME: If both the left and right key of the same modifier gets pressed at
-    // the same time and then one gets released, the state of pressedModifiers
-    // gets zeroed out
-    if (key == SDLK_LSHIFT || key == SDLK_RSHIFT)
-    {
-        if (pressed)
-            cs->pressedModifiers |= KMOD_SHIFT;
-        else
-            cs->pressedModifiers &= ~KMOD_SHIFT;
-        return 0;
-    }
-    else if (key == SDLK_LGUI || key == SDLK_RGUI)
-    {
-        if (pressed)
-            cs->pressedModifiers |= KMOD_GUI;
-        else
-            cs->pressedModifiers &= ~KMOD_GUI;
-        return 0;
-    }
-    else if (key == SDLK_LALT || key == SDLK_RALT)
-    {
-        if (pressed)
-            cs->pressedModifiers |= KMOD_ALT;
-        else
-            cs->pressedModifiers &= ~KMOD_ALT;
-        return 0;
-    }
-    else if (key == SDLK_LCTRL || key == SDLK_RCTRL)
-    {
-        if (pressed)
-            cs->pressedModifiers |= KMOD_CTRL;
-        else
-            cs->pressedModifiers &= ~KMOD_CTRL;
-        return 0;
-    }
-
-    int unhandled = 0;
-    if (pressed && !repeat)
-    {
-        if (mod == 0)
-        {
-            switch (key)
-            {
-             case 'a': autoscale (cs); break;
-             case 's': reset_scaling (cs); break;
-             case 'f': toggle_fullscreen (cs); break;
-             case 'm': toggle_mouse (cs); break;
-             case 'q': quit (cs); break;
-             case 'r': force_refresh (cs); break;
-             case 't': toggle_tracking (cs); break;
-                       //case 'x': exit_zoom (cs); break;
-             case ' ': toggle_paused (cs); break;
-
-             case '0':
-             case '1':
-             case '2':
-             case '3':
-             case '4':
-             case '5':
-             case '6':
-             case '7':
-             case '8':
-             case '9':
-                       {
-                           int index = key - '1';
-                           if (index < 0)
-                               index = 9;
-                           float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
-                           cs->bgShade = shades[index];
-                           break;
-                       }
-             default: unhandled = 1;
-            }
-        }
-        else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
-        {
-            unhandled = 1;
-        }
-        else
-        {
-            unhandled = 1;
-        }
-    }
-
-    else if (pressed)
-    {
-        switch (key)
-        {
-         case SDLK_LEFT: move_left (cs); break;
-         case SDLK_RIGHT: move_right (cs); break;
-         case SDLK_UP: move_up (cs); break;
-         case SDLK_DOWN: move_down (cs); break;
-         case '+': expand_x (cs); break;
-         case '-': compress_x (cs); break;
-         case '.': expand_y (cs); break;
-         case ',': compress_y (cs); break;
-         default: unhandled = 1;
-        }
-    }
-
-    if (unhandled)
-        print_debug ("key: %c (%d), pressed: %d, repeat: %d", key, key, pressed, repeat);
-
-    return 0;
 }
 
 void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
@@ -715,6 +718,60 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
     release_access (& graph->readAccess);
 }
 
+uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint32_t y0, uint32_t color, int transparent, char *message)
+{
+    if (!pixels)
+        return 0;
+
+    uint32_t scale = 2;
+    uint32_t fh = 8*scale;
+    uint32_t fw = 6*scale;
+
+    char *p = message;
+    uint32_t cols = 256;
+    uint32_t margin = 1;
+
+    //y0 -= fh + margin;
+    //x0 -= fw + margin;
+
+    uint32_t x = x0;
+    uint32_t y = y0;
+
+    int i=0;
+    while (*p)
+    {
+        if ((++i == cols) || (*p == '\n'))
+        {
+            int wrap = (i == cols);
+            i = 0;
+            x = x0;
+            y += fh + 4 * margin;
+            if (wrap) continue;
+        }
+        else if (*p == '\t')
+        {
+            while (++i % 4)
+                x += fw + margin;
+        }
+        else
+        {
+            if (x > 0 && x < w-1-fw && 
+               (y > 0 && y < h-1-fh))
+            {
+                for (uint32_t yi=0; yi<fh; yi++)
+                    for (uint32_t xi=0; xi<fw; xi++)
+                        if (!((font[(int)(*p)][yi/scale] >> (11-(xi/scale))) & 1))
+                            pixels[(y+yi)*w + (x+xi)] = color;
+                        else if (!transparent)
+                            pixels[(y+yi)*w + (x+xi)] = ~color;
+            }
+            x += fw + margin;
+        }
+        p++;
+    }
+    return y - y0;
+}
+
 static void plot_data (CinterState *cs, uint32_t *pixels)
 {
     uint32_t w     = cs->windowWidth;
@@ -725,6 +782,10 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     cs->forceRefresh = 0;
     uint32_t bordered = cs->bordered;
     uint32_t margin   = cs->margin;
+    int snap = 20;
+
+    if (cs->statuslineEnabled)
+        h -= 20;
 
     uint32_t dy, dx;
     if (cs->zoomWindow)
@@ -752,17 +813,22 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     {
         mouseCol        = cs->mouse.pressX / (int) dx;
         mouseRow        = cs->mouse.pressY / (int) dy;
-        relMouse.x      = cs->mouse.x      - mouseCol * (int) (dx - margin - bordered);
-        relMouse.y      = cs->mouse.y      - mouseRow * (int) (dy - margin - bordered);
-        relMouse.lastX  = cs->mouse.lastX  - mouseCol * (int) (dx - margin - bordered);
-        relMouse.lastY  = cs->mouse.lastY  - mouseRow * (int) (dy - margin - bordered);
-        relMouse.pressX = cs->mouse.pressX - mouseCol * (int) (dx - margin - bordered);
-        relMouse.pressY = cs->mouse.pressY - mouseRow * (int) (dy - margin - bordered);
+        if (cs->zoomWindow)
+        {
+            mouseCol = 0;
+            mouseRow = 0;
+        }
+        relMouse.x      = cs->mouse.x      - mouseCol * (int) dx - (int) margin - (int) bordered;
+        relMouse.y      = cs->mouse.y      - mouseRow * (int) dy - (int) margin - (int) bordered;
+        relMouse.lastX  = cs->mouse.lastX  - mouseCol * (int) dx - (int) margin - (int) bordered;
+        relMouse.lastY  = cs->mouse.lastY  - mouseRow * (int) dy - (int) margin - (int) bordered;
+        relMouse.pressX = cs->mouse.pressX - mouseCol * (int) dx - (int) margin - (int) bordered;
+        relMouse.pressY = cs->mouse.pressY - mouseRow * (int) dy - (int) margin - (int) bordered;
 
         if (cs->mouse.releaseX || cs->mouse.releaseY)
         {
-            relMouse.releaseX = cs->mouse.releaseX - mouseCol * (int) (dx - margin - bordered);
-            relMouse.releaseY = cs->mouse.releaseY - mouseRow * (int) (dy - margin - bordered);
+            relMouse.releaseX = cs->mouse.releaseX - mouseCol * (int) dx - (int) margin - (int) bordered;
+            relMouse.releaseY = cs->mouse.releaseY - mouseRow * (int) dy - (int) margin - (int) bordered;
 
             cs->mouse.releaseX = 0;
             cs->mouse.releaseY = 0;
@@ -780,10 +846,15 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     {
         mouseCol       = cs->mouse.x / (int) dx;
         mouseRow       = cs->mouse.y / (int) dy;
-        relMouse.x     = cs->mouse.x     - mouseCol * (int) (dx - margin - bordered);
-        relMouse.y     = cs->mouse.y     - mouseRow * (int) (dy - margin - bordered);
-        relMouse.lastX = cs->mouse.lastX - mouseCol * (int) (dx - margin - bordered);
-        relMouse.lastY = cs->mouse.lastY - mouseRow * (int) (dy - margin - bordered);
+        if (cs->zoomWindow)
+        {
+            mouseCol = 0;
+            mouseRow = 0;
+        }
+        relMouse.x     = cs->mouse.x     - mouseCol * (int) dx - (int) margin - (int) bordered;
+        relMouse.y     = cs->mouse.y     - mouseRow * (int) dy - (int) margin - (int) bordered;
+        relMouse.lastX = cs->mouse.lastX - mouseCol * (int) dx - (int) margin - (int) bordered;
+        relMouse.lastY = cs->mouse.lastY - mouseRow * (int) dy - (int) margin - (int) bordered;
     }
     cs->mouse.lastX = cs->mouse.x;
     cs->mouse.lastY = cs->mouse.y;
@@ -837,19 +908,38 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             double newXmax = ((double) x1 / subWidth)  * (activeSw->xmax - activeSw->xmin) + activeSw->xmin;
             double newYmin = ((double) y0 / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
             double newYmax = ((double) y1 / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
-            activeSw->xmin = newXmin;
-            activeSw->xmax = newXmax;
-            activeSw->ymin = newYmin;
-            activeSw->ymax = newYmax;
+            if ((x1-x0 < snap && y1-y0 < snap) || x1-x0 >= snap)
+            {
+                activeSw->xmin = newXmin;
+                activeSw->xmax = newXmax;
+            }
+            if ((x1-x0 < snap && y1-y0 < snap) || y1-y0 >= snap)
+            {
+                activeSw->ymin = newYmin;
+                activeSw->ymax = newYmax;
+            }
             print_debug ("mouse released, new range: x:[%f, %f] y:[%f, %f]", activeSw->xmin, activeSw->xmax, activeSw->ymin, activeSw->ymax);
         }
+    }
+
+    if (cs->statuslineEnabled && activeSw)
+    {
+        uint32_t textColor = make_gray (0.9f);
+        int transparent = 1;
+        uint32_t x0 = 10;
+        uint32_t y0 = cs->windowHeight - 20;
+        char message[256];
+        double xCoord = ((double) relMouse.x / subWidth)  * (activeSw->xmax - activeSw->xmin) + activeSw->xmin;
+        double yCoord = ((double) relMouse.y / subHeight) * (activeSw->ymax - activeSw->ymin) + activeSw->ymin;
+        snprintf (message, sizeof (message), "(x,y) = (%f,%f)", xCoord, yCoord);
+        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, message);
     }
 
     uint32_t activeColor    = make_gray (1.0f);
     uint32_t inactiveColor  = make_gray (0.4f);
     uint32_t crossHairColor = make_gray (0.6f);
     uint32_t bgColor        = make_gray (cs->bgShade);
-    uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.08f : -0.08f));
+    uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.2f : -0.2f));
 
     for (uint32_t rowi=0; rowi < nRows; rowi++)
     {
@@ -954,6 +1044,20 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                                 y0 ^= y1;
                                 y1 ^= y0;
                                 y0 ^= y1;
+                            }
+
+                            if (x1 - x0 > snap || y1 - y0 > snap)
+                            {
+                                if (x1 - x0 < snap)
+                                {
+                                    x0 = 0;
+                                    x1 = (int) subWidth;
+                                }
+                                else if (y1 - y0 < snap)
+                                {
+                                    y0 = 0;
+                                    y1 = (int) subHeight;
+                                }
                             }
 
                             if (x0 <= x && x <= x1 && y0 <= y && y <= y1)
@@ -1067,27 +1171,28 @@ static CinterState *cinterplot_init (void)
     cs->on_keyboard       = on_keyboard;
     cs->plot_data         = plot_data;
 
-    cs->autoscale        = 0;
-    cs->resetScaling     = 0;
-    cs->mouseEnabled     = 1;
-    cs->trackingEnabled  = 0;
-    cs->toggleFullscreen = 0;
-    cs->fullscreen       = 0;
-    cs->redraw           = 0;
-    cs->redrawing        = 0;
-    cs->running          = 1;
-    cs->bgShade          = 0.04f;
-    cs->nRows            = 0;
-    cs->nCols            = 0;
-    cs->bordered         = 0;
-    cs->paused           = 0;
-    cs->margin           = 10;
-    cs->frameCounter     = 0;
-    cs->pressedModifiers = 0;
-    cs->subWindows       = NULL;
-    cs->zoomWindow       = NULL;
-    cs->windowWidth      = CINTERPLOT_INIT_WIDTH;
-    cs->windowHeight     = CINTERPLOT_INIT_HEIGHT;
+    cs->autoscale         = 0;
+    cs->resetScaling      = 0;
+    cs->mouseEnabled      = 1;
+    cs->trackingEnabled   = 0;
+    cs->statuslineEnabled = 1;
+    cs->toggleFullscreen  = 0;
+    cs->fullscreen        = 0;
+    cs->redraw            = 0;
+    cs->redrawing         = 0;
+    cs->running           = 1;
+    cs->bgShade           = 0.04f;
+    cs->nRows             = 0;
+    cs->nCols             = 0;
+    cs->bordered          = 0;
+    cs->paused            = 0;
+    cs->margin            = 10;
+    cs->frameCounter      = 0;
+    cs->pressedModifiers  = 0;
+    cs->subWindows        = NULL;
+    cs->zoomWindow        = NULL;
+    cs->windowWidth       = CINTERPLOT_INIT_WIDTH;
+    cs->windowHeight      = CINTERPLOT_INIT_HEIGHT;
 
     signal (SIGINT, signal_handler);
 
