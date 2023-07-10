@@ -80,44 +80,59 @@ int user_main (int argc, char **argv, CinterState *cs)
     //twisterDev = midi_init ("Midi Fighter Twister");
     //midi_connect (twisterDev);
 
-    uint32_t nRows = 2;
-    uint32_t nCols = 3;
+    const uint32_t nRows = 2;
+    const uint32_t nCols = 3;
+    const uint32_t n = nRows * nCols;
     uint32_t bordered = 1;
     uint32_t margin = 4;
 
     if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
-    CinterGraph *sineGraph[6];
-    for (int i=0; i<6; i++)
+    CinterGraph *sineGraph[n];
+    for (int i=0; i<n; i++)
        sineGraph[i] = graph_new (1000000, 1);
 
-    graph_attach (cs, sineGraph[0], 0, 0, 'p', "red orange white");
-    graph_attach (cs, sineGraph[1], 0, 1, 'p', "purple blue white");
-    graph_attach (cs, sineGraph[2], 0, 2, 'p', "blue yellow white");
-    graph_attach (cs, sineGraph[3], 1, 0, 'p', "brown turquoise white");
-    graph_attach (cs, sineGraph[4], 1, 1, 'p', "violet indigo white");
-    graph_attach (cs, sineGraph[5], 1, 2, 'p', "chocolate brown red yellow");
+    //char *colorSchemes[n];
+    //for (int i=0; i<n; i++)
+    //{
+    //}
+    char *colorSchemes[6] =
+    {
+        "red orange white",
+        "purple blue white",
+        "blue yellow white",
+        "brown turquoise white",
+        "violet indigo white",
+        "chocolate brown red yellow"
+    };
+
+    for (uint32_t i=0; i<n; i++)
+    {
+        uint32_t row = i / nCols;
+        uint32_t col = i - row * nCols;
+        graph_attach (cs, sineGraph[i], row, col, 'p', colorSchemes[i % 6]);
+    }
 
     double v = 0;
     uint64_t t = 0;
-    double a[6] = {0};
+    double a[n] = {0};
     while (cs->running)
     {
-        usleep (1);
+        usleep (0);
         while (cs->paused && cs->running)
             usleep (10000);
 
         //if (t < 500000)
         {
-            for (int i=0; i<6; i++)
+            for (int i=0; i<n; i++)
             {
                 v += (1.0 / 1024.0) * 1.3;
                 if (v > 5)
                     v -= 5;
 
                 double f = 0.99;
-                double *r = heavy_tail_ncube (6);
+                double *r = heavy_tail_ncube (n);
                 a[i] = f * a[i] + (1-f) * r[i] * 0.1;
                 double y = a[i] * sin (2 * M_PI * v * a[i] * (i+1));
                 double x = a[i] * cos (2 * M_PI * v * a[i] * (i+1));
