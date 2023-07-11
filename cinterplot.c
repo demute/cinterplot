@@ -41,6 +41,7 @@ enum
 
 extern const unsigned int font[256][8];
 static int interrupted = 0;
+static int paused = 0;
 
 static inline void wait_for_access (atomic_flag* accessFlag)
 {
@@ -368,10 +369,10 @@ int continuous_scroll_update (SubWindow *sw)
 
 int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;      return 1; }
 int toggle_statusline (CinterState *cs)            { cs->statuslineEnabled ^= 1; return 1; }
-int quit (CinterState *cs)                         { cs->running = 0;            return 0; }
-int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;       return 0; }
+int quit (CinterState *cs)                         { cs->running = 0; paused=0;  return 0; }
+int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;       return 1; }
 int toggle_tracking (CinterState *cs)              { cs->trackingEnabled ^= 1;   return 1; }
-int toggle_paused (CinterState *cs)                { cs->paused ^= 1;            return 1; }
+int toggle_paused (CinterState *cs)                { paused ^= 1;                return 1; }
 
 int zoom (SubWindow *sw, double xf, double yf)
 {
@@ -619,35 +620,50 @@ static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int cl
         cs->mouseState = MOUSE_STATE_NONE;
         return 0;
     }
-    //SubWindow *sw = cs->activeSw;
 
-    switch (cs->pressedModifiers)
+    if (button == 1)
     {
-     case KMOD_NONE:
-         {
-             cs->mouseState = MOUSE_STATE_SELECTING;
-             uint32_t w = cs->windowWidth;
-             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-             cs->mouseWindowPos.x = (double) xi / w;
-             cs->mouseWindowPos.y = (double) yi / h;
-             cs->activeSw->selectedWindowArea0.x0 = cs->mouseWindowPos.x;
-             cs->activeSw->selectedWindowArea0.y0 = cs->mouseWindowPos.y;
-             cs->activeSw->selectedWindowArea0.x1 = cs->mouseWindowPos.x;
-             cs->activeSw->selectedWindowArea0.y1 = cs->mouseWindowPos.y;
+        switch (cs->pressedModifiers)
+        {
+         case KMOD_NONE:
+             {
+                 cs->mouseState = MOUSE_STATE_SELECTING;
+                 uint32_t w = cs->windowWidth;
+                 uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+                 cs->mouseWindowPos.x = (double) xi / w;
+                 cs->mouseWindowPos.y = (double) yi / h;
+                 cs->activeSw->selectedWindowArea0.x0 = cs->mouseWindowPos.x;
+                 cs->activeSw->selectedWindowArea0.y0 = cs->mouseWindowPos.y;
+                 cs->activeSw->selectedWindowArea0.x1 = cs->mouseWindowPos.x;
+                 cs->activeSw->selectedWindowArea0.y1 = cs->mouseWindowPos.y;
 
-             cs->activeSw->selectedWindowArea1.x0 = cs->mouseWindowPos.x;
-             cs->activeSw->selectedWindowArea1.y0 = cs->mouseWindowPos.y;
-             cs->activeSw->selectedWindowArea1.x1 = cs->mouseWindowPos.x;
-             cs->activeSw->selectedWindowArea1.y1 = cs->mouseWindowPos.y;
+                 cs->activeSw->selectedWindowArea1.x0 = cs->mouseWindowPos.x;
+                 cs->activeSw->selectedWindowArea1.y0 = cs->mouseWindowPos.y;
+                 cs->activeSw->selectedWindowArea1.x1 = cs->mouseWindowPos.x;
+                 cs->activeSw->selectedWindowArea1.y1 = cs->mouseWindowPos.y;
+                 break;
+             }
+         case KMOD_GUI:
+             {
+                 cs->mouseState = MOUSE_STATE_MOVING;
+                 break;
+             }
+         default:
              break;
-         }
-     case KMOD_GUI:
-         {
-             cs->mouseState = MOUSE_STATE_MOVING;
+        }
+    }
+    else if (button == 3)
+    {
+        switch (cs->pressedModifiers)
+        {
+         case KMOD_NONE:
+             {
+                 cs->mouseState = MOUSE_STATE_MOVING;
+                 break;
+             }
+         default:
              break;
-         }
-     default:
-         break;
+        }
     }
 
     return 1;
@@ -698,6 +714,26 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
     cs->mouseState = MOUSE_STATE_NONE;
 
     return 1;
+}
+
+static int on_mouse_wheel (CinterState *cs, float xf, float yf)
+{
+    SubWindow *sw = cs->activeSw;
+    if (sw && cs->mouseState == MOUSE_STATE_NONE)
+    {
+        Area *dr = & sw->dataRange;
+        double a = (sw->mouseDataPos.x - dr->x0) / (dr->x1 - dr->x0);
+        double b = (sw->mouseDataPos.y - dr->y0) / (dr->y1 - dr->y0);
+
+        double dx = -0.05 * (dr->x1 - dr->x0) * xf;
+        double dy = -0.05 * (dr->y1 - dr->y0) * yf;
+        dr->x0 += dx * a;
+        dr->x1 -= dx * (1-a);
+        dr->y0 += dy * b;
+        dr->y1 -= dy * (1-b);
+        return 1;
+    }
+    return 0;
 }
 
 static int on_mouse_motion (CinterState *cs, int xi, int yi)
@@ -1029,6 +1065,9 @@ CinterGraph *graph_new (uint32_t len, int doublePrecision)
 
 void graph_add_point (CinterGraph *graph, double x, double y)
 {
+    while (paused)
+        usleep (10000);
+
     StreamBuffer *sb = graph->sb;
     assert (sb);
 
@@ -1304,7 +1343,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             for (uint32_t x=x0; x<x1;  x++)
                 pixels[y*w + x] = bgColor;
 
-        if (cs->continuousScroll && !cs->paused)
+        if (cs->continuousScroll && !paused)
             continuous_scroll_update (sw);
 
         for (int i=0; i<sw->numAttachedGraphs; i++)
@@ -1532,6 +1571,7 @@ static CinterState *cinterplot_init (void)
     cs->on_mouse_pressed  = on_mouse_pressed;
     cs->on_mouse_released = on_mouse_released;
     cs->on_mouse_motion   = on_mouse_motion;
+    cs->on_mouse_wheel    = on_mouse_wheel;
     cs->on_keyboard       = on_keyboard;
     cs->plot_data         = plot_data;
 
@@ -1545,7 +1585,6 @@ static CinterState *cinterplot_init (void)
     cs->redrawing         = 0;
     cs->running           = 1;
     cs->bordered          = 0;
-    cs->paused            = 0;
     cs->forceRefresh      = 0;
     cs->margin            = 10;
 
@@ -1598,6 +1637,9 @@ static int cinterplot_run_until_quit (CinterState *cs)
                  break;
              case SDL_MOUSEMOTION:
                  cs->redraw |= cs->on_mouse_motion (cs, sdlEvent.motion.x, sdlEvent.motion.y);
+                 break;
+             case SDL_MOUSEWHEEL:
+                 cs->redraw |= cs->on_mouse_wheel (cs, sdlEvent.wheel.preciseX, sdlEvent.wheel.preciseY);
                  break;
              case SDL_KEYDOWN:
              case SDL_KEYUP:

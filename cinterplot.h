@@ -113,7 +113,6 @@ typedef struct CinterState
     uint32_t redrawing : 1;
     uint32_t running : 1;
     uint32_t bordered : 1;
-    uint32_t paused : 1;
     uint32_t forceRefresh : 1;
     uint32_t margin : 8;
 
@@ -141,6 +140,7 @@ typedef struct CinterState
     int  (*on_mouse_pressed)  (struct CinterState *cs, int xi, int yi, int button, int clicks);
     int  (*on_mouse_released) (struct CinterState *cs, int xi, int yi);
     int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
+    int  (*on_mouse_wheel)    (struct CinterState *cs, float xf, float yf);
     int  (*on_keyboard)       (struct CinterState *cs, int key, int mod, int pressed, int repeat);
     void (*plot_data)         (struct CinterState *cs, uint32_t *pixels);
 
@@ -150,20 +150,18 @@ int autoscale (SubWindow *sw);
 int toggle_mouse (CinterState *cs);
 int set_fullscreen (CinterState *cs, uint32_t fullscreen);
 int quit (CinterState *cs);
+int zoom (SubWindow *sw, double xf, double yf);
+int move (SubWindow *sw, double xf, double yf);
 int toggle_tracking (CinterState *cs);
-int move_left (CinterState *cs);
-int move_right (CinterState *cs);
-int move_up (CinterState *cs);
-int move_down (CinterState *cs);
-int expand_x (CinterState *cs);
-int compress_x (CinterState *cs);
-int expand_y (CinterState *cs);
-int compress_y (CinterState *cs);
 int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
 
 CinterGraph *graph_new (uint32_t len, int doublePrecision);
 void graph_add_point (CinterGraph *graph, double x, double y);
 int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec);
+
+#define cinterplot_redraw_async(cs) cs->redraw=1
+#define cinterplot_continuous_scroll_enable(cs)  cs->continuousScroll=1
+#define cinterplot_continuous_scroll_disable(cs) cs->continuousScroll=0
 
 #ifdef __cplusplus
 } /* end extern C */
