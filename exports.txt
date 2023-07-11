@@ -1,0 +1,16 @@
+_autoscale
+_toggle_mouse
+_set_fullscreen
+_quit
+_zoom
+_move
+_toggle_tracking
+_make_sub_windows
+_graph_new
+_graph_add_point
+_graph_attach
+_cinterplot_is_running
+_cinterplot_redraw_async
+_cinterplot_continuous_scroll_enable
+_cinterplot_continuous_scroll_disable
+_main

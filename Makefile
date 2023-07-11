@@ -2,33 +2,21 @@
 
 CC      = gcc
 CXX     = g++
-LDFLEX  = -ll
-LIBEXT  = dylib
-
-CFLAGS  = -g -ggdb -Wall -Wno-deprecated -O3 -D_BSD_SOURCE -I$(TOPDIR)/core -I$(DRIVERDIR)
+ 
+CFLAGS  = -g -ggdb -Wall -Wno-deprecated -O3 -D_BSD_SOURCE
 CFLAGS += -Wall -Wno-deprecated -Os -I../core -ferror-limit=5 -Wconversion -Werror -Wno-unused-function
-CFLAGS += $(shell pkg-config --cflags gsl)
 CFLAGS += $(shell pkg-config --cflags sdl2)
 CFLAGS += $(shell pkg-config --cflags sdl2_image)
 
-LDFLAGS += $(shell pkg-config --libs rtmidi)
-LDFLAGS += $(shell pkg-config --libs gsl)
 LDFLAGS += $(shell pkg-config --libs sdl2)
 LDFLAGS += $(shell pkg-config --libs sdl2_image)
 
 LDFLAGS += -lpthread
+LDFLAGS += -Wl,-exported_symbols_list,exports.txt
 
-CXXFLAGS  = -Wall -Wno-deprecated -Os -I../core -std=c++11
-CXXFLAGS += $(shell pkg-config --cflags rtmidi)
-CXXFLAGS += $(shell pkg-config --cflags gsl)
-CXXFLAGS += $(shell pkg-config --cflags sdl2)
-CXXFLAGS += $(shell pkg-config --cflags sdl2_image)
-
-OBJS  = midilib.o
 OBJS += common.o
 OBJS += cinterplot.o
 OBJS += stream_buffer.o
-OBJS += randlib.o
 OBJS += oklab.o
 
 #UNAME=$(shell uname)
@@ -40,18 +28,11 @@ OBJS += oklab.o
 
 .PHONY: run
 
-TARGET=app
+TARGET=libcinterplot.dylib
 all:$(TARGET)
 
-run: app
-	@echo "[running ./app]"
-	@./app && echo "[process completed successfully]" || echo "[process completed abnormally]"
-
-app: $(OBJS) app.o
-	$(CXX) -o $@ $^ $(LDFLAGS)
-
-%.dylib:$(OBJS)
-	g++ -shared -o $@ $^ -framework CoreMIDI -framework CoreAudio -framework CoreFoundation $(LDFLAGS)
+libcinterplot.dylib:$(OBJS)
+	$(CC) $(LDFLAGS) -o$@ $^ -shared -undefined suppress -flat_namespace
 
 %.so:$(OBJS)
 	g++ -shared -o $@ $^ $(LDFLAGS)
@@ -63,4 +44,4 @@ app: $(OBJS) app.o
 	$(CXX) $(CXXFLAGS) -fPIC -o $@ -c $<
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.size *.dylib app
+	rm -f *.o *.elf *.bin *.hex *.size *.dylib

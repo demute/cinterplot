@@ -1,5 +1,4 @@
 #include "common.h"
-#include "stream_buffer.h"
 #include "randlib.h"
 #include "midilib.h"
 #include "cinterplot.h"
@@ -110,7 +109,7 @@ int user_main (int argc, char **argv, CinterState *cs)
     double v = 0;
     uint64_t t = 0;
     double a[n] = {0};
-    while (cs->running)
+    while (cinterplot_is_running (cs))
     {
         usleep (0);
 

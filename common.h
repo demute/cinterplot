@@ -63,7 +63,6 @@ extern "C" {
 #define catch_nan(x) if (isnan(x)){exit_error ("caught nan! %s", #x);}
 
 #define foobar print_debug ("foobar")
-#define true_or_exit_error(test,...) if(!(test))exit_error(__VA_ARGS__)
 
 void *safe_malloc (size_t size);
 void *safe_calloc (size_t num, size_t size);

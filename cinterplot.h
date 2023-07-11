@@ -5,9 +5,6 @@
 extern "C" {
 #endif
 
-#include "common.h"
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
 #include <stdatomic.h>
 #include "stream_buffer.h"
 
@@ -101,50 +98,7 @@ typedef struct Mouse
     int button;
 } Mouse;
 
-typedef struct CinterState
-{
-    uint32_t mouseEnabled : 1;
-    uint32_t trackingEnabled : 1;
-    uint32_t statuslineEnabled : 1;
-    uint32_t zoomEnabled : 1;
-    uint32_t fullscreen : 1;
-    uint32_t continuousScroll : 1;
-    uint32_t redraw : 1;
-    uint32_t redrawing : 1;
-    uint32_t running : 1;
-    uint32_t bordered : 1;
-    uint32_t forceRefresh : 1;
-    uint32_t margin : 8;
-
-    int mouseState;
-    Position mouseWindowPos;
-
-    Mouse mouse;
-
-    float bgShade;
-
-    uint32_t numSubWindows;
-    SubWindow *subWindows;
-    SubWindow *activeSw;
-
-    SDL_Window   *window;
-    SDL_Renderer *renderer;
-    SDL_Texture  *texture;
-
-    uint32_t windowWidth;
-    uint32_t windowHeight;
-
-    int frameCounter;
-    int pressedModifiers;
-
-    int  (*on_mouse_pressed)  (struct CinterState *cs, int xi, int yi, int button, int clicks);
-    int  (*on_mouse_released) (struct CinterState *cs, int xi, int yi);
-    int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
-    int  (*on_mouse_wheel)    (struct CinterState *cs, float xf, float yf);
-    int  (*on_keyboard)       (struct CinterState *cs, int key, int mod, int pressed, int repeat);
-    void (*plot_data)         (struct CinterState *cs, uint32_t *pixels);
-
-} CinterState;
+typedef struct CinterState CinterState;
 
 int autoscale (SubWindow *sw);
 int toggle_mouse (CinterState *cs);
@@ -158,10 +112,11 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
 CinterGraph *graph_new (uint32_t len, int doublePrecision);
 void graph_add_point (CinterGraph *graph, double x, double y);
 int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec);
+int cinterplot_is_running (CinterState *cs);
 
-#define cinterplot_redraw_async(cs) cs->redraw=1
-#define cinterplot_continuous_scroll_enable(cs)  cs->continuousScroll=1
-#define cinterplot_continuous_scroll_disable(cs) cs->continuousScroll=0
+void cinterplot_redraw_async (CinterState *cs);
+void cinterplot_continuous_scroll_enable (CinterState *cs);
+void cinterplot_continuous_scroll_disable (CinterState *cs);
 
 #ifdef __cplusplus
 } /* end extern C */

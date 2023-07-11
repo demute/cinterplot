@@ -8,6 +8,52 @@
 #include "font.c"
 #include "oklab.h"
 
+typedef struct CinterState
+{
+    uint32_t mouseEnabled : 1;
+    uint32_t trackingEnabled : 1;
+    uint32_t statuslineEnabled : 1;
+    uint32_t zoomEnabled : 1;
+    uint32_t fullscreen : 1;
+    uint32_t continuousScroll : 1;
+    uint32_t redraw : 1;
+    uint32_t redrawing : 1;
+    uint32_t running : 1;
+    uint32_t bordered : 1;
+    uint32_t forceRefresh : 1;
+    uint32_t margin : 8;
+
+    int mouseState;
+    Position mouseWindowPos;
+
+    Mouse mouse;
+
+    float bgShade;
+
+    uint32_t numSubWindows;
+    SubWindow *subWindows;
+    SubWindow *activeSw;
+
+    SDL_Window   *window;
+    SDL_Renderer *renderer;
+    SDL_Texture  *texture;
+
+    uint32_t windowWidth;
+    uint32_t windowHeight;
+
+    int frameCounter;
+    int pressedModifiers;
+
+    int  (*on_mouse_pressed)  (struct CinterState *cs, int xi, int yi, int button, int clicks);
+    int  (*on_mouse_released) (struct CinterState *cs, int xi, int yi);
+    int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
+    int  (*on_mouse_wheel)    (struct CinterState *cs, float xf, float yf);
+    int  (*on_keyboard)       (struct CinterState *cs, int key, int mod, int pressed, int repeat);
+    void (*plot_data)         (struct CinterState *cs, uint32_t *pixels);
+
+} CinterState;
+
+
 #define STATUSLINE_HEIGHT 20
 
 enum
@@ -798,12 +844,12 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
              dx *= dr->x1 - dr->x0;
              dy *= dr->y1 - dr->y0;
 
-             printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+             //printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
              dr->x0 -= dx;
              dr->x1 -= dx;
              dr->y0 -= dy;
              dr->y1 -= dy;
-             print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+             //print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
 
              break;
          }
@@ -1612,6 +1658,11 @@ static CinterState *cinterplot_init (void)
 
     return cs;
 }
+
+int cinterplot_is_running (CinterState *cs) { return cs->running; }
+void cinterplot_redraw_async(CinterState *cs) { cs->redraw=1; }
+void cinterplot_continuous_scroll_enable(CinterState *cs)  { cs->continuousScroll=1; }
+void cinterplot_continuous_scroll_disable(CinterState *cs) { cs->continuousScroll=0; }
 
 static int cinterplot_run_until_quit (CinterState *cs)
 {
