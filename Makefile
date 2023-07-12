@@ -6,13 +6,10 @@ CXX     = g++
 CFLAGS  = -g -ggdb -Wall -Wno-deprecated -O3 -D_BSD_SOURCE
 CFLAGS += -Wall -Wno-deprecated -Os -I../core -ferror-limit=5 -Wconversion -Werror -Wno-unused-function
 CFLAGS += $(shell pkg-config --cflags sdl2)
-CFLAGS += $(shell pkg-config --cflags sdl2_image)
 
-LDFLAGS += $(shell pkg-config --libs sdl2)
-LDFLAGS += $(shell pkg-config --libs sdl2_image)
-
-LDFLAGS += -lpthread
+LDFLAGS  = -lpthread
 LDFLAGS += -Wl,-exported_symbols_list,exports.txt
+LDFLAGS += $(shell pkg-config --libs sdl2)
 
 OBJS += common.o
 OBJS += cinterplot.o
