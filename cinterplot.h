@@ -110,6 +110,7 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
 void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax);
 void set_x_range (SubWindow *sw, double xmin, double xmax);
 void set_y_range (SubWindow *sw, double ymin, double ymax);
+int set_grid_enabled (CinterState *cs, uint32_t gridEnabled);
 
 CinterGraph *graph_new (uint32_t len);
 void graph_add_point (CinterGraph *graph, double x, double y);

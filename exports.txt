@@ -28,3 +28,4 @@ _stream_buffer_index_to_counter
 _set_range
 _set_x_range
 _set_y_range
+_set_grid_enabled

@@ -13,6 +13,7 @@ typedef struct CinterState
     uint32_t mouseEnabled : 1;
     uint32_t trackingEnabled : 1;
     uint32_t statuslineEnabled : 1;
+    uint32_t gridEnabled : 1;
     uint32_t zoomEnabled : 1;
     uint32_t fullscreen : 1;
     uint32_t continuousScroll : 1;
@@ -465,6 +466,12 @@ static void reinitialise_sdl_context (CinterState *cs)
         exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
     SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+}
+
+int set_grid_enabled (CinterState *cs, uint32_t gridEnabled)
+{
+    cs->gridEnabled = gridEnabled;
+    return 1;
 }
 
 int set_fullscreen (CinterState *cs, uint32_t fullscreen)
@@ -1055,6 +1062,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
             {
              case 'a': autoscale (cs->activeSw); break;
              case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
+             case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
              case 'm': toggle_mouse (cs); break;
              case 's': toggle_statusline (cs); break;
              case 'q': quit (cs); break;
@@ -1575,6 +1583,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             uint32_t mousePosX = (uint32_t) (cs->mouseWindowPos.x * w);
             uint32_t mousePosY = (uint32_t) (cs->mouseWindowPos.y * h);
 
+            if (cs->gridEnabled)
             {
                 // keep in mind y1 < y0 because plot window has positive y-data direction upwards
                 double dy = __exp10 (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
@@ -1664,7 +1673,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         double mx = cs->activeSw->mouseDataPos.x;
         double my = cs->activeSw->mouseDataPos.y;
         snprintf (text, sizeof (text), "(x,y) = (%f,%f)", mx, my);
-        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TC);
+        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL);
     }
 }
 
@@ -1778,6 +1787,7 @@ static CinterState *cinterplot_init (void)
     cs->mouseEnabled      = 1;
     cs->trackingEnabled   = 0;
     cs->statuslineEnabled = 1;
+    cs->gridEnabled       = 1;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;
     cs->continuousScroll  = 0;
