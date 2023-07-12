@@ -9,7 +9,7 @@ extern "C" {
 #include "stream_buffer.h"
 
 #define INITIAL_VARIABLE_LENGTH 16384
-#define MAX_VARIABLE_LENGTH     1048576
+#define MAX_VARIABLE_LENGTH     16777216
 #define MAX_NUM_ATTACHED_GRAPHS 32
 #define MAX_NUM_VERTICES        16
 #define CINTERPLOT_INIT_WIDTH   1100
@@ -25,7 +25,6 @@ typedef struct ColorScheme
 
 typedef struct CinterGraph
 {
-    int doublePrecision : 1;
     StreamBuffer *sb;
     uint32_t len;
     atomic_flag readAccess;
@@ -108,15 +107,22 @@ int zoom (SubWindow *sw, double xf, double yf);
 int move (SubWindow *sw, double xf, double yf);
 int toggle_tracking (CinterState *cs);
 int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
+void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax);
+void set_x_range (SubWindow *sw, double xmin, double xmax);
+void set_y_range (SubWindow *sw, double ymin, double ymax);
 
-CinterGraph *graph_new (uint32_t len, int doublePrecision);
+CinterGraph *graph_new (uint32_t len);
 void graph_add_point (CinterGraph *graph, double x, double y);
-int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec);
-int cinterplot_is_running (CinterState *cs);
+int  graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors);
+void graph_remove_points (CinterGraph *graph);
 
+int  cinterplot_is_running (CinterState *cs);
 void cinterplot_redraw_async (CinterState *cs);
 void cinterplot_continuous_scroll_enable (CinterState *cs);
 void cinterplot_continuous_scroll_disable (CinterState *cs);
+void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
+SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex);
+void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 
 #ifdef __cplusplus
 } /* end extern C */

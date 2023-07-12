@@ -322,36 +322,19 @@ int autoscale (SubWindow *sw)
         wait_for_access (& graph->readAccess);
         wait_for_access (& graph->insertAccess);
 
-        if (graph->doublePrecision)
+        double (*xys)[2];
+        uint32_t len;
+        stream_buffer_get (graph->sb, & xys, & len);
+        for (uint32_t i=0; i<len; i++)
         {
-            double (*xys)[2];
-            uint32_t len;
-            stream_buffer_get (graph->sb, & xys, & len);
-            for (uint32_t i=0; i<len; i++)
-            {
-                double x = xys[i][0];
-                double y = xys[i][1];
-                if (xmin > x) xmin = x;
-                if (xmax < x) xmax = x;
-                if (ymin > y) ymin = y;
-                if (ymax < y) ymax = y;
-            }
+            double x = xys[i][0];
+            double y = xys[i][1];
+            if (xmin > x) xmin = x;
+            if (xmax < x) xmax = x;
+            if (ymin > y) ymin = y;
+            if (ymax < y) ymax = y;
         }
-        else
-        {
-            float (*xys)[2];
-            uint32_t len;
-            stream_buffer_get (graph->sb, & xys, & len);
-            for (uint32_t i=0; i<len; i++)
-            {
-                double x = (double) xys[i][0];
-                double y = (double) xys[i][1];
-                if (xmin > x) xmin = x;
-                if (xmax < x) xmax = x;
-                if (ymin > y) ymin = y;
-                if (ymax < y) ymax = y;
-            }
-        }
+
         release_access (& graph->insertAccess);
         release_access (& graph->readAccess);
     }
@@ -359,12 +342,37 @@ int autoscale (SubWindow *sw)
     if (xmin == DBL_MAX || xmax == -DBL_MAX || ymin == DBL_MAX || ymax == -DBL_MAX)
         return 0;
 
+    double dx = xmax - xmin;
+    double dy = ymax - ymin;
+    double mx = dx * 0.0;
+    double my = dy * 0.05;
+
+    sw->dataRange.x0 = xmin - mx;
+    sw->dataRange.y0 = ymax + my;
+    sw->dataRange.x1 = xmax + mx;
+    sw->dataRange.y1 = ymin - my;
+
+    return 1;
+}
+
+void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax)
+{
     sw->dataRange.x0 = xmin;
     sw->dataRange.y0 = ymax;
     sw->dataRange.x1 = xmax;
     sw->dataRange.y1 = ymin;
+}
 
-    return 1;
+void set_x_range (SubWindow *sw, double xmin, double xmax)
+{
+    sw->dataRange.x0 = xmin;
+    sw->dataRange.x1 = xmax;
+}
+
+void set_y_range (SubWindow *sw, double ymin, double ymax)
+{
+    sw->dataRange.y0 = ymax;
+    sw->dataRange.y1 = ymin;
 }
 
 int continuous_scroll_update (SubWindow *sw)
@@ -379,26 +387,14 @@ int continuous_scroll_update (SubWindow *sw)
         wait_for_access (& graph->readAccess);
         wait_for_access (& graph->insertAccess);
 
-        if (graph->doublePrecision)
-        {
-            double (*xys)[2];
-            uint32_t len;
-            stream_buffer_get (graph->sb, & xys, & len);
-            double x0 = xys[0][0];
-            double x1 = xys[len-1][0];
-            if (xmin > x0) xmin = x0;
-            if (xmax < x1) xmax = x1;
-        }
-        else
-        {
-            float (*xys)[2];
-            uint32_t len;
-            stream_buffer_get (graph->sb, & xys, & len);
-            float x0 = xys[0][0];
-            float x1 = xys[len-1][0];
-            if (xmin > x0) xmin = x0;
-            if (xmax < x1) xmax = x1;
-        }
+        double (*xys)[2];
+        uint32_t len;
+        stream_buffer_get (graph->sb, & xys, & len);
+        double x0 = xys[0][0];
+        double x1 = xys[len-1][0];
+        if (xmin > x0) xmin = x0;
+        if (xmax < x1) xmax = x1;
+
         release_access (& graph->insertAccess);
         release_access (& graph->readAccess);
     }
@@ -419,6 +415,7 @@ int quit (CinterState *cs)                         { cs->running = 0; paused=0; 
 int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;       return 1; }
 int toggle_tracking (CinterState *cs)              { cs->trackingEnabled ^= 1;   return 1; }
 int toggle_paused (CinterState *cs)                { paused ^= 1;                return 1; }
+void cinterplot_set_bg_shade (CinterState *cs, float bgShade) { cs->bgShade = bgShade; }
 
 int zoom (SubWindow *sw, double xf, double yf)
 {
@@ -480,6 +477,7 @@ int set_fullscreen (CinterState *cs, uint32_t fullscreen)
         SDL_GetCurrentDisplayMode (0, & displayMode);
         assert (displayMode.w > 0);
         assert (displayMode.h > 0);
+        print_debug ("fullscreen res: %u %u", displayMode.w, displayMode.h);
         cs->windowWidth  = (uint32_t) displayMode.w;
         cs->windowHeight = (uint32_t) displayMode.h;
     }
@@ -947,6 +945,23 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
     return 1;
 }
 
+void cycle_line_type (SubWindow *sw)
+{
+    for (int i=0; i<sw->numAttachedGraphs; i++)
+    {
+        GraphAttacher *attacher = sw->attachedGraphs[i];
+        switch (attacher->plotType)
+        {
+         case 'p': attacher->plotType = '+'; break;
+         case '+': attacher->plotType = 'l'; break;
+         case 'l': attacher->plotType = 's'; break;
+         case 's': attacher->plotType = 'p'; break;
+         default: print_error ("unknown line type '%c'", attacher->plotType); break;
+        }
+    }
+}
+
+
 static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
 {
     // FIXME: If both the left and right key of the same modifier gets pressed at
@@ -999,6 +1014,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
              case 'q': quit (cs); break;
              case 'e': force_refresh (cs); break;
              case 't': toggle_tracking (cs); break;
+             case 'l': cycle_line_type (cs->activeSw); break;
                        //case 'x': exit_zoom (cs); break;
              case ' ': toggle_paused (cs); break;
 
@@ -1052,12 +1068,15 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     }
 
     if (unhandled)
+    {
         print_debug ("key: %c (%d), pressed: %d, repeat: %d", key, key, pressed, repeat);
+        return 0;
+    }
 
     return 1;
 }
 
-int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec)
+int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors)
 {
     if (windowIndex >= cs->numSubWindows)
     {
@@ -1071,7 +1090,7 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, cha
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->colorScheme = make_color_scheme (colorSpec, 8);
+    attacher->colorScheme = make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
     SubWindow *sw = & cs->subWindows[windowIndex];
@@ -1085,15 +1104,14 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, cha
     return 0;
 }
 
-CinterGraph *graph_new (uint32_t len, int doublePrecision)
+CinterGraph *graph_new (uint32_t len)
 {
     CinterGraph *graph = safe_calloc (1, sizeof (*graph));
     graph->len = len;
-    graph->doublePrecision = doublePrecision;
     atomic_flag_clear (& graph->readAccess);
     atomic_flag_clear (& graph->insertAccess);
 
-    size_t itemSize = doublePrecision ? 2 * sizeof (double) : 2 * sizeof (float);
+    size_t itemSize = 2 * sizeof (double);
 
     if (graph->len == 0)
     {
@@ -1127,18 +1145,23 @@ void graph_add_point (CinterGraph *graph, double x, double y)
         release_access (& graph->readAccess);
     }
 
-    if (graph->doublePrecision)
-    {
-        double xy[2] = {x,y};
-        wait_for_access (& graph->insertAccess);
-        stream_buffer_insert (sb, xy);
-        release_access (& graph->insertAccess);
-    }
-    else
-    {
-        float xy[2] = {(float) x, (float) y};
-        stream_buffer_insert (sb, xy);
-    }
+    double xy[2] = {x,y};
+    wait_for_access (& graph->insertAccess);
+    stream_buffer_insert (sb, xy);
+    release_access (& graph->insertAccess);
+}
+
+void graph_remove_points (CinterGraph *graph)
+{
+    while (paused)
+        usleep (10000);
+
+    StreamBuffer *sb = graph->sb;
+    assert (sb);
+
+    wait_for_access (& graph->readAccess);
+    stream_buffer_reset (sb);
+    release_access (& graph->readAccess);
 }
 
 void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
@@ -1149,127 +1172,120 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
 
     wait_for_access (& graph->readAccess);
 
-    if (graph->doublePrecision)
+    double xmin = (double) hist->dataRange.x0;
+    double xmax = (double) hist->dataRange.x1;
+    double ymin = (double) hist->dataRange.y0;
+    double ymax = (double) hist->dataRange.y1;
+
+    double (*xys)[2];
+    uint32_t len;
+    wait_for_access (& graph->insertAccess);
+    stream_buffer_get (graph->sb, & xys, & len);
+    if (!len)
     {
-        double xmin = (double) hist->dataRange.x0;
-        double xmax = (double) hist->dataRange.x1;
-        double ymin = (double) hist->dataRange.y0;
-        double ymax = (double) hist->dataRange.y1;
-
-        double (*xys)[2];
-        uint32_t len;
-        wait_for_access (& graph->insertAccess);
-        stream_buffer_get (graph->sb, & xys, & len);
-        if (!len)
-        {
-            release_access (& graph->insertAccess);
-            release_access (& graph->readAccess);
-            return;
-        }
-        if (graph->len && graph->len < len)
-        {
-            xys += (len - graph->len);
-            len = graph->len;
-        }
         release_access (& graph->insertAccess);
+        release_access (& graph->readAccess);
+        return;
+    }
+    if (graph->len && graph->len < len)
+    {
+        xys += (len - graph->len);
+        len = graph->len;
+    }
+    release_access (& graph->insertAccess);
 
-        uint32_t nBins = w * h;
-        for (uint32_t i=0; i<nBins; i++)
-            bins[i] = 0;
+    uint32_t nBins = w * h;
+    for (uint32_t i=0; i<nBins; i++)
+        bins[i] = 0;
 
-        double invXRange = 1.0 / (xmax - xmin);
-        double invYRange = 1.0 / (ymax - ymin);
-        if (plotType == 'p')
+    double invXRange = 1.0 / (xmax - xmin);
+    double invYRange = 1.0 / (ymax - ymin);
+    if (plotType == 'p')
+    {
+        for (uint32_t i=0; i<len; i++)
         {
-            for (uint32_t i=0; i<len; i++)
+            double x = xys[i][0];
+            double y = xys[i][1];
+            int xi = (int) ((w-1) * (x - xmin) * invXRange);
+            int yi = (int) ((h-1) * (y - ymin) * invYRange);
+            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+                bins[(uint32_t) yi*w + (uint32_t) xi]++;
+        }
+    }
+    //else if (plotType == '+')
+    //{
+    //    for (uint32_t i=0; i<len; i++)
+    //    {
+    //        double x = xys[i][0];
+    //        double y = xys[i][1];
+    //        int xi = (int) ((w-1) * (x - xmin) * invXRange);
+    //        int yi = (int) ((h-1) * (y - ymin) * invYRange);
+    //        int xx[5] = { 0, -1, 0, 1, 0};
+    //        int yy[5] = {-1,  0, 0, 0, 1};
+    //        for (int j=0; j<5; j++)
+    //        {
+    //            int xp = xi+xx[j];
+    //            int yp = yi+yy[j];
+    //            if (xp >= 0 && xp < w && yp >= 0 && yp < h)
+    //                bins[(uint32_t) yp*w + (uint32_t) xp]++;
+    //        }
+    //    }
+    //}
+    else if (plotType == '+')
+    {
+        for (uint32_t i=0; i<len; i++)
+        {
+            double x = xys[i][0];
+            double y = xys[i][1];
+            int xi = (int) ((w-1) * (x - xmin) * invXRange);
+            int yi = (int) ((h-1) * (y - ymin) * invYRange);
+            int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
+            int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
+            for (int j=0; j<9; j++)
             {
-                double x = xys[i][0];
-                double y = xys[i][1];
-                int xi = (int) ((w-1) * (x - xmin) * invXRange);
-                int yi = (int) ((h-1) * (y - ymin) * invYRange);
-                if (xi >= 0 && xi < w && yi >= 0 && yi < h)
-                    bins[(uint32_t) yi*w + (uint32_t) xi]++;
+                int xp = xi+xx[j];
+                int yp = yi+yy[j];
+                if (xp >= 0 && xp < w && yp >= 0 && yp < h)
+                    bins[(uint32_t) yp*w + (uint32_t) xp]++;
             }
         }
-        else if (plotType == 'l')
+    }
+    else if (plotType == 'l')
+    {
+        for (uint32_t i=1; i<len-1; i++)
         {
-            for (uint32_t i=1; i<len-1; i++)
-            {
-                double x0 = xys[i][0];
-                double y0 = xys[i][1];
-                double x1 = xys[i+1][0];
-                double y1 = xys[i+1][1];
+            double x0 = xys[i][0];
+            double y0 = xys[i][1];
+            double x1 = xys[i+1][0];
+            double y1 = xys[i+1][1];
 
-                int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-                int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-                int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-                int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-                histogram_line (hist, xi0, yi0, xi1, yi1);
-            }
+            int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+            int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+            int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+            int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+            histogram_line (hist, xi0, yi0, xi1, yi1);
         }
-        else if (plotType == 's')
+    }
+    else if (plotType == 's')
+    {
+        for (uint32_t i=1; i<len-1; i++)
         {
-            for (uint32_t i=1; i<len-1; i++)
-            {
-                double x0 = xys[i][0];
-                double y0 = xys[i][1];
-                double x1 = xys[i+1][0];
-                double y1 = xys[i+1][1];
+            double x0 = xys[i][0];
+            double y0 = xys[i][1];
+            double x1 = xys[i+1][0];
+            double y1 = xys[i+1][1];
 
-                int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-                int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-                int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-                int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-                histogram_line (hist, xi0, yi0, xi1, yi0);
-                histogram_line (hist, xi1, yi0, xi1, yi1);
-            }
+            int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+            int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+            int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+            int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+            histogram_line (hist, xi0, yi0, xi1, yi0);
+            histogram_line (hist, xi1, yi0, xi1, yi1);
         }
-        else
-        {
-            exit_error ("unknown plot type '%c'", plotType);
-        }
-
     }
     else
     {
-        float xmin = (float) hist->dataRange.x0;
-        float xmax = (float) hist->dataRange.x1;
-        float ymin = (float) hist->dataRange.y0;
-        float ymax = (float) hist->dataRange.y1;
-
-        float (*xys)[2];
-        uint32_t len;
-        wait_for_access (& graph->insertAccess);
-        stream_buffer_get (graph->sb, & xys, & len);
-        if (!len)
-        {
-            release_access (& graph->insertAccess);
-            release_access (& graph->readAccess);
-            return;
-        }
-        if (graph->len && graph->len < len)
-        {
-            xys += (len - graph->len);
-            len = graph->len;
-        }
-        release_access (& graph->insertAccess);
-
-        uint32_t nBins = w * h;
-        for (uint32_t i=0; i<nBins; i++)
-            bins[i] = 0;
-
-        for (uint32_t i=0; i<len; i++)
-        {
-            float x = xys[i][0];
-            float y = xys[i][1];
-
-            int xi = (int) ((w-1) * (x - xmin) / (xmax - xmin));
-            int yi = (int) ((h-1) * (y - ymin) / (ymax - ymin));
-            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
-            {
-                bins[(uint32_t) yi*w + (uint32_t) xi]++;
-            }
-        }
+        exit_error ("unknown plot type '%c'", plotType);
     }
 
     release_access (& graph->readAccess);
@@ -1369,10 +1385,10 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             x1 = (uint32_t) (sw->windowArea.x1 * w) - cs->margin;
             y1 = (uint32_t) (sw->windowArea.y1 * h) - cs->margin;
 
-            if (x0 >= w) exit_error ("bug");
-            if (x1 >= w) exit_error ("bug");
-            if (y0 >= h) exit_error ("bug");
-            if (y1 >= h) exit_error ("bug");
+            if (x0 >= w) exit_error ("bug %u >= %u", x0, w);
+            if (x1 >= w) exit_error ("bug %u >= %u", x1, w);
+            if (y0 >= h) exit_error ("bug %u >= %u", y0, h);
+            if (y1 >= h) exit_error ("bug %u >= %u", y1, h);
 
             if (cs->bordered)
             {
@@ -1575,6 +1591,14 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
     return 0;
 }
 
+SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex)
+{
+    if (windowIndex >= cs->numSubWindows)
+        exit_error ("windowIndex %d out of range", windowIndex);
+    SubWindow *sw = & cs->subWindows[windowIndex];
+    return sw;
+}
+
 typedef struct
 {
     int argc;
@@ -1588,6 +1612,7 @@ static void *userMainCaller (void *_data)
 {
     UserData *data = _data;
     userMainRetVal = user_main (data->argc, data->argv, data->cs);
+    //data->cs->running = 0;
     return NULL;
 }
 

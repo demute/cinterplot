@@ -28,7 +28,7 @@ int user_main (int argc, char **argv, CinterState *cs)
     char plotType[6] = {'p','l','s','p','l','s'};
     for (int i=0; i<n; i++)
     {
-        sineGraph[i] = graph_new (1000000, 1);
+        sineGraph[i] = graph_new (1000000);
         graph_attach (cs, sineGraph[i], (uint32_t) i, plotType[i], colorSchemes[i % 6], 8);
     }
 
