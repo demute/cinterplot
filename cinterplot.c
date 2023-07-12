@@ -497,7 +497,7 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
         return;
 
     int w  = (int) _w;
-    int h  = (int) _w;
+    int h  = (int) _h;
     int x0 = (int) _x0;
     int y0 = (int) _y0;
     int x1 = (int) _x1;
@@ -559,6 +559,13 @@ static void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1)
     int xabs = (x1 > x0) ? x1 - x0 : x0 - x1;
     int yabs = (y1 > y0) ? y1 - y0 : y0 - y1;
 
+    if ((x0 < 0 && x1 < 0) ||
+        (y0 < 0 && y1 < 0) ||
+        (x0 > w && x1 > w) ||
+        (y0 > h && y1 > h)
+       )
+        return;
+
     if (xabs > yabs)
     {
         int xstart = ((x0 < x1) ? x0 : x1);
@@ -589,7 +596,7 @@ static void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1)
         for (int y=ystart; y<=ystop; y++)
         {
             int x = (int) (x0 + ((double) (y - y0) / (y1 - y0) * (x1 - x0) + 0.5));
-            if (x>=0 && y>=0 && x<w && y<h)
+            if (x>=0 && y>=1 && x<w && y<h)
                 bins[y*w+x]++;
         }
     }
@@ -631,12 +638,12 @@ static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, ui
     }
 }
 
-static void window_pos_to_data_pos (const Area *winArea, const Position *winPos, const Area *dataArea, Position *dataPos)
+static void transform_pos (const Area *srcArea, const Position *srcPos, const Area *dstArea, Position *dstPos)
 {
-    double xf = (winPos->x - winArea->x0) / (winArea->x1 - winArea->x0);
-    double yf = (winPos->y - winArea->y0) / (winArea->y1 - winArea->y0);
-    dataPos->x = xf * (dataArea->x1 - dataArea->x0) + dataArea->x0;
-    dataPos->y = yf * (dataArea->y1 - dataArea->y0) + dataArea->y0;
+    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
+    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
+    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
+    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
 }
 
 static void get_active_area (CinterState *cs, Area *src, Area *dst)
@@ -736,8 +743,8 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
                  Position wPos1 = {swa->x1, swa->y1};
                  Position dPos0, dPos1;
 
-                 window_pos_to_data_pos (& activeArea, & wPos0, & sw->dataRange, & dPos0);
-                 window_pos_to_data_pos (& activeArea, & wPos1, & sw->dataRange, & dPos1);
+                 transform_pos (& activeArea, & wPos0, & sw->dataRange, & dPos0);
+                 transform_pos (& activeArea, & wPos1, & sw->dataRange, & dPos1);
 
                  dr->x0 = dPos0.x;
                  dr->y0 = dPos0.y;
@@ -811,7 +818,7 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 
                  cs->mouseWindowPos.x = (double) xi / w;
                  cs->mouseWindowPos.y = (double) yi / h;
-                 window_pos_to_data_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                 transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
 
                  if (activeArea.x0 <= cs->mouseWindowPos.x && cs->mouseWindowPos.x <= activeArea.x1 &&
                      activeArea.y0 <= cs->mouseWindowPos.y && cs->mouseWindowPos.y <= activeArea.y1)
@@ -819,6 +826,45 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 
                  if (cs->zoomEnabled)
                      break;
+             }
+
+             if (cs->trackingEnabled && cs->activeSw && cs->activeSw->numAttachedGraphs > 0)
+             {
+                 SubWindow *sw = cs->activeSw;
+                 if (cs->zoomEnabled)
+                 {
+                     Area zoomWindowArea = {0,0,1,1};
+                     get_active_area (cs, & zoomWindowArea, & activeArea);
+                 }
+                 else
+                 {
+                     get_active_area (cs, & sw->windowArea, & activeArea);
+                 }
+
+                 Histogram *hist = & sw->attachedGraphs[0]->hist;
+                 uint32_t w = hist->w;
+                 uint32_t h = hist->h;
+                 int *bins = hist->bins;
+                 if (!bins)
+                     exit_error ("unexpected null pointer");
+                 Area binArea = {0, 0, w, h};
+                 Position binPos;
+                 transform_pos (& activeArea, & cs->mouseWindowPos, & binArea, & binPos);
+                 uint32_t x0 = (uint32_t) binPos.x;
+                 uint32_t y0 = (uint32_t) binPos.y;
+
+                 if (x0 < w && y0 < h)
+                 {
+                     uint32_t y;
+                     for (y=h-1; y<h; y--)
+                         if (bins[w*y+x0])
+                             break;
+
+                     binPos.y = y;
+                     transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
+                     transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                 }
+
              }
 
              break;
@@ -1212,25 +1258,6 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
                 bins[(uint32_t) yi*w + (uint32_t) xi]++;
         }
     }
-    //else if (plotType == '+')
-    //{
-    //    for (uint32_t i=0; i<len; i++)
-    //    {
-    //        double x = xys[i][0];
-    //        double y = xys[i][1];
-    //        int xi = (int) ((w-1) * (x - xmin) * invXRange);
-    //        int yi = (int) ((h-1) * (y - ymin) * invYRange);
-    //        int xx[5] = { 0, -1, 0, 1, 0};
-    //        int yy[5] = {-1,  0, 0, 0, 1};
-    //        for (int j=0; j<5; j++)
-    //        {
-    //            int xp = xi+xx[j];
-    //            int yp = yi+yy[j];
-    //            if (xp >= 0 && xp < w && yp >= 0 && yp < h)
-    //                bins[(uint32_t) yp*w + (uint32_t) xp]++;
-    //        }
-    //    }
-    //}
     else if (plotType == '+')
     {
         for (uint32_t i=0; i<len; i++)
@@ -1252,7 +1279,7 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
     }
     else if (plotType == 'l')
     {
-        for (uint32_t i=1; i<len-1; i++)
+        for (uint32_t i=0; i<len-1; i++)
         {
             double x0 = xys[i][0];
             double y0 = xys[i][1];
@@ -1268,7 +1295,7 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
     }
     else if (plotType == 's')
     {
-        for (uint32_t i=1; i<len-1; i++)
+        for (uint32_t i=0; i<len-1; i++)
         {
             double x0 = xys[i][0];
             double y0 = xys[i][1];
@@ -1291,21 +1318,67 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
     release_access (& graph->readAccess);
 }
 
-uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint32_t y0, uint32_t color, int transparent, char *message)
+enum {
+    ALIGN_TL, ALIGN_TC, ALIGN_TR,
+    ALIGN_ML, ALIGN_MC, ALIGN_MR,
+    ALIGN_BL, ALIGN_BC, ALIGN_BR
+};
+
+uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint32_t y0, uint32_t color, int transparent, char *text, uint32_t scale, int alignment )
 {
     if (!pixels)
         return 0;
 
-    uint32_t scale = 2;
     uint32_t fh = 8*scale;
     uint32_t fw = 6*scale;
+    uint32_t spacing = 1;
 
-    char *p = message;
+    char *p = text;
     uint32_t cols = 256;
-    uint32_t margin = 1;
 
-    //y0 -= fh + margin;
-    //x0 -= fw + margin;
+    uint32_t numChars = (uint32_t) strlen (text);
+    uint32_t boxWidth = numChars * fw + (numChars - 1) * spacing;
+    uint32_t boxHeight = fh; // ignoring multiline text
+
+    switch (alignment)
+    {
+     case ALIGN_TL: 
+     case ALIGN_TC:
+     case ALIGN_TR:
+         break;
+
+     case ALIGN_ML:
+     case ALIGN_MC:
+     case ALIGN_MR:
+         y0 -= boxHeight >> 1;
+         break;
+
+     case ALIGN_BL:
+     case ALIGN_BC:
+     case ALIGN_BR:
+         y0 -= boxHeight;
+         break;
+    }
+
+    switch (alignment)
+    {
+     case ALIGN_TL:
+     case ALIGN_ML:
+     case ALIGN_BL:
+         break;
+
+     case ALIGN_TC:
+     case ALIGN_MC:
+     case ALIGN_BC:
+         x0 -= boxWidth >> 1;
+         break;
+
+     case ALIGN_TR:
+     case ALIGN_MR:
+     case ALIGN_BR:
+         x0 -= boxWidth;
+         break;
+    }
 
     uint32_t x = x0;
     uint32_t y = y0;
@@ -1318,13 +1391,13 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
             int wrap = (i == cols);
             i = 0;
             x = x0;
-            y += fh + 4 * margin;
+            y += fh + 4 * spacing;
             if (wrap) continue;
         }
         else if (*p == '\t')
         {
             while (++i % 4)
-                x += fw + margin;
+                x += fw + spacing;
         }
         else
         {
@@ -1338,20 +1411,65 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
                         else if (!transparent)
                             pixels[(y+yi)*w + (x+xi)] = ~color;
             }
-            x += fw + margin;
+            x += fw + spacing;
         }
         p++;
     }
     return y - y0;
 }
 
+void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CinterState *cs, SubWindow *sw, double pos, int vertical, uint32_t color)
+{
+    Area activeArea;
+    Area zoomWindowArea = {0,0,1,1};
+    get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
+
+    Position dataPos0, dataPos1;
+    if (vertical)
+    {
+        dataPos0.x = pos;
+        dataPos0.y = sw->dataRange.y0;
+        dataPos1.x = pos;
+        dataPos1.y = sw->dataRange.y1;
+    }
+    else
+    {
+        dataPos0.x = sw->dataRange.x0;
+        dataPos0.y = pos;
+        dataPos1.x = sw->dataRange.x1;
+        dataPos1.y = pos;
+    }
+
+    Position winPos0, winPos1;
+    transform_pos (& sw->dataRange, & dataPos0, & activeArea, & winPos0);
+    transform_pos (& sw->dataRange, & dataPos1, & activeArea, & winPos1);
+
+    uint32_t x0 = (uint32_t) (winPos0.x * w);
+    uint32_t y0 = (uint32_t) (winPos0.y * h);
+    uint32_t x1 = (uint32_t) (winPos1.x * w);
+    uint32_t y1 = (uint32_t) (winPos1.y * h);
+
+    if (vertical)
+    {
+        if (activeArea.x0 <= winPos0.x && winPos0.x <= activeArea.x1)
+            lineRGBA (pixels, w, h, x0, y0, x1, y1, color);
+    }
+    else
+    {
+        if (activeArea.y0 <= winPos0.y && winPos0.y <= activeArea.y1)
+            lineRGBA (pixels, w, h, x0, y0, x1, y1, color);
+    }
+}
+
 static void plot_data (CinterState *cs, uint32_t *pixels)
 {
     uint32_t activeColor    = make_gray (1.0f);
     uint32_t inactiveColor  = make_gray (0.4f);
-    uint32_t crossHairColor = make_gray (0.6f);
+    uint32_t crossHairColor = MAKE_COLOR (0,255,255);
     uint32_t bgColor        = make_gray (cs->bgShade);
     uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.2f : -0.2f));
+    uint32_t gridColor0     = make_gray (0.2f);
+    uint32_t gridColor1     = make_gray (0.4f);
 
     uint32_t forceRefresh = cs->forceRefresh;
     cs->forceRefresh = 0;
@@ -1457,6 +1575,44 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             uint32_t mousePosX = (uint32_t) (cs->mouseWindowPos.x * w);
             uint32_t mousePosY = (uint32_t) (cs->mouseWindowPos.y * h);
 
+            {
+                // keep in mind y1 < y0 because plot window has positive y-data direction upwards
+                double dy = __exp10 (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
+                double y0 = ceil (sw->dataRange.y0 / dy) * dy;
+                double y1 = floor (sw->dataRange.y1 / dy) * dy;
+                int r = (int) ((10.0 * dy) / (y0 - y1));
+                for (double y=y1; y<y0; y+=dy*0.1)
+                    if (y1 <= y && y <= y0)
+                        draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
+                for (double y=y1; y<y0; y+=dy / r)
+                {
+                    if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
+                        continue;
+
+                    draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor1);
+
+                    Area activeArea;
+                    Area zoomWindowArea = {0,0,1,1};
+                    get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
+
+                    uint32_t textColor = make_gray (0.9f);
+                    int transparent = 1;
+                    char text[256];
+                    snprintf (text, sizeof (text), "%g", y);
+
+                    Position dataPos;
+                    dataPos.x = sw->dataRange.x0;
+                    dataPos.y = y;
+
+                    Position winPos;
+                    transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+
+                    uint32_t xi = (uint32_t) (winPos.x * w) + 2;
+                    uint32_t yi = (uint32_t) (winPos.y * h);
+                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, 1+(cs->zoomEnabled || cs->fullscreen), ALIGN_BL);
+                }
+            }
+
             for (uint32_t yi=0; yi<subHeight; yi++)
             {
                 for (uint32_t xi=0; xi<subWidth;  xi++)
@@ -1492,7 +1648,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                         uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
                         *pixel = color;
                     }
-                    else if (regionSelected)
+                    else if (regionSelected && *pixel == bgColor)
                         *pixel = selectColor;
                 }
             }
@@ -1504,11 +1660,11 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         int transparent = 1;
         uint32_t x0 = 10;
         uint32_t y0 = cs->windowHeight - STATUSLINE_HEIGHT;
-        char message[256];
+        char text[256];
         double mx = cs->activeSw->mouseDataPos.x;
         double my = cs->activeSw->mouseDataPos.y;
-        snprintf (message, sizeof (message), "(x,y) = (%f,%f)", mx, my);
-        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, message);
+        snprintf (text, sizeof (text), "(x,y) = (%f,%f)", mx, my);
+        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TC);
     }
 }
 
