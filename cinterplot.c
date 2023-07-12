@@ -1494,33 +1494,6 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                     }
                     else if (regionSelected)
                         *pixel = selectColor;
-
-                    //else if (mousePressed && (cs->zoomWindow || (coli == mouseCol && rowi == mouseRow)))
-                    //{
-                    //    Mouse *r = & relMouse;
-                    //    int x0 = r->x;
-                    //    int x1 = r->pressX;
-                    //    int y0 = r->y;
-                    //    int y1 = r->pressY;
-
-
-                    //    if (x1 - x0 > snap || y1 - y0 > snap)
-                    //    {
-                    //        if (x1 - x0 < snap)
-                    //        {
-                    //            x0 = 0;
-                    //            x1 = (int) subWidth;
-                    //        }
-                    //        else if (y1 - y0 < snap)
-                    //        {
-                    //            y0 = 0;
-                    //            y1 = (int) subHeight;
-                    //        }
-                    //    }
-
-                    //    if (x0 <= xi && xi <= x1 && y0 <= yi && yi <= y1)
-                    //        *pixel = selectColor;
-                    //}
                 }
             }
         }
