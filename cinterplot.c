@@ -1768,6 +1768,59 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         if (cs->continuousScroll && !paused)
             continuous_scroll_update (sw);
 
+        if (cs->gridEnabled)
+        {
+            // keep in mind y1 < y0 because plot window has positive y-data direction upwards
+            double dy = __exp10 (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
+            double y0 = ceil (sw->dataRange.y0 / dy) * dy;
+            double y1 = floor (sw->dataRange.y1 / dy) * dy;
+            int numTens = (int) ((y0 - y1) / dy);
+            int numSubs = 1;
+            while (numSubs * numTens < 8)
+                numSubs *= 2;
+            int cnt = 0;
+            for (double y=y1; y<y0 && cnt<100 && subHeight > 200; y+=dy/(numSubs*5))
+            {
+                cnt++;
+                if (y1 <= y && y <= y0)
+                    draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
+            }
+            cnt = 0;
+            uint32_t lastYi = 0;
+            for (double y=y1; y<y0 && cnt<100; y+=dy/numSubs)
+            {
+                cnt++;
+                if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
+                    continue;
+
+                Area activeArea;
+                Area zoomWindowArea = {0,0,1,1};
+                get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
+
+                uint32_t textColor = make_gray (0.9f);
+                int transparent = 1;
+                char text[256];
+                snprintf (text, sizeof (text), "%g", y);
+
+                Position dataPos;
+                dataPos.x = sw->dataRange.x0;
+                dataPos.y = y;
+
+                Position winPos;
+                transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+
+                uint32_t xi = (uint32_t) (winPos.x * w) + 2;
+                uint32_t yi = (uint32_t) (winPos.y * h);
+                uint32_t scale = 1+(cs->zoomEnabled || cs->fullscreen);
+                if (abs ((int) yi - (int) lastYi) > 10*scale)
+                {
+                    draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor1);
+                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BL);
+                    lastYi = yi;
+                }
+            }
+        }
+
         for (int i=0; i<sw->numAttachedGraphs; i++)
         {
             GraphAttacher *attacher = sw->attachedGraphs[i];
@@ -1819,53 +1872,6 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             uint32_t mousePosX = (uint32_t) (cs->mouseWindowPos.x * w);
             uint32_t mousePosY = (uint32_t) (cs->mouseWindowPos.y * h);
 
-            if (cs->gridEnabled)
-            {
-                // keep in mind y1 < y0 because plot window has positive y-data direction upwards
-                double dy = __exp10 (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
-                double y0 = ceil (sw->dataRange.y0 / dy) * dy;
-                double y1 = floor (sw->dataRange.y1 / dy) * dy;
-                int numTens = (int) ((y0 - y1) / dy);
-                int numSubs = 1;
-                while (numSubs * numTens < 8)
-                    numSubs *= 2;
-                int cnt = 0;
-                for (double y=y1; y<y0 && cnt<100; y+=dy/(numSubs*5))
-                {
-                    cnt++;
-                    if (y1 <= y && y <= y0)
-                        draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
-                }
-                cnt = 0;
-                for (double y=y1; y<y0 && cnt<100; y+=dy/numSubs)
-                {
-                    cnt++;
-                    if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
-                        continue;
-
-                    draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor1);
-
-                    Area activeArea;
-                    Area zoomWindowArea = {0,0,1,1};
-                    get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
-
-                    uint32_t textColor = make_gray (0.9f);
-                    int transparent = 1;
-                    char text[256];
-                    snprintf (text, sizeof (text), "%g", y);
-
-                    Position dataPos;
-                    dataPos.x = sw->dataRange.x0;
-                    dataPos.y = y;
-
-                    Position winPos;
-                    transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
-
-                    uint32_t xi = (uint32_t) (winPos.x * w) + 2;
-                    uint32_t yi = (uint32_t) (winPos.y * h);
-                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, 1+(cs->zoomEnabled || cs->fullscreen), ALIGN_BL);
-                }
-            }
 
             for (uint32_t yi=0; yi<subHeight; yi++)
             {
@@ -1951,6 +1957,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         HELP_TEXT ("   q       - quit");
         HELP_TEXT ("   s       - toggle statusline");
         HELP_TEXT ("   t       - cycle between tracking modes");
+        HELP_TEXT ("   u       - reset zoom to default");
         HELP_TEXT ("   <space> - pause new data");
         HELP_TEXT ("   [0-9]   - set background shade");
         HELP_TEXT ("   +       - zoom xy in");
@@ -2054,7 +2061,8 @@ static void *userMainCaller (void *_data)
 {
     UserData *data = _data;
     userMainRetVal = user_main (data->argc, data->argv, data->cs);
-    //data->cs->running = 0;
+    if (userMainRetVal)
+        data->cs->running = 0;
     return NULL;
 }
 
