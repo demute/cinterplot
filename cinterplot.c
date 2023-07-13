@@ -25,6 +25,7 @@ typedef struct CinterState
     uint32_t margin : 8;
     uint32_t showHelp : 1;
 
+
     int mouseState;
     Position mouseWindowPos;
 
@@ -43,6 +44,7 @@ typedef struct CinterState
     uint32_t windowWidth;
     uint32_t windowHeight;
 
+    uint32_t graphOrder;
     int frameCounter;
     int pressedModifiers;
 
@@ -305,6 +307,12 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
     }
 
     return scheme;
+}
+
+void cycle_graph_order (CinterState *cs)
+{
+    cs->graphOrder++;
+    print_debug ("graph order %u", cs->graphOrder);
 }
 
 int autoscale (SubWindow *sw)
@@ -1262,6 +1270,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                switch (key)
                {
                 case 'a': autoscale (cs->activeSw); break;
+                case 'c': cycle_graph_order (cs); break;
                 case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
                 case 'h': toggle_help (cs); break;
@@ -1821,9 +1830,9 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             }
         }
 
-        for (int i=0; i<sw->numAttachedGraphs; i++)
+        for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
         {
-            GraphAttacher *attacher = sw->attachedGraphs[i];
+            GraphAttacher *attacher = sw->attachedGraphs[(gi + cs->graphOrder) % (sw->numAttachedGraphs)];
             Histogram *hist = & attacher->hist;
 
             int updateHistogram =
@@ -1946,6 +1955,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         snprintf (text, sizeof (text), "h - toggle help");
         HELP_TEXT (" Keyboard bindings:");
         HELP_TEXT ("   a       - autoscale");
+        HELP_TEXT ("   c       - cycle graph order");
         HELP_TEXT ("   e       - force refresh");
         HELP_TEXT ("   f       - toggle fullscreen");
         HELP_TEXT ("   g       - toggle grid");
@@ -2111,6 +2121,7 @@ static CinterState *cinterplot_init (void)
     cs->margin            = 10;
     cs->showHelp          = 0;
 
+    cs->graphOrder        = 0;
     cs->frameCounter      = 0;
     cs->pressedModifiers  = 0;
 
