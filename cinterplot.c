@@ -2202,6 +2202,7 @@ static int cinterplot_run_until_quit (CinterState *cs)
                               cs->windowWidth  = (uint32_t) newWidth;
                               cs->windowHeight = (uint32_t) newHeight;
                               reinitialise_sdl_context (cs, 0);
+                              cs->redraw = 1;
                               break;
                           }
                       default:
