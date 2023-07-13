@@ -442,19 +442,23 @@ int move (SubWindow *sw, double xf, double yf)
     return 1;
 }
 
-static void reinitialise_sdl_context (CinterState *cs)
+static void reinitialise_sdl_context (CinterState *cs, int reinitWindow)
 {
     if (cs->texture)
         SDL_DestroyTexture (cs->texture);
     if (cs->renderer)
         SDL_DestroyRenderer (cs->renderer);
-    if (cs->window)
-        SDL_DestroyWindow (cs->window);
 
-    cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                   (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_SHOWN);
-    if (!cs->window)
-        exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
+    if (reinitWindow)
+    {
+        if (cs->window)
+            SDL_DestroyWindow (cs->window);
+
+        cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                       (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+        if (!cs->window)
+            exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
+    }
 
     cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
     if (!cs->renderer)
@@ -465,7 +469,7 @@ static void reinitialise_sdl_context (CinterState *cs)
     if (!cs->texture)
         exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
-    SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+    SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 }
 
 int set_grid_enabled (CinterState *cs, uint32_t gridEnabled)
@@ -494,7 +498,7 @@ int set_fullscreen (CinterState *cs, uint32_t fullscreen)
         cs->windowHeight = CINTERPLOT_INIT_HEIGHT;
     }
 
-    reinitialise_sdl_context (cs);
+    reinitialise_sdl_context (cs, 1);
     return 1;
 }
 
@@ -1969,7 +1973,7 @@ static CinterState *cinterplot_init (void)
     if (SDL_Init (SDL_INIT_VIDEO) < 0)
         exit_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
 
-    reinitialise_sdl_context (cs);
+    reinitialise_sdl_context (cs, 1);
 
     update_image (cs, cs->texture, 1);
 
@@ -1993,34 +1997,53 @@ static int cinterplot_run_until_quit (CinterState *cs)
     while (cs->running && !interrupted)
     {
         cs->frameCounter++;
-        SDL_Event sdlEvent;
-        while (SDL_PollEvent (& sdlEvent))
+        SDL_Event event;
+        while (SDL_PollEvent (& event))
         {
-            switch(sdlEvent.type)
+            switch(event.type)
             {
              case SDL_QUIT:
                  return 0;
              case SDL_MOUSEBUTTONDOWN:
-                 cs->redraw |= cs->on_mouse_pressed (cs, sdlEvent.button.x, sdlEvent.button.y, sdlEvent.button.button, sdlEvent.button.clicks);
+                 cs->redraw |= cs->on_mouse_pressed (cs, event.button.x, event.button.y, event.button.button, event.button.clicks);
                  break;
              case SDL_MOUSEBUTTONUP:
-                 cs->redraw |= cs->on_mouse_released (cs, sdlEvent.button.x, sdlEvent.button.y);
+                 cs->redraw |= cs->on_mouse_released (cs, event.button.x, event.button.y);
                  break;
              case SDL_MOUSEMOTION:
-                 cs->redraw |= cs->on_mouse_motion (cs, sdlEvent.motion.x, sdlEvent.motion.y);
+                 cs->redraw |= cs->on_mouse_motion (cs, event.motion.x, event.motion.y);
                  break;
              case SDL_MOUSEWHEEL:
-                 cs->redraw |= cs->on_mouse_wheel (cs, sdlEvent.wheel.preciseX, sdlEvent.wheel.preciseY);
+                 cs->redraw |= cs->on_mouse_wheel (cs, event.wheel.preciseX, event.wheel.preciseY);
                  break;
              case SDL_KEYDOWN:
              case SDL_KEYUP:
                  {
-                     int repeat = sdlEvent.key.repeat;
-                     int pressed = sdlEvent.key.state == SDL_PRESSED;
-                     int key = sdlEvent.key.keysym.sym;
-                     int mod = sdlEvent.key.keysym.mod;
+                     int repeat = event.key.repeat;
+                     int pressed = event.key.state == SDL_PRESSED;
+                     int key = event.key.keysym.sym;
+                     int mod = event.key.keysym.mod;
 
                      cs->redraw |= cs->on_keyboard (cs, key, mod, pressed, repeat);
+                     break;
+                 }
+             case SDL_WINDOWEVENT:
+                 {
+                     switch (event.window.event)
+                     {
+                      case SDL_WINDOWEVENT_RESIZED:
+                          {
+                              int newWidth = event.window.data1;
+                              int newHeight = event.window.data2;
+                              cs->windowWidth  = (uint32_t) newWidth;
+                              cs->windowHeight = (uint32_t) newHeight;
+                              reinitialise_sdl_context (cs, 0);
+                              break;
+                          }
+                      default:
+                          //print_debug ("event.window.event: %d", event.window.event);
+                          break;
+                     }
                      break;
                  }
              default:
