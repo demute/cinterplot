@@ -1834,6 +1834,14 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
         snprintf (text, sizeof (text), "(x,y) = (%f,%f) trackingMode:%s", mx, my, tm[cs->trackingMode]);
         draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
+
+        char *title = cs->activeSw->title;
+        if (title)
+        {
+            snprintf (text, sizeof (text), "<%s>", title);
+            x0 = cs->windowWidth - 10;
+            draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_MR);
+        }
     }
 }
 
@@ -1887,6 +1895,14 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
     }
 
     return 0;
+}
+
+void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title)
+{
+    if (windowIndex >= cs->numSubWindows)
+        exit_error ("windowIndex %d out of range", windowIndex);
+    SubWindow *sw = & cs->subWindows[windowIndex];
+    sw->title = strdup (title);
 }
 
 SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex)

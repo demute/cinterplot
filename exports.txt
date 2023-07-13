@@ -29,3 +29,4 @@ _set_range
 _set_x_range
 _set_y_range
 _set_grid_enabled
+_set_sub_window_title

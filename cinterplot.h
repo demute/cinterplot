@@ -66,6 +66,8 @@ typedef struct GraphAttacher
 
 typedef struct SubWindow
 {
+    char *title;
+
     GraphAttacher **attachedGraphs;
     uint32_t maxNumAttachedGraphs;
     uint32_t numAttachedGraphs;
@@ -124,6 +126,7 @@ void cinterplot_continuous_scroll_disable (CinterState *cs);
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex);
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
+void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title);
 
 #ifdef __cplusplus
 } /* end extern C */
