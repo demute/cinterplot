@@ -105,7 +105,7 @@ int set_fullscreen (CinterState *cs, uint32_t fullscreen);
 int quit (CinterState *cs);
 int zoom (SubWindow *sw, double xf, double yf);
 int move (SubWindow *sw, double xf, double yf);
-int toggle_tracking (CinterState *cs);
+int set_tracking_mode (CinterState *cs, uint32_t mode);
 int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
 void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax);
 void set_x_range (SubWindow *sw, double xmin, double xmax);

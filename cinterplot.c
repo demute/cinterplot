@@ -11,7 +11,7 @@
 typedef struct CinterState
 {
     uint32_t mouseEnabled : 1;
-    uint32_t trackingEnabled : 1;
+    uint32_t trackingMode : 2;
     uint32_t statuslineEnabled : 1;
     uint32_t gridEnabled : 1;
     uint32_t zoomEnabled : 1;
@@ -410,12 +410,12 @@ int continuous_scroll_update (SubWindow *sw)
 }
 
 
-int toggle_mouse (CinterState *cs)                 { cs->mouseEnabled ^= 1;      return 1; }
-int toggle_statusline (CinterState *cs)            { cs->statuslineEnabled ^= 1; return 1; }
-int quit (CinterState *cs)                         { cs->running = 0; paused=0;  return 0; }
-int force_refresh (CinterState *cs)                { cs->forceRefresh = 0;       return 1; }
-int toggle_tracking (CinterState *cs)              { cs->trackingEnabled ^= 1;   return 1; }
-int toggle_paused (CinterState *cs)                { paused ^= 1;                return 1; }
+int toggle_mouse (CinterState *cs)                            { cs->mouseEnabled ^= 1;      return 1; }
+int toggle_statusline (CinterState *cs)                       { cs->statuslineEnabled ^= 1; return 1; }
+int quit (CinterState *cs)                                    { cs->running = 0; paused=0;  return 0; }
+int force_refresh (CinterState *cs)                           { cs->forceRefresh = 0;       return 1; }
+int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode = mode;    return 1; }
+int toggle_paused (CinterState *cs)                           { paused ^= 1;                return 1; }
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade) { cs->bgShade = bgShade; }
 
 int zoom (SubWindow *sw, double xf, double yf)
@@ -794,6 +794,100 @@ static int on_mouse_wheel (CinterState *cs, float xf, float yf)
     return 0;
 }
 
+static int find_closest_point (Histogram *hist, uint32_t _x0, uint32_t _y0, uint32_t *_x, uint32_t *_y)
+{
+    // this algorithm takes a point (x0,y0) and spirals around it with a rectangular
+    // spiral until it finds a point in the histogram that is set. When it is found,
+    // it will make sure it will stop the loop after it is sure no other point can
+    // be closer. The spiral looks like this:
+    //   >>>>>>>>>|
+    //   ^>>>>>>>||
+    //   ^^>>>>>|||
+    //   ^^^>>>||||
+    //   ^^^^>|||||
+    //   ^^^^<<||||
+    //   ^^^<<<<|||
+    //   ^^<<<<<<||
+    //   ^<<<<<<<<|
+
+    int x0 = (int) _x0;
+    int y0 = (int) _y0;
+
+    int dirx[4] = {1, 0, -1,  0};
+    int diry[4] = {0, 1,  0, -1};
+
+    int w = (int) hist->w;
+    int h = (int) hist->h;
+    int *bins = hist->bins;
+
+    int x = x0;
+    int y = y0;
+
+    int maxSideLen = w+w+h+h;
+    int minD2 = w*w+h*h;
+
+    int sideLen = 1;
+    int dir = 0;
+    int sideCount = 0;
+    int outsideCount = 0;
+    int bestX = -1;
+    int bestY = -1;
+    while (outsideCount < 4 && sideLen <= maxSideLen)
+    {
+        int sideInside = (dirx[dir] && (0 <= y && y < h)) || (diry[dir] && (0 <= x && x < w));
+        if (sideInside)
+        {
+            outsideCount = 0;
+            for (int i=0; i<sideLen; i++)
+            {
+                if (0 <= y && y < h && 0 <= x && x < w)
+                {
+                    if (bins[y*w+x])
+                    {
+                        int newMaxSideLen = (int) (1.41421356 * sideLen) + 1;
+                        if (maxSideLen < newMaxSideLen)
+                            maxSideLen = newMaxSideLen;
+                        int dx = x - x0;
+                        int dy = y - y0;
+                        int d2 = dx*dx+dy*dy;
+                        if (minD2 > d2)
+                        {
+                            minD2 = d2;
+                            bestX = x;
+                            bestY = y;
+                        }
+                    }
+                }
+                x += dirx[dir];
+                y += diry[dir];
+            }
+        }
+        else
+        {
+            x += dirx[dir] * sideLen;
+            y += diry[dir] * sideLen;
+            outsideCount++;
+        }
+
+        dir = (dir + 1) % 4;
+        if (++sideCount == 2)
+        {
+            sideCount = 0;
+            sideLen++;
+        }
+    }
+    if (bestX < 0 || bestY < 0)
+    {
+        print_debug ("no point found");
+        return -1;
+    }
+
+    *_x = (uint32_t) bestX;
+    *_y = (uint32_t) bestY;
+
+    return 0;
+}
+
 static int on_mouse_motion (CinterState *cs, int xi, int yi)
 {
     switch (cs->mouseState)
@@ -835,7 +929,7 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
                      break;
              }
 
-             if (cs->trackingEnabled && cs->activeSw && cs->activeSw->numAttachedGraphs > 0)
+             if (cs->trackingMode && cs->activeSw && cs->activeSw->numAttachedGraphs > 0)
              {
                  SubWindow *sw = cs->activeSw;
                  if (cs->zoomEnabled)
@@ -860,18 +954,77 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
                  uint32_t x0 = (uint32_t) binPos.x;
                  uint32_t y0 = (uint32_t) binPos.y;
 
-                 if (x0 < w && y0 < h)
+                 if (cs->trackingMode == 1)
                  {
-                     uint32_t y;
-                     for (y=h-1; y<h; y--)
-                         if (bins[w*y+x0])
-                             break;
-
-                     binPos.y = y;
-                     transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
-                     transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                     if (x0 < w && y0 < h)
+                     {
+                         int _y0 = (int) y0;
+                         int bestY = -1;
+                         for (int dy=0; dy<h; dy++)
+                         {
+                             int yy0 = _y0 + dy;
+                             int yy1 = _y0 - dy;
+                             if (yy0 >= 0 && yy0 < h && bins[w * (uint32_t) yy0 + x0])
+                             {
+                                 bestY = yy0;
+                                 break;
+                             }
+                             else if (yy1 >= 0 && yy1 < h && bins[w * (uint32_t) yy1 + x0])
+                             {
+                                 bestY = yy1;
+                                 break;
+                             }
+                         }
+                         if (bestY >= 0)
+                         {
+                             binPos.y = bestY;
+                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
+                             transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                         }
+                     }
                  }
-
+                 else if (cs->trackingMode == 2)
+                 {
+                     if (x0 < w && y0 < h)
+                     {
+                         int _x0 = (int) x0;
+                         int bestX = -1;
+                         for (int dx=0; dx<w; dx++)
+                         {
+                             int xx0 = _x0 + dx;
+                             int xx1 = _x0 - dx;
+                             if (xx0 >= 0 && xx0 < w && bins[w * y0 + (uint32_t) xx0])
+                             {
+                                 bestX = xx0;
+                                 break;
+                             }
+                             else if (xx1 >= 0 && xx1 < w && bins[w * y0 + (uint32_t) xx1])
+                             {
+                                 bestX = xx1;
+                                 break;
+                             }
+                         }
+                         if (bestX >= 0)
+                         {
+                             binPos.x = bestX;
+                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
+                             transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                         }
+                     }
+                 }
+                 else if (cs->trackingMode == 3)
+                 {
+                     uint32_t x, y;
+                     if (find_closest_point (hist, x0, y0, & x, & y) >= 0)
+                     {
+                         binPos.x = x;
+                         binPos.y = y;
+                         transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
+                         transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                     }
+                 }
+                 else
+                     exit_error ("bug: %d", cs->trackingMode);
              }
 
              break;
@@ -1054,70 +1207,72 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     }
 
     int unhandled = 0;
-    if (pressed && !repeat)
+    if (pressed)
     {
-        if (mod == 0)
+        if (!repeat)
         {
-            switch (key)
-            {
-             case 'a': autoscale (cs->activeSw); break;
-             case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
-             case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
-             case 'm': toggle_mouse (cs); break;
-             case 's': toggle_statusline (cs); break;
-             case 'q': quit (cs); break;
-             case 'e': force_refresh (cs); break;
-             case 't': toggle_tracking (cs); break;
-             case 'l': cycle_line_type (cs->activeSw); break;
-                       //case 'x': exit_zoom (cs); break;
-             case ' ': toggle_paused (cs); break;
+           if (mod == KMOD_NONE)
+           {
+               switch (key)
+               {
+                case 'a': autoscale (cs->activeSw); break;
+                case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
+                case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
+                case 'm': toggle_mouse (cs); break;
+                case 's': toggle_statusline (cs); break;
+                case 'q': quit (cs); break;
+                case 'e': force_refresh (cs); break;
+                case 't': set_tracking_mode (cs, cs->trackingMode + 1); break;
+                case 'l': cycle_line_type (cs->activeSw); break;
+                          //case 'x': exit_zoom (cs); break;
+                case ' ': toggle_paused (cs); break;
 
-             case '0':
-             case '1':
-             case '2':
-             case '3':
-             case '4':
-             case '5':
-             case '6':
-             case '7':
-             case '8':
-             case '9':
-                       {
-                           int index = key - '1';
-                           if (index < 0)
-                               index = 9;
-                           float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
-                           cs->bgShade = shades[index];
-                           break;
-                       }
-             default: unhandled = 1;
-            }
-        }
-        else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
-        {
-            unhandled = 1;
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                case '8':
+                case '9':
+                          {
+                              int index = key - '1';
+                              if (index < 0)
+                                  index = 9;
+                              float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
+                              cs->bgShade = shades[index];
+                              break;
+                          }
+                default: unhandled = 1;
+               }
+           }
+           else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
+           {
+               unhandled = 1;
+           }
+           else
+           {
+               unhandled = 1;
+           }
         }
         else
         {
-            unhandled = 1;
-        }
-    }
-
-    if (pressed)
-    {
-        double zf = 0.05;
-        double mf = 0.025;
-        switch (key)
-        {
-         case '+': zoom (cs->activeSw,  zf,  zf); break;
-         case '-': zoom (cs->activeSw, -zf, -zf); break;
-         case ',': zoom (cs->activeSw, -zf,  0.00); break;
-         case '.': zoom (cs->activeSw,  zf,  0.00); break;
-         case SDLK_UP:    move (cs->activeSw,  0.00, -mf); break;
-         case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
-         case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
-         case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
-         default: unhandled = 1;
+            double zf = 0.05;
+            double mf = 0.025;
+            switch (key)
+            {
+             case '+': zoom (cs->activeSw,  zf,  zf); break;
+             case '-': zoom (cs->activeSw, -zf, -zf); break;
+             case ',': zoom (cs->activeSw, -zf,  0.00); break;
+             case '.': zoom (cs->activeSw,  zf,  0.00); break;
+             case SDLK_UP:    move (cs->activeSw,  0.00, -mf); break;
+             case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
+             case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
+             case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
+             default: break;
+            }
         }
     }
 
@@ -1668,12 +1823,13 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         uint32_t textColor = make_gray (0.9f);
         int transparent = 1;
         uint32_t x0 = 10;
-        uint32_t y0 = cs->windowHeight - STATUSLINE_HEIGHT;
+        uint32_t y0 = cs->windowHeight - STATUSLINE_HEIGHT / 2;
         char text[256];
         double mx = cs->activeSw->mouseDataPos.x;
         double my = cs->activeSw->mouseDataPos.y;
-        snprintf (text, sizeof (text), "(x,y) = (%f,%f)", mx, my);
-        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL);
+        char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
+        snprintf (text, sizeof (text), "(x,y) = (%f,%f) trackingMode:%s", mx, my, tm[cs->trackingMode]);
+        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
     }
 }
 
@@ -1785,7 +1941,7 @@ static CinterState *cinterplot_init (void)
     cs->plot_data         = plot_data;
 
     cs->mouseEnabled      = 1;
-    cs->trackingEnabled   = 0;
+    cs->trackingMode      = 0;
     cs->statuslineEnabled = 1;
     cs->gridEnabled       = 1;
     cs->zoomEnabled       = 0;

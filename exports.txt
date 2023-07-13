@@ -4,7 +4,7 @@ _set_fullscreen
 _quit
 _zoom
 _move
-_toggle_tracking
+_set_tracking_mode
 _make_sub_windows
 _graph_new
 _graph_add_point
