@@ -75,7 +75,7 @@ typedef struct SubWindow
 
     Position mouseDataPos;
     Area dataRange;
-    Area prevDataRange;
+    Area defaultDataRange;
     Area windowArea;
     Area selectedWindowArea0;
     Area selectedWindowArea1;
@@ -111,9 +111,9 @@ int zoom (SubWindow *sw, double xf, double yf);
 int move (SubWindow *sw, double xf, double yf);
 int set_tracking_mode (CinterState *cs, uint32_t mode);
 int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
-void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax);
-void set_x_range (SubWindow *sw, double xmin, double xmax);
-void set_y_range (SubWindow *sw, double ymin, double ymax);
+void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault);
+void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault);
+void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
 int set_grid_enabled (CinterState *cs, uint32_t gridEnabled);
 
 CinterGraph *graph_new (uint32_t len);

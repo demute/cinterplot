@@ -357,24 +357,42 @@ int autoscale (SubWindow *sw)
     return 1;
 }
 
-void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax)
+void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault)
 {
+    if (!sw)
+        exit_error ("bug");
+
     sw->dataRange.x0 = xmin;
     sw->dataRange.y0 = ymax;
     sw->dataRange.x1 = xmax;
     sw->dataRange.y1 = ymin;
+
+    if (setAsDefault)
+        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
 }
 
-void set_x_range (SubWindow *sw, double xmin, double xmax)
+void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault)
 {
+    if (!sw)
+        exit_error ("bug");
+
     sw->dataRange.x0 = xmin;
     sw->dataRange.x1 = xmax;
+
+    if (setAsDefault)
+        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
 }
 
-void set_y_range (SubWindow *sw, double ymin, double ymax)
+void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault)
 {
+    if (!sw)
+        exit_error ("bug");
+
     sw->dataRange.y0 = ymax;
     sw->dataRange.y1 = ymin;
+
+    if (setAsDefault)
+        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
 }
 
 int continuous_scroll_update (SubWindow *sw)
@@ -424,10 +442,7 @@ void undo_zooming (SubWindow *sw)
 {
     if (!sw)
         return;
-    Area tmp;
-    memcpy (& tmp,               & sw->dataRange,     sizeof (Area));
-    memcpy (& sw->dataRange,     & sw->prevDataRange, sizeof (Area));
-    memcpy (& sw->prevDataRange, & tmp,               sizeof (Area));
+    memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (Area));
 }
 
 static void sub_window_change (CinterState *cs, int dir)
@@ -772,7 +787,6 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
              {
 
                  SubWindow *sw = cs->activeSw;
-                 memcpy (& sw->prevDataRange, & sw->dataRange, sizeof (sw->dataRange));
                  Area *dr  = & sw->dataRange;
                  Area *swa = & sw->selectedWindowArea1;
                  Area activeArea;
@@ -1781,7 +1795,6 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 hist->w = subWidth;
                 hist->h = subHeight;
                 hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
-                foobar;
                 updateHistogram = 1;
             }
 
