@@ -23,6 +23,7 @@ typedef struct CinterState
     uint32_t bordered : 1;
     uint32_t forceRefresh : 1;
     uint32_t margin : 8;
+    uint32_t showHelp : 1;
 
     int mouseState;
     Position mouseWindowPos;
@@ -412,6 +413,7 @@ int continuous_scroll_update (SubWindow *sw)
 
 int toggle_mouse (CinterState *cs)                            { cs->mouseEnabled ^= 1;      return 1; }
 int toggle_statusline (CinterState *cs)                       { cs->statuslineEnabled ^= 1; return 1; }
+int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;          return 1; }
 int quit (CinterState *cs)                                    { cs->running = 0; paused=0;  return 0; }
 int force_refresh (CinterState *cs)                           { cs->forceRefresh = 0;       return 1; }
 int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode = mode;    return 1; }
@@ -1233,6 +1235,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case 'a': autoscale (cs->activeSw); break;
                 case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
+                case 'h': toggle_help (cs); break;
                 case 'm': toggle_mouse (cs); break;
                 case 's': toggle_statusline (cs); break;
                 case 'q': quit (cs); break;
@@ -1512,7 +1515,7 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
 
     uint32_t fh = 8*scale;
     uint32_t fw = 6*scale;
-    uint32_t spacing = 1;
+    uint32_t spacing = 0;
 
     char *p = text;
     uint32_t cols = 256;
@@ -1590,7 +1593,16 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
                         if (!((font[(int)(*p)][yi/scale] >> (11-(xi/scale))) & 1))
                             pixels[(y+yi)*w + (x+xi)] = color;
                         else if (!transparent)
-                            pixels[(y+yi)*w + (x+xi)] = ~color;
+                        {
+                            uint32_t bg = pixels[(y+yi)*w + (x+xi)];
+                            int b =  bg        & 0xff;
+                            int g = (bg >> 8)  & 0xff;
+                            int r = (bg >> 16) & 0xff;
+                            r /= 4;
+                            g /= 4;
+                            b /= 4;
+                            pixels[(y+yi)*w + (x+xi)] = MAKE_COLOR (r,g,b);
+                        }
             }
             x += fw + spacing;
         }
@@ -1641,6 +1653,9 @@ void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CinterState *cs, 
             lineRGBA (pixels, w, h, x0, y0, x1, y1, color);
     }
 }
+
+#define HELP_TEXT(text) \
+draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL); y0+=16
 
 static void plot_data (CinterState *cs, uint32_t *pixels)
 {
@@ -1762,12 +1777,21 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 double dy = __exp10 (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
                 double y0 = ceil (sw->dataRange.y0 / dy) * dy;
                 double y1 = floor (sw->dataRange.y1 / dy) * dy;
-                int r = (int) ((10.0 * dy) / (y0 - y1));
-                for (double y=y1; y<y0; y+=dy*0.1)
+                int numTens = (int) ((y0 - y1) / dy);
+                int numSubs = 1;
+                while (numSubs * numTens < 8)
+                    numSubs *= 2;
+                int cnt = 0;
+                for (double y=y1; y<y0 && cnt<100; y+=dy/(numSubs*5))
+                {
+                    cnt++;
                     if (y1 <= y && y <= y0)
                         draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
-                for (double y=y1; y<y0; y+=dy / r)
+                }
+                cnt = 0;
+                for (double y=y1; y<y0 && cnt<100; y+=dy/numSubs)
                 {
+                    cnt++;
                     if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
                         continue;
 
@@ -1856,6 +1880,48 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             x0 = cs->windowWidth - 10;
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_MR);
         }
+    }
+
+    if (cs->showHelp)
+    {
+        uint32_t textColor = make_gray (0.9f);
+        int transparent = 0;
+        uint32_t x0 = 10;
+        uint32_t y0 = 20;
+        char text[256];
+        snprintf (text, sizeof (text), "h - toggle help");
+        HELP_TEXT (" Keyboard bindings:");
+        HELP_TEXT ("   a       - autoscale");
+        HELP_TEXT ("   e       - force refresh");
+        HELP_TEXT ("   f       - toggle fullscreen");
+        HELP_TEXT ("   g       - toggle grid");
+        HELP_TEXT ("   h       - toggle help");
+        HELP_TEXT ("   l       - cycle between line types");
+        HELP_TEXT ("   m       - toggle mouse crosshair");
+        HELP_TEXT ("   n       - next sub window");
+        HELP_TEXT ("   p       - prev sub window");
+        HELP_TEXT ("   q       - quit");
+        HELP_TEXT ("   s       - toggle statusline");
+        HELP_TEXT ("   t       - cycle between tracking modes");
+        HELP_TEXT ("   <space> - pause new data");
+        HELP_TEXT ("   [0-9]   - set background shade");
+        HELP_TEXT ("   +       - zoom xy in");
+        HELP_TEXT ("   -       - zoom xy out");
+        HELP_TEXT ("   .       - zoom x in");
+        HELP_TEXT ("   ,       - zoom x out");
+        HELP_TEXT ("   <up>    - move center point up");
+        HELP_TEXT ("   <down>  - move center point down");
+        HELP_TEXT ("   <left>  - move center point left");
+        HELP_TEXT ("   <right> - move center point right");
+        HELP_TEXT ("   <up>    - move center point up");
+        HELP_TEXT ("");
+        HELP_TEXT (" Mouse gestures:");
+        HELP_TEXT ("   click in sub window       - enter or exit zoom mode");
+        HELP_TEXT ("   move cursor               - read off crosshair coordinates");
+        HELP_TEXT ("   click select area         - zoom to area");
+        HELP_TEXT ("   two finger click and drag - move center point");
+        HELP_TEXT ("   scroll motion x           - zoom x coordinate in/out");
+        HELP_TEXT ("   scroll motion y           - zoom y coordinate in/out");
     }
 }
 
@@ -1987,6 +2053,7 @@ static CinterState *cinterplot_init (void)
     cs->bordered          = 0;
     cs->forceRefresh      = 0;
     cs->margin            = 10;
+    cs->showHelp          = 0;
 
     cs->frameCounter      = 0;
     cs->pressedModifiers  = 0;
