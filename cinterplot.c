@@ -433,6 +433,8 @@ static void sub_window_change (CinterState *cs, int dir)
 
 int zoom (SubWindow *sw, double xf, double yf)
 {
+    if (!sw)
+        return 0;
     Area *dr = & sw->dataRange;
     double dx = (dr->x1 - dr->x0) * xf;
     double dy = (dr->y1 - dr->y0) * yf;
@@ -445,6 +447,8 @@ int zoom (SubWindow *sw, double xf, double yf)
 
 int move (SubWindow *sw, double xf, double yf)
 {
+    if (!sw)
+        return 0;
     Area *dr = & sw->dataRange;
     double dx = (dr->x1 - dr->x0) * xf;
     double dy = (dr->y1 - dr->y0) * yf;
@@ -1263,6 +1267,18 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                               cs->bgShade = shades[index];
                               break;
                           }
+                case 27:
+                          {
+                              cs->mouseState = MOUSE_STATE_NONE;
+                              if (cs->activeSw)
+                              {
+                                  Area *a0 = & cs->activeSw->selectedWindowArea0;
+                                  Area *a1 = & cs->activeSw->selectedWindowArea1;
+                                  bzero (a0, sizeof (*a0));
+                                  bzero (a1, sizeof (*a1));
+                              }
+                              break;
+                          }
                 default: unhandled = 1;
                }
            }
@@ -1277,9 +1293,9 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         }
         if (unhandled || repeat)
         {
-            unhandled = 0;
             double zf = 0.05;
             double mf = 0.025;
+            int unhandled2 = 0;
             switch (key)
             {
              case 'n': sub_window_change (cs,  1); break;
@@ -1292,8 +1308,9 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
              case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
              case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
              case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
-             default: break;
+             default: unhandled2 = 1; break;
             }
+            unhandled = (unhandled && unhandled2);
         }
     }
 
@@ -1918,7 +1935,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         HELP_TEXT (" Mouse gestures:");
         HELP_TEXT ("   click in sub window       - enter or exit zoom mode");
         HELP_TEXT ("   move cursor               - read off crosshair coordinates");
-        HELP_TEXT ("   click select area         - zoom to area");
+        HELP_TEXT ("   click select area         - zoom to area, <esc> to cancel");
         HELP_TEXT ("   two finger click and drag - move center point");
         HELP_TEXT ("   scroll motion x           - zoom x coordinate in/out");
         HELP_TEXT ("   scroll motion y           - zoom y coordinate in/out");
