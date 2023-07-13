@@ -62,6 +62,7 @@ typedef struct GraphAttacher
     Histogram    hist;
     uint64_t     lastGraphCounter;
     char         plotType;
+    char         lastPlotType;
 } GraphAttacher;
 
 typedef struct SubWindow
@@ -74,6 +75,7 @@ typedef struct SubWindow
 
     Position mouseDataPos;
     Area dataRange;
+    Area prevDataRange;
     Area windowArea;
     Area selectedWindowArea0;
     Area selectedWindowArea1;

@@ -420,6 +420,16 @@ int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode
 int toggle_paused (CinterState *cs)                           { paused ^= 1;                return 1; }
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade) { cs->bgShade = bgShade; }
 
+void undo_zooming (SubWindow *sw)
+{
+    if (!sw)
+        return;
+    Area tmp;
+    memcpy (& tmp,               & sw->dataRange,     sizeof (Area));
+    memcpy (& sw->dataRange,     & sw->prevDataRange, sizeof (Area));
+    memcpy (& sw->prevDataRange, & tmp,               sizeof (Area));
+}
+
 static void sub_window_change (CinterState *cs, int dir)
 {
     int index = (int) (cs->activeSw - cs->subWindows);
@@ -762,6 +772,7 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
              {
 
                  SubWindow *sw = cs->activeSw;
+                 memcpy (& sw->prevDataRange, & sw->dataRange, sizeof (sw->dataRange));
                  Area *dr  = & sw->dataRange;
                  Area *swa = & sw->selectedWindowArea1;
                  Area activeArea;
@@ -1243,6 +1254,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case 'm': toggle_mouse (cs); break;
                 case 's': toggle_statusline (cs); break;
                 case 'q': quit (cs); break;
+                case 'u': undo_zooming (cs->activeSw); break;
                 case 'e': force_refresh (cs); break;
                 case 't': set_tracking_mode (cs, cs->trackingMode + 1); break;
                 case 'l': cycle_line_type (cs->activeSw); break;
@@ -1411,8 +1423,9 @@ void graph_remove_points (CinterGraph *graph)
     release_access (& graph->readAccess);
 }
 
-void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
+uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
 {
+    uint64_t counter = 0;
     int *bins  = hist->bins;
     uint32_t w = hist->w;
     uint32_t h = hist->h;
@@ -1432,13 +1445,14 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
     {
         release_access (& graph->insertAccess);
         release_access (& graph->readAccess);
-        return;
+        return 0;
     }
     if (graph->len && graph->len < len)
     {
         xys += (len - graph->len);
         len = graph->len;
     }
+    counter = graph->sb->counter;
     release_access (& graph->insertAccess);
 
     uint32_t nBins = w * h;
@@ -1517,6 +1531,7 @@ void make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
     }
 
     release_access (& graph->readAccess);
+    return counter;
 }
 
 enum {
@@ -1747,6 +1762,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             int updateHistogram =
                 (forceRefresh) ||
                 (attacher->lastGraphCounter != attacher->graph->sb->counter) ||
+                (attacher->lastPlotType != attacher->plotType) ||
                 (hist->dataRange.x0 != sw->dataRange.x0) ||
                 (hist->dataRange.x1 != sw->dataRange.x1) ||
                 (hist->dataRange.y0 != sw->dataRange.y0) ||
@@ -1765,6 +1781,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 hist->w = subWidth;
                 hist->h = subHeight;
                 hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                foobar;
                 updateHistogram = 1;
             }
 
@@ -1774,7 +1791,8 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 hist->dataRange.x1 = sw->dataRange.x1;
                 hist->dataRange.y0 = sw->dataRange.y0;
                 hist->dataRange.y1 = sw->dataRange.y1;
-                make_histogram (hist, attacher->graph, attacher->plotType);
+                attacher->lastGraphCounter = make_histogram (hist, attacher->graph, attacher->plotType);
+                attacher->lastPlotType = attacher->plotType;
             }
             else
             {
