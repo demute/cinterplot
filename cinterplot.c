@@ -418,6 +418,17 @@ int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode
 int toggle_paused (CinterState *cs)                           { paused ^= 1;                return 1; }
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade) { cs->bgShade = bgShade; }
 
+static void sub_window_change (CinterState *cs, int dir)
+{
+    int index = (int) (cs->activeSw - cs->subWindows);
+    index += dir;
+    if (index < 0)
+        index = 0;
+    if (index > (int) cs->numSubWindows - 1)
+        index = (int) cs->numSubWindows - 1;
+    cs->activeSw = & cs->subWindows[index];
+}
+
 int zoom (SubWindow *sw, double xf, double yf)
 {
     Area *dr = & sw->dataRange;
@@ -1261,12 +1272,15 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                unhandled = 1;
            }
         }
-        else
+        if (unhandled || repeat)
         {
+            unhandled = 0;
             double zf = 0.05;
             double mf = 0.025;
             switch (key)
             {
+             case 'n': sub_window_change (cs,  1); break;
+             case 'p': sub_window_change (cs, -1); break;
              case '+': zoom (cs->activeSw,  zf,  zf); break;
              case '-': zoom (cs->activeSw, -zf, -zf); break;
              case ',': zoom (cs->activeSw, -zf,  0.00); break;
