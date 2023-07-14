@@ -117,6 +117,7 @@ void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
 int set_grid_enabled (CinterState *cs, uint32_t gridEnabled);
 
 CinterGraph *graph_new (uint32_t len);
+void graph_delete (CinterGraph *graph);
 void graph_add_point (CinterGraph *graph, double x, double y);
 int  graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors);
 void graph_remove_points (CinterGraph *graph);

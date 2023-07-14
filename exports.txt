@@ -7,6 +7,7 @@ _move
 _set_tracking_mode
 _make_sub_windows
 _graph_new
+_graph_delete
 _graph_add_point
 _graph_attach
 _graph_remove_points

@@ -312,7 +312,7 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 void cycle_graph_order (CinterState *cs)
 {
     cs->graphOrder++;
-    print_debug ("graph order %u", cs->graphOrder);
+    //print_debug ("graph order %u", cs->graphOrder);
 }
 
 int autoscale (SubWindow *sw)
@@ -1409,6 +1409,15 @@ CinterGraph *graph_new (uint32_t len)
     return graph;
 }
 
+void graph_delete (CinterGraph *graph)
+{
+    if (!graph)
+        return;
+
+    stream_buffer_destroy (graph->sb);
+    free (graph);
+}
+
 void graph_add_point (CinterGraph *graph, double x, double y)
 {
     while (paused)
@@ -1490,6 +1499,10 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
         {
             double x = xys[i][0];
             double y = xys[i][1];
+
+            if (isnan (x) || isnan (y))
+                continue;
+
             int xi = (int) ((w-1) * (x - xmin) * invXRange);
             int yi = (int) ((h-1) * (y - ymin) * invYRange);
             if (xi >= 0 && xi < w && yi >= 0 && yi < h)
@@ -1502,6 +1515,10 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
         {
             double x = xys[i][0];
             double y = xys[i][1];
+
+            if (isnan (x) || isnan (y))
+                continue;
+
             int xi = (int) ((w-1) * (x - xmin) * invXRange);
             int yi = (int) ((h-1) * (y - ymin) * invYRange);
             int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
@@ -1524,6 +1541,9 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             double x1 = xys[i+1][0];
             double y1 = xys[i+1][1];
 
+            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
+                continue;
+
             int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
             int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
             int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
@@ -1539,6 +1559,9 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             double y0 = xys[i][1];
             double x1 = xys[i+1][0];
             double y1 = xys[i+1][1];
+
+            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
+                continue;
 
             int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
             int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
