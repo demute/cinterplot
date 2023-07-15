@@ -1864,6 +1864,8 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             double y0 = ceil (sw->dataRange.y0 / dy) * dy;
             double y1 = floor (sw->dataRange.y1 / dy) * dy;
             int numTens = (int) ((y0 - y1) / dy);
+            if (numTens < 1)
+                numTens = 1;
             int numSubs = 1;
             while (numSubs * numTens < 8)
                 numSubs *= 2;
