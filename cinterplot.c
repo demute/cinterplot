@@ -450,6 +450,11 @@ void undo_zooming (SubWindow *sw)
 {
     if (!sw)
         return;
+    if (sw->defaultDataRange.x0 == sw->defaultDataRange.x1)
+        return;
+    if (sw->defaultDataRange.y0 == sw->defaultDataRange.y1)
+        return;
+
     memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (Area));
 }
 
@@ -833,17 +838,46 @@ static int on_mouse_wheel (CinterState *cs, float xf, float yf)
     SubWindow *sw = cs->activeSw;
     if (sw && cs->mouseState == MOUSE_STATE_NONE)
     {
-        Area *dr = & sw->dataRange;
-        double a = (sw->mouseDataPos.x - dr->x0) / (dr->x1 - dr->x0);
-        double b = (sw->mouseDataPos.y - dr->y0) / (dr->y1 - dr->y0);
+        if (cs->pressedModifiers == KMOD_GUI)
+        {
+            // zooming
+            Area *dr = & sw->dataRange;
+            double a = (sw->mouseDataPos.x - dr->x0) / (dr->x1 - dr->x0);
+            double b = (sw->mouseDataPos.y - dr->y0) / (dr->y1 - dr->y0);
 
-        double dx = -0.05 * (dr->x1 - dr->x0) * xf;
-        double dy = -0.05 * (dr->y1 - dr->y0) * yf;
-        dr->x0 += dx * a;
-        dr->x1 -= dx * (1-a);
-        dr->y0 += dy * b;
-        dr->y1 -= dy * (1-b);
-        return 1;
+            double dx = -0.05 * (dr->x1 - dr->x0) * xf;
+            double dy = -0.05 * (dr->y1 - dr->y0) * yf;
+            dr->x0 += dx * a;
+            dr->x1 -= dx * (1-a);
+            dr->y0 += dy * b;
+            dr->y1 -= dy * (1-b);
+            return 1;
+        }
+        else
+        {
+            // moving
+            SubWindow *sw = cs->activeSw;
+            Area *dr = & sw->dataRange;
+
+            double dx = xf * 0.01;
+            double dy = yf * 0.01;
+
+             //if (!cs->zoomEnabled)
+             //{
+             //    dx /= (sw->windowArea.x1 - sw->windowArea.x0);
+             //    dy /= (sw->windowArea.y1 - sw->windowArea.y0);
+             //}
+             dx *= dr->x1 - dr->x0;
+             dy *= dr->y1 - dr->y0;
+
+            //printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+            dr->x0 += dx;
+            dr->x1 += dx;
+            dr->y0 -= dy;
+            dr->y1 -= dy;
+            //print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+            return 1;
+        }
     }
     return 0;
 }
@@ -1595,6 +1629,20 @@ enum {
     ALIGN_BL, ALIGN_BC, ALIGN_BR
 };
 
+void darken_pixel (uint32_t *pixel, float residual)
+{
+    int b =  *pixel        & 0xff;
+    int g = (*pixel >> 8)  & 0xff;
+    int r = (*pixel >> 16) & 0xff;
+    r = (int) (r * residual);
+    g = (int) (g * residual);
+    b = (int) (b * residual);
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    *pixel = MAKE_COLOR (r,g,b);
+}
+
 uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint32_t y0, uint32_t color, int transparent, char *text, uint32_t scale, int alignment )
 {
     if (!pixels)
@@ -1681,14 +1729,8 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
                             pixels[(y+yi)*w + (x+xi)] = color;
                         else if (!transparent)
                         {
-                            uint32_t bg = pixels[(y+yi)*w + (x+xi)];
-                            int b =  bg        & 0xff;
-                            int g = (bg >> 8)  & 0xff;
-                            int r = (bg >> 16) & 0xff;
-                            r /= 4;
-                            g /= 4;
-                            b /= 4;
-                            pixels[(y+yi)*w + (x+xi)] = MAKE_COLOR (r,g,b);
+                            uint32_t *pixel = & pixels[(y+yi)*w + (x+xi)];
+                            darken_pixel (pixel, 0.25);
                         }
             }
             x += fw + spacing;
@@ -1750,7 +1792,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     uint32_t inactiveColor  = make_gray (0.4f);
     uint32_t crossHairColor = MAKE_COLOR (0,255,255);
     uint32_t bgColor        = make_gray (cs->bgShade);
-    uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.2f : -0.2f));
+    //uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.2f : -0.2f));
     uint32_t gridColor0     = make_gray (0.2f);
     uint32_t gridColor1     = make_gray (0.4f);
 
@@ -1949,8 +1991,9 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                         uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
                         *pixel = color;
                     }
-                    else if (regionSelected && *pixel == bgColor)
-                        *pixel = selectColor;
+
+                    if (regionSelected)
+                        darken_pixel (pixel, 1.5);
                 }
             }
         }
