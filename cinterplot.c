@@ -93,13 +93,13 @@ extern const unsigned int font[256][8];
 static int interrupted = 0;
 static int paused = 0;
 
-static inline void wait_for_access (atomic_flag* accessFlag)
+void wait_for_access (atomic_flag* accessFlag)
 {
     while (atomic_flag_test_and_set(accessFlag))
         continue;
 }
 
-static inline void release_access (atomic_flag* accessFlag)
+void release_access (atomic_flag* accessFlag)
 {
     atomic_flag_clear (accessFlag);
 }
@@ -610,15 +610,12 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
     }
 }
 
-static void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1)
+void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1)
 {
     int *bins = hist->bins;
 
     int w = (int) hist->w;
     int h = (int) hist->h;
-
-    int xabs = (x1 > x0) ? x1 - x0 : x0 - x1;
-    int yabs = (y1 > y0) ? y1 - y0 : y0 - y1;
 
     if ((x0 < 0 && x1 < 0) ||
         (y0 < 0 && y1 < 0) ||
@@ -626,6 +623,9 @@ static void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1)
         (y0 > h && y1 > h)
        )
         return;
+
+    int xabs = (x1 > x0) ? x1 - x0 : x0 - x1;
+    int yabs = (y1 > y0) ? y1 - y0 : y0 - y1;
 
     if (xabs > yabs)
     {
@@ -1207,6 +1207,9 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 
 void cycle_line_type (SubWindow *sw)
 {
+    if (!sw)
+        return;
+
     for (int i=0; i<sw->numAttachedGraphs; i++)
     {
         GraphAttacher *attacher = sw->attachedGraphs[i];
@@ -1358,12 +1361,19 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     return 1;
 }
 
-int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors)
+GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors)
 {
     if (windowIndex >= cs->numSubWindows)
     {
         print_error ("windowIndex %d out of range", windowIndex);
-        return -1;
+        return NULL;
+    }
+
+    SubWindow *sw = & cs->subWindows[windowIndex];
+    if (sw->numAttachedGraphs >= sw->maxNumAttachedGraphs)
+    {
+        print_error ("maximum number of attached graphs reached");
+        return NULL;
     }
 
     GraphAttacher *attacher = safe_calloc (1, sizeof (*attacher));
@@ -1372,18 +1382,17 @@ int graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, cha
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
+    attacher->histogramFun = make_histogram;
     attacher->colorScheme = make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
-    SubWindow *sw = & cs->subWindows[windowIndex];
-    if (sw->numAttachedGraphs >= sw->maxNumAttachedGraphs)
-    {
-        print_error ("maximum number of attached graphs reached");
-        return -1;
-    }
-
     sw->attachedGraphs[sw->numAttachedGraphs++] = attacher;
-    return 0;
+    return attacher;
+}
+
+void attacher_set_histogram_function (GraphAttacher *attacher, uint64_t (*histogramFun) (Histogram *hist, CinterGraph *graph, char plotType))
+{
+    attacher->histogramFun = histogramFun;
 }
 
 CinterGraph *graph_new (uint32_t len)
@@ -1889,7 +1898,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 hist->dataRange.x1 = sw->dataRange.x1;
                 hist->dataRange.y0 = sw->dataRange.y0;
                 hist->dataRange.y1 = sw->dataRange.y1;
-                attacher->lastGraphCounter = make_histogram (hist, attacher->graph, attacher->plotType);
+                attacher->lastGraphCounter = attacher->histogramFun (hist, attacher->graph, attacher->plotType);
                 attacher->lastPlotType = attacher->plotType;
             }
             else

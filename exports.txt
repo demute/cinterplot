@@ -31,3 +31,8 @@ _set_x_range
 _set_y_range
 _set_grid_enabled
 _set_sub_window_title
+_make_histogram
+_attacher_set_histogram_function
+_wait_for_access
+_release_access
+_histogram_line

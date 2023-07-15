@@ -63,6 +63,7 @@ typedef struct GraphAttacher
     uint64_t     lastGraphCounter;
     char         plotType;
     char         lastPlotType;
+    uint64_t   (*histogramFun) (Histogram *hist, CinterGraph *graph, char plotType);
 } GraphAttacher;
 
 typedef struct SubWindow
@@ -115,11 +116,16 @@ void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double yma
 void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault);
 void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
 int set_grid_enabled (CinterState *cs, uint32_t gridEnabled);
+uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType);
+void attacher_set_histogram_function (GraphAttacher *attacher, uint64_t (*histogramFun) (Histogram *hist, CinterGraph *graph, char plotType));
+void wait_for_access (atomic_flag* accessFlag);
+void release_access (atomic_flag* accessFlag);
+void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1);
 
 CinterGraph *graph_new (uint32_t len);
 void graph_delete (CinterGraph *graph);
 void graph_add_point (CinterGraph *graph, double x, double y);
-int  graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors);
+GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors);
 void graph_remove_points (CinterGraph *graph);
 
 int  cinterplot_is_running (CinterState *cs);
