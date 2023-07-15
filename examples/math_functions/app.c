@@ -26,7 +26,7 @@ uint64_t y_of_x (Histogram *hist, CinterGraph *graph, char plotType)
         {
          case '0': y = 1; break;
          case '1': y = x; break;
-         case '2': y = x*x; break;
+         case '2': y = sqrt(x); break;
          case '3': y = x*x*x; break;
          case '4': y = x*x*x*x; break;
          case '5': y = x*x*x*x*x; break;

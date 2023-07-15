@@ -312,6 +312,7 @@ double get_sorted_value_at_index (double *list, int n, int j)
         else
             c++;
     }
+    (void) c;
 
     // a = number of items strictly less
     // b = number of items strictly equal
