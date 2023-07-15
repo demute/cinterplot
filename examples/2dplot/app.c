@@ -29,7 +29,7 @@ int user_main (int argc, char **argv, CinterState *cs)
     for (int i=0; i<n; i++)
     {
         sineGraph[i] = graph_new (1000000);
-        graph_attach (cs, sineGraph[i], (uint32_t) i, plotType[i], colorSchemes[i % 6], 8);
+        graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
     }
 
     double v = 0;

@@ -862,11 +862,16 @@ static int on_mouse_wheel (CinterState *cs, float xf, float yf)
             double dx = xf * 0.01;
             double dy = yf * 0.01;
 
-             //if (!cs->zoomEnabled)
-             //{
-             //    dx /= (sw->windowArea.x1 - sw->windowArea.x0);
-             //    dy /= (sw->windowArea.y1 - sw->windowArea.y0);
-             //}
+             Area activeArea;
+             Area zoomWindowArea = {0,0,1,1};
+             if (cs->zoomEnabled)
+                 get_active_area (cs, & zoomWindowArea, & activeArea);
+             else
+                 get_active_area (cs, & sw->windowArea, & activeArea);
+
+             dx /= activeArea.x1 - activeArea.x0;
+             dy /= activeArea.y1 - activeArea.y0;
+
              dx *= dr->x1 - dr->x0;
              dy *= dr->y1 - dr->y0;
 
@@ -1395,7 +1400,8 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
     return 1;
 }
 
-GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors)
+
+GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors)
 {
     if (windowIndex >= cs->numSubWindows)
     {
@@ -1416,17 +1422,12 @@ GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windo
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->histogramFun = make_histogram;
+    attacher->histogramFun = histogramFun ? histogramFun : make_histogram;
     attacher->colorScheme = make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
     sw->attachedGraphs[sw->numAttachedGraphs++] = attacher;
     return attacher;
-}
-
-void attacher_set_histogram_function (GraphAttacher *attacher, uint64_t (*histogramFun) (Histogram *hist, CinterGraph *graph, char plotType))
-{
-    attacher->histogramFun = histogramFun;
 }
 
 CinterGraph *graph_new (uint32_t len)
@@ -1629,17 +1630,23 @@ enum {
     ALIGN_BL, ALIGN_BC, ALIGN_BR
 };
 
-void darken_pixel (uint32_t *pixel, float residual)
+void lighten_pixel (uint32_t *pixel, int amount)
 {
     int b =  *pixel        & 0xff;
     int g = (*pixel >> 8)  & 0xff;
     int r = (*pixel >> 16) & 0xff;
-    r = (int) (r * residual);
-    g = (int) (g * residual);
-    b = (int) (b * residual);
+    r = (int) (r + amount);
+    g = (int) (g + amount);
+    b = (int) (b + amount);
+
     if (r > 255) r = 255;
     if (g > 255) g = 255;
     if (b > 255) b = 255;
+
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
     *pixel = MAKE_COLOR (r,g,b);
 }
 
@@ -1730,7 +1737,7 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
                         else if (!transparent)
                         {
                             uint32_t *pixel = & pixels[(y+yi)*w + (x+xi)];
-                            darken_pixel (pixel, 0.25);
+                            lighten_pixel (pixel, -100);
                         }
             }
             x += fw + spacing;
@@ -1993,7 +2000,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                     }
 
                     if (regionSelected)
-                        darken_pixel (pixel, 1.5);
+                        lighten_pixel (pixel, 50);
                 }
             }
         }
@@ -2106,6 +2113,7 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
             sw->dataRange.x1 =  1;
             sw->dataRange.y0 =  1;
             sw->dataRange.y1 = -1;
+            memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
 
             sw->windowArea.x0 = (ci    ) * dx;
             sw->windowArea.x1 = (ci + 1) * dx;

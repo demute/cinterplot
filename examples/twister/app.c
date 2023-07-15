@@ -116,7 +116,7 @@ int user_main (int argc, char **argv, CinterState *_cs)
     for (int i=0; i<n; i++)
     {
         sineGraph[i] = graph_new (N);
-        graph_attach (cs, sineGraph[i], (uint32_t) i, plotType[i], colorSchemes[i % 6], 4);
+        graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 4);
     }
 
     while (cinterplot_is_running (cs))

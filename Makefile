@@ -23,13 +23,19 @@ OBJS += oklab.o
 #	LDFLAGS += -DHAVE_SDL
 #endif
 
-.PHONY: run
+EXAMPLES = $(wildcard examples/*/.)
+.PHONY: run $(EXAMPLES)
 
 TARGET=libcinterplot.dylib
-all:$(TARGET)
+all:$(TARGET) $(EXAMPLES)
+
+$(EXAMPLES):
+	$(MAKE) -C $@
 
 libcinterplot.dylib:$(OBJS)
 	$(CC) $(LDFLAGS) -o$@ $^ -shared -undefined suppress -flat_namespace
+
+examples: $(EXAMPLES)
 
 %.so:$(OBJS)
 	g++ -shared -o $@ $^ $(LDFLAGS)
@@ -42,3 +48,6 @@ libcinterplot.dylib:$(OBJS)
 
 clean:
 	rm -f *.o *.elf *.bin *.hex *.size *.dylib
+	for dir in $(EXAMPLES); do \
+		$(MAKE) -C $$dir clean; \
+	done

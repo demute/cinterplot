@@ -5,7 +5,6 @@
 #define GET_DATA_POS_Y(hist,yi) (((double) yi / (hist->h-1)) * (hist->dataRange.y1 - hist->dataRange.y0) + hist->dataRange.y0)
 
 
-
 uint64_t y_of_x (Histogram *hist, CinterGraph *graph, char plotType)
 {
     int *bins  = hist->bins;
@@ -21,8 +20,18 @@ uint64_t y_of_x (Histogram *hist, CinterGraph *graph, char plotType)
     for (uint32_t xi=0; xi<w; xi++)
     {
         double x = GET_DATA_POS_X (hist, xi);
+        double y;
 
-        double y = x*x;
+        switch (plotType)
+        {
+         case '0': y = 1; break;
+         case '1': y = x; break;
+         case '2': y = x*x; break;
+         case '3': y = x*x*x; break;
+         case '4': y = x*x*x*x; break;
+         case '5': y = x*x*x*x*x; break;
+         default:  y = 0;
+        }
 
         int yi = (int) ((h-1) * (y - dr->y0) / (dr->y1 - dr->y0));
 //        int yi = GET_BIN_POS_Y (hist, y);
@@ -46,7 +55,14 @@ uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
             double x = GET_DATA_POS_X (hist, xi);
             double y = GET_DATA_POS_Y (hist, yi);
 
-            int cnt = 512 + (int) (x*y*1024);
+            int cnt;
+            switch (plotType)
+            {
+             case '1': cnt = 512 + (int) (x*y*1024); break;
+             case '2': cnt = (int) (512+sin(x)*sin(y)*512); break;
+             case '3': cnt = (int) (1024*(x*x+y*y)); break;
+             case '4': cnt = (int) (512+sin(x)*tan(y)*512); break;
+            }
             if (cnt < 1) cnt = 1;
             bins[yi*w+xi] = cnt;
         }
@@ -56,23 +72,25 @@ uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
 
 int user_main (int argc, char **argv, CinterState *cs)
 {
-    const uint32_t nRows = 1;
-    const uint32_t nCols = 2;
+    const uint32_t nRows = 2;
+    const uint32_t nCols = 4;
     uint32_t bordered = 1;
     uint32_t margin = 4;
 
     if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
-    CinterGraph *g1 = graph_new (0);
-    GraphAttacher *a1 = graph_attach (cs, g1, 0, 'p', "black white", 1024);
-    attacher_set_histogram_function (a1, y_of_x);
-    set_range (get_sub_window (cs, 0), -1, -1, 1, 1, 1);
+    CinterGraph *nullGraph = graph_new (0);
 
-    CinterGraph *g2 = graph_new (0);
-    GraphAttacher *a2 = graph_attach (cs, g2, 1, 'p', "red black blue", 1024);
-    attacher_set_histogram_function (a2, count_of_xy);
-    set_range (get_sub_window (cs, 0), -1, -1, 1, 1, 1);
+    uint32_t windowIndex = 0;
+    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '1', "black white", 1024);
+    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '2', "black white", 1024);
+    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '3', "black white", 1024);
+    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '4', "black white", 1024);
+    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '1', "red black blue", 1024);
+    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '2', "red black blue", 1024);
+    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '3', "1/10 2/10 3/10 4/10 5/10 6/10 7/10 8/10 9/10 10/10 black", 1024);
+    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '4', "red black blue", 1024);
 
     cinterplot_redraw_async (cs);
     return 0;
