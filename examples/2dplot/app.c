@@ -33,7 +33,9 @@ int user_main (int argc, char **argv, CinterState *cs)
     }
 
     double v = 0;
-    double a[n] = {0};
+    double a[n];
+    bzero (a, sizeof (a));
+
     while (cinterplot_is_running (cs))
     {
         usleep (0);

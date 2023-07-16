@@ -224,9 +224,9 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
             if (sscanf (& str[1], "%02x%02x%02x", & r, & g, & b) != 3)
                 exit_error ("parse error at '%s' in str spec '%s'", str, spec);
             float s = 1.0f / 255.0f;
-            vertices[i].r = r * s;
-            vertices[i].g = g * s;
-            vertices[i].b = b * s;
+            vertices[i].r = (float) r * s;
+            vertices[i].g = (float) g * s;
+            vertices[i].b = (float) b * s;
 
         }
         else if ('0' <= str[0] && str[0] <= '9')
@@ -249,9 +249,9 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
             if (get_color_by_name (str, & r, & g, & b) < 0)
                 exit_error ("parse error at '%s' in color spec '%s'", str, spec);
             float s = 1.0f / 255.0f;
-            vertices[i].r = r * s;
-            vertices[i].g = g * s;
-            vertices[i].b = b * s;
+            vertices[i].r = (float) r * s;
+            vertices[i].g = (float) g * s;
+            vertices[i].b = (float) b * s;
         }
     }
     free (modStr);
@@ -283,9 +283,9 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
             {
                 float w1;
                 if (v+1 == nVertices-1)
-                    w1 = (float) i / (len - 1);
+                    w1 = (float) i / (float) (len - 1);
                 else
-                    w1 = (float) i / len;
+                    w1 = (float) i / (float) len;
                 float w0 = 1 - w1;
                 Lab c =
                 {
@@ -436,13 +436,13 @@ int continuous_scroll_update (SubWindow *sw)
 }
 
 
-int toggle_mouse (CinterState *cs)                            { cs->mouseEnabled ^= 1;      return 1; }
-int toggle_statusline (CinterState *cs)                       { cs->statuslineEnabled ^= 1; return 1; }
-int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;          return 1; }
-int quit (CinterState *cs)                                    { cs->running = 0; paused=0;  return 0; }
-int force_refresh (CinterState *cs)                           { cs->forceRefresh = 0;       return 1; }
-int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode = mode;    return 1; }
-int toggle_paused (CinterState *cs)                           { paused ^= 1;                return 1; }
+int toggle_mouse (CinterState *cs)                            { cs->mouseEnabled ^= 1;       return 1; }
+int toggle_statusline (CinterState *cs)                       { cs->statuslineEnabled ^= 1;  return 1; }
+int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;           return 1; }
+int quit (CinterState *cs)                                    { cs->running = 0; paused=0;   return 0; }
+int force_refresh (CinterState *cs)                           { cs->forceRefresh = 0;        return 1; }
+int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode = mode & 3; return 1; }
+int toggle_paused (CinterState *cs)                           { paused ^= 1;                 return 1; }
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade) { cs->bgShade = bgShade; }
 
 void undo_zooming (SubWindow *sw)
@@ -528,13 +528,13 @@ static void reinitialise_sdl_context (CinterState *cs, int reinitWindow)
 
 int set_grid_enabled (CinterState *cs, uint32_t gridEnabled)
 {
-    cs->gridEnabled = gridEnabled;
+    cs->gridEnabled = gridEnabled & 1;
     return 1;
 }
 
 int set_fullscreen (CinterState *cs, uint32_t fullscreen)
 {
-    cs->fullscreen = fullscreen;
+    cs->fullscreen = fullscreen & 1;
 
     if (cs->fullscreen)
     {
@@ -1866,7 +1866,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         if (cs->gridEnabled)
         {
             // keep in mind y1 < y0 because plot window has positive y-data direction upwards
-            double dy = __exp10 (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
+            double dy = pow (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)), 10);
             double y0 = ceil (sw->dataRange.y0 / dy) * dy;
             double y1 = floor (sw->dataRange.y1 / dy) * dy;
             int numTens = (int) ((y0 - y1) / dy);
@@ -2089,8 +2089,8 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
     }
 
     cs->numSubWindows = nRows * nCols;
-    cs->bordered = bordered;
-    cs->margin   = margin;
+    cs->bordered = bordered & 1;
+    cs->margin   = margin   & 1;
 
     uint32_t n = nRows * nCols;
     cs->subWindows = safe_calloc (n, sizeof (cs->subWindows[0]));
@@ -2195,19 +2195,17 @@ static void signal_handler (int sig)
     {
         printn ("Ctrl+C received again, attach debugger? [y/N] ");
         char buf[8];
-        fgets (buf, sizeof (buf), stdin);
-
-        if (buf[0] == 'y')
+        if (fgets (buf, sizeof (buf), stdin) != buf || buf[0] != 'y')
+        {
+            print_debug ("Exiting process");
+            exit (0);
+        }
+        else
         {
             pthread_t abortThread;
             if (pthread_create (& abortThread, NULL, abort_thread, NULL))
                 exit_error ("could not create thread\n");
             interrupted = 0;
-        }
-        else
-        {
-            print_debug ("Ctrl+C received again, Exiting process");
-            exit (0);
         }
     }
     else
@@ -2284,6 +2282,7 @@ static int cinterplot_run_until_quit (CinterState *cs)
     {
         cs->frameCounter++;
         SDL_Event event;
+        int redraw = 0;
         while (SDL_PollEvent (& event))
         {
             switch(event.type)
@@ -2291,16 +2290,16 @@ static int cinterplot_run_until_quit (CinterState *cs)
              case SDL_QUIT:
                  return 0;
              case SDL_MOUSEBUTTONDOWN:
-                 cs->redraw |= cs->on_mouse_pressed (cs, event.button.x, event.button.y, event.button.button, event.button.clicks);
+                 redraw |= cs->on_mouse_pressed (cs, event.button.x, event.button.y, event.button.button, event.button.clicks);
                  break;
              case SDL_MOUSEBUTTONUP:
-                 cs->redraw |= cs->on_mouse_released (cs, event.button.x, event.button.y);
+                 redraw |= cs->on_mouse_released (cs, event.button.x, event.button.y);
                  break;
              case SDL_MOUSEMOTION:
-                 cs->redraw |= cs->on_mouse_motion (cs, event.motion.x, event.motion.y);
+                 redraw |= cs->on_mouse_motion (cs, event.motion.x, event.motion.y);
                  break;
              case SDL_MOUSEWHEEL:
-                 cs->redraw |= cs->on_mouse_wheel (cs, event.wheel.preciseX, event.wheel.preciseY);
+                 redraw |= cs->on_mouse_wheel (cs, event.wheel.preciseX, event.wheel.preciseY);
                  break;
              case SDL_KEYDOWN:
              case SDL_KEYUP:
@@ -2310,7 +2309,7 @@ static int cinterplot_run_until_quit (CinterState *cs)
                      int key = event.key.keysym.sym;
                      int mod = event.key.keysym.mod;
 
-                     cs->redraw |= cs->on_keyboard (cs, key, mod, pressed, repeat);
+                     redraw |= cs->on_keyboard (cs, key, mod, pressed, repeat);
                      break;
                  }
              case SDL_WINDOWEVENT:
@@ -2324,7 +2323,7 @@ static int cinterplot_run_until_quit (CinterState *cs)
                               cs->windowWidth  = (uint32_t) newWidth;
                               cs->windowHeight = (uint32_t) newHeight;
                               reinitialise_sdl_context (cs, 0);
-                              cs->redraw = 1;
+                              redraw = 1;
                               break;
                           }
                       default:
@@ -2337,6 +2336,8 @@ static int cinterplot_run_until_quit (CinterState *cs)
                  break;
             }
         }
+        if (redraw)
+            cs->redraw = 1;
 
         double tsp = get_time ();
         if (cs->redraw && tsp - lastFrameTsp > periodTime)
@@ -2369,7 +2370,7 @@ int main (int argc, char **argv)
 {
     // SDL, at least on my version of macOS, prevents SDL from running on any other thread
     // than the main thread
-    sranddev ();
+    srand ((unsigned int) time (NULL));
 
     CinterState *cs = cinterplot_init ();
     if (!cs)

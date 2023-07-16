@@ -1,0 +1,26 @@
+LIBDIR  = $(TOPDIR)/lib
+MAKE = make
+
+UNAME=$(shell uname)
+ifeq ($(UNAME),Darwin)
+	CC      = gcc
+	CXX     = g++
+	LIBEXT  = dylib
+	LDFLAGS = -L$(LIBDIR) -lm -lpthread
+	CFLAGS  = -g -ggdb -Wall -O3 -Wno-deprecated -Wconversion -Werror -Wno-unused-function -D_THREAD_SAFE
+	CFLAGS += -D_BSD_SOURCE -ferror-limit=5
+	CFLAGS += $(shell pkg-config --cflags sdl2)
+	CFLAGS += -I$(TOPDIR)
+
+else
+	CC      = gcc
+	CXX     = g++
+	LIBEXT  = so
+	LDFLAGS = -L$(LIBDIR) -lm -lpthread
+	CFLAGS  = -g -ggdb -Wall -O3 -Wno-deprecated -Wconversion -Werror -Wno-unused-function -D_THREAD_SAFE
+	CFLAGS += -D_XOPEN_SOURCE=500 -fmax-errors=5
+	CFLAGS += $(shell pkg-config --cflags sdl2)
+	CFLAGS += -I$(TOPDIR)
+
+endif
+

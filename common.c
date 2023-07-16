@@ -1,3 +1,5 @@
+#include "common.h"
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -11,7 +13,6 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "common.h"
 
 void *safe_malloc (size_t size)
 {

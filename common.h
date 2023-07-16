@@ -1,6 +1,6 @@
 #ifndef _COMMON_H_
 #define _COMMON_H_
-//#define _XOPEN_SOURCE 500
+#define _XOPEN_SOURCE 500
 #include <stdio.h>
 
 #include <fcntl.h>

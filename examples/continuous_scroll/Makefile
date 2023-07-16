@@ -1,16 +1,13 @@
+TOPDIR = ../..
+include $(TOPDIR)/Makefile.common
+
 .PHONY: all
 
-CC      = gcc
-CXX     = g++
- 
-CFLAGS  = -I../.. -g -ggdb -Wall -Wno-deprecated -O3 -D_BSD_SOURCE
-CFLAGS += -Wall -Wno-deprecated -Os -ferror-limit=5 -Wconversion -Werror -Wno-unused-function
-CFLAGS += $(shell pkg-config --cflags gsl)
+CFLAGS  += $(shell pkg-config --cflags gsl)
 
+LDFLAGS += -L$(LIBDIR) -lcinterplot
 LDFLAGS += $(shell pkg-config --libs gsl)
-LDFLAGS += -lcinterplot
-
-CXXFLAGS  = -Wall -Wno-deprecated -Os -I../.. -std=c++11
+LDFLAGS += $(shell pkg-config --libs sdl2)
 
 OBJS += randlib.o
 OBJS += common.o

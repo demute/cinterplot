@@ -1,14 +1,12 @@
+TOPDIR = .
+include $(TOPDIR)/Makefile.common
+
 .PHONY: all
 
 CC      = gcc
 CXX     = g++
  
-CFLAGS  = -g -ggdb -Wall -Wno-deprecated -O3 -D_BSD_SOURCE
-CFLAGS += -Wall -Wno-deprecated -Os -I../core -ferror-limit=5 -Wconversion -Werror -Wno-unused-function
-CFLAGS += $(shell pkg-config --cflags sdl2)
-
-LDFLAGS  = -lpthread
-LDFLAGS += -Wl,-exported_symbols_list,exports.txt
+CFLAGS  += $(shell pkg-config --cflags sdl2)
 LDFLAGS += $(shell pkg-config --libs sdl2)
 
 OBJS += common.o
@@ -16,29 +14,31 @@ OBJS += cinterplot.o
 OBJS += stream_buffer.o
 OBJS += oklab.o
 
-#UNAME=$(shell uname)
-#ifeq ($(UNAME),Darwin)
-#	LDFLAGS += -DHAVE_SDL -Wl,-framework,Cocoa
-#else
-#	LDFLAGS += -DHAVE_SDL
-#endif
-
 EXAMPLES = $(wildcard examples/*/.)
 .PHONY: run $(EXAMPLES)
 
-TARGET=libcinterplot.dylib
-all:$(TARGET) $(EXAMPLES)
+TARGET=$(LIBDIR)/libcinterplot.$(LIBEXT)
+
+all:$(TARGET)
+
+ex:$(EXAMPLES)
+
+examples:$(EXAMPLES)
 
 $(EXAMPLES):
 	$(MAKE) -C $@
 
-libcinterplot.dylib:$(OBJS)
+$(LIBDIR)/libcinterplot.dylib:$(OBJS)
+	mkdir -p $(LIBDIR)
 	$(CC) $(LDFLAGS) -o$@ $^ -shared -undefined suppress -flat_namespace
 
-examples: $(EXAMPLES)
+$(LIBDIR)/libcinterplot.so:$(OBJS)
+	mkdir -p $(LIBDIR)
+	$(CC) $(LDFLAGS) -o$@ $^ -shared
 
 %.so:$(OBJS)
-	g++ -shared -o $@ $^ $(LDFLAGS)
+	cat exports_mac.txt | ./gen_exports_linux.pl > exports_linux.txt
+	$(CC) -shared -o $@ $^ $(LDFLAGS)
 
 %.o:%.c
 	$(CC) $(CFLAGS) -fPIC -o $@ -c $<
@@ -47,7 +47,11 @@ examples: $(EXAMPLES)
 	$(CXX) $(CXXFLAGS) -fPIC -o $@ -c $<
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.size *.dylib
+	rm -f *.o *.elf *.bin *.hex *.size *.dylib lib/*.so lib/*.dylib
+
+cleanex:
 	for dir in $(EXAMPLES); do \
 		$(MAKE) -C $$dir clean; \
 	done
+
+cleanall:clean exclean

@@ -62,6 +62,7 @@ uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
              case '2': cnt = (int) (512+sin(x)*sin(y)*512); break;
              case '3': cnt = (int) (1024*(x*x+y*y)); break;
              case '4': cnt = (int) (512+sin(x)*tan(y)*512); break;
+             default:  cnt = 0;
             }
             if (cnt < 1) cnt = 1;
             bins[yi*w+xi] = cnt;

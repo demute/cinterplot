@@ -14,7 +14,7 @@ static const uint32_t nCols = 3;
 static const uint32_t n = nRows * nCols;
 static uint32_t bordered = 1;
 static uint32_t margin = 4;
-static CinterGraph *sineGraph[n];
+static CinterGraph **sineGraph;
 static CinterState *cs = NULL;
 
 int on_press (void *twisterDev, int encoder, int pressed)
@@ -35,6 +35,7 @@ int on_encoder (void *twisterDev, int encoder, int dir)
     double f = (dir > 0) ? 1.01 : 1.0 / 1.01;
     speed *= f;
 
+    sineGraph = safe_calloc (n, sizeof (*sineGraph));
     graph_remove_points (sineGraph[0]);
     for (int i=0; i<N; i++)
     {
