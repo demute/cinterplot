@@ -2182,16 +2182,41 @@ static void update_image (CinterState *cs, SDL_Texture *texture, int init)
     SDL_UnlockTexture (texture);
 }
 
+static void *abort_thread (void *unused)
+{
+    usleep (100000);
+    pid_t pid = getpid ();
+    print_debug ("sending SIGSTOP, attach debugger to %u", pid);
+    raise(SIGSTOP);
+    return NULL;
+}
+
 static void signal_handler (int sig)
 {
     if (interrupted)
     {
-        print_debug ("Ctrl+C received again, Exiting process");
-        exit (0);
-    }
+        printn ("Ctrl+C received again, attach debugger? [y/N] ");
+        char buf[8];
+        fgets (buf, sizeof (buf), stdin);
 
-    print_debug ("Ctrl+C received, stopping program");
-    interrupted = 1;
+        if (buf[0] == 'y')
+        {
+            pthread_t abortThread;
+            if (pthread_create (& abortThread, NULL, abort_thread, NULL))
+                exit_error ("could not create thread\n");
+            interrupted = 0;
+        }
+        else
+        {
+            print_debug ("Ctrl+C received again, Exiting process");
+            exit (0);
+        }
+    }
+    else
+    {
+        printf ("Ctrl+C received, stopping program\n");
+        interrupted = 1;
+    }
 }
 
 static CinterState *cinterplot_init (void)
