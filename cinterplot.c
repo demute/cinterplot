@@ -2162,8 +2162,6 @@ static void *userMainCaller (void *_data)
 {
     UserData *data = _data;
     userMainRetVal = user_main (data->argc, data->argv, data->cs);
-    if (userMainRetVal)
-        data->cs->running = 0;
     return NULL;
 }
 
@@ -2271,6 +2269,7 @@ static CinterState *cinterplot_init (void)
 }
 
 int cinterplot_is_running (CinterState *cs) { return cs->running; }
+void cinterplot_quit (CinterState *cs) { cs->running = 0; }
 void cinterplot_redraw_async(CinterState *cs) { cs->redraw=1; }
 void cinterplot_continuous_scroll_enable(CinterState *cs)  { cs->continuousScroll=1; }
 void cinterplot_continuous_scroll_disable(CinterState *cs) { cs->continuousScroll=0; }
@@ -2383,13 +2382,12 @@ int main (int argc, char **argv)
 
     int ret = cinterplot_run_until_quit (cs);
     cs->running = 0;
+    cinterplot_cleanup (cs);
 
     // Wait for the thread to finish
     if (pthread_join (userThread, NULL)) {
         exit_error("could not join thread\n");
     }
-
-    cinterplot_cleanup (cs);
 
     return userMainRetVal ? userMainRetVal : ret;
 }

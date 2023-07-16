@@ -12,6 +12,7 @@ _graph_add_point
 _graph_attach
 _graph_remove_points
 _cinterplot_is_running
+_cinterplot_quit
 _cinterplot_redraw_async
 _cinterplot_continuous_scroll_enable
 _cinterplot_continuous_scroll_disable

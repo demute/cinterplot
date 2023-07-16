@@ -130,6 +130,7 @@ GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windo
 void graph_remove_points (CinterGraph *graph);
 
 int  cinterplot_is_running (CinterState *cs);
+void cinterplot_quit (CinterState *cs);
 void cinterplot_redraw_async (CinterState *cs);
 void cinterplot_continuous_scroll_enable (CinterState *cs);
 void cinterplot_continuous_scroll_disable (CinterState *cs);
