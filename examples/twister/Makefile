@@ -10,7 +10,7 @@ LDFLAGS += $(shell pkg-config --libs rtmidi)
 LDFLAGS += $(shell pkg-config --libs gsl)
 LDFLAGS += $(shell pkg-config --libs sdl2)
 
-CXXFLAGS  = -Wall -Wno-deprecated -Os -I../.. -std=c++11
+CXXFLAGS += -std=c++11
 CXXFLAGS += $(shell pkg-config --cflags rtmidi)
 
 OBJS  = midilib.o
@@ -27,7 +27,7 @@ run: app
 	@./app && echo "[process completed successfully]" || echo "[process completed abnormally]"
 
 app: $(OBJS) app.o
-	$(CXX) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o:%.c
 	$(CC) $(CFLAGS) -fPIC -o $@ -c $<

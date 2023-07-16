@@ -1840,10 +1840,10 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             x1 = (uint32_t) (sw->windowArea.x1 * w) - cs->margin;
             y1 = (uint32_t) (sw->windowArea.y1 * h) - cs->margin;
 
-            if (x0 >= w) exit_error ("bug %u >= %u", x0, w);
-            if (x1 >= w) exit_error ("bug %u >= %u", x1, w);
-            if (y0 >= h) exit_error ("bug %u >= %u", y0, h);
-            if (y1 >= h) exit_error ("bug %u >= %u", y1, h);
+            if (x0 >= w) exit_error ("bug %u >= %u m: %u", x0, w, cs->margin);
+            if (x1 >= w) exit_error ("bug %u >= %u m: %u", x1, w, cs->margin);
+            if (y0 >= h) exit_error ("bug %u >= %u m: %u", y0, h, cs->margin);
+            if (y1 >= h) exit_error ("bug %u >= %u m: %u", y1, h, cs->margin);
 
             if (cs->bordered)
             {
@@ -2088,12 +2088,11 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
         return -1;
     }
 
-    cs->numSubWindows = nRows * nCols;
+    uint32_t numSubWindows = nRows * nCols;
+    cs->subWindows = safe_calloc (numSubWindows, sizeof (cs->subWindows[0]));
     cs->bordered = bordered & 1;
-    cs->margin   = margin   & 1;
-
-    uint32_t n = nRows * nCols;
-    cs->subWindows = safe_calloc (n, sizeof (cs->subWindows[0]));
+    cs->margin   = margin   & 0xff;
+    cs->numSubWindows = numSubWindows;
 
     double dy = 1.0 / nRows;
     double dx = 1.0 / nCols;
@@ -2193,19 +2192,23 @@ static void signal_handler (int sig)
 {
     if (interrupted)
     {
-        printn ("Ctrl+C received again, attach debugger? [y/N] ");
-        char buf[8];
-        if (fgets (buf, sizeof (buf), stdin) != buf || buf[0] != 'y')
+        interrupted++;
+
+        if (interrupted == 2)
         {
-            print_debug ("Exiting process");
-            exit (0);
+            print_debug ("Press enter to attach debugger, ctrl+c to quit");
+            char buf[8];
+            if (fgets (buf, sizeof (buf), stdin) == buf)
+            {
+                pthread_t abortThread;
+                if (pthread_create (& abortThread, NULL, abort_thread, NULL))
+                    exit_error ("could not create thread\n");
+            }
         }
         else
         {
-            pthread_t abortThread;
-            if (pthread_create (& abortThread, NULL, abort_thread, NULL))
-                exit_error ("could not create thread\n");
-            interrupted = 0;
+            print_debug ("Exiting process");
+            exit (0);
         }
     }
     else
