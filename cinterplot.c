@@ -2068,14 +2068,15 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         HELP_TEXT ("   <left>  - move center point left");
         HELP_TEXT ("   <right> - move center point right");
         HELP_TEXT ("   <up>    - move center point up");
+        HELP_TEXT ("   <C-c>   - quit");
         HELP_TEXT ("");
         HELP_TEXT (" Mouse gestures:");
-        HELP_TEXT ("   click in sub window       - enter or exit zoom mode");
-        HELP_TEXT ("   move cursor               - read off crosshair coordinates");
-        HELP_TEXT ("   click select area         - zoom to area, <esc> to cancel");
-        HELP_TEXT ("   two finger click and drag - move center point");
-        HELP_TEXT ("   scroll motion x           - zoom x coordinate in/out");
-        HELP_TEXT ("   scroll motion y           - zoom y coordinate in/out");
+        HELP_TEXT ("   click in sub window          - enter or exit zoom mode");
+        HELP_TEXT ("   move cursor                  - read off crosshair coordinates");
+        HELP_TEXT ("   click select area            - zoom to area, <esc> to cancel");
+        HELP_TEXT ("   two finger click and drag    - move center point");
+        HELP_TEXT ("   scroll motion x/y            - move center point");
+        HELP_TEXT ("   <GUI>-button + scroll motion - zoom in/out");
     }
 }
 
