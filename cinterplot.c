@@ -1390,6 +1390,12 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         }
     }
 
+    if (cs->pressedModifiers == KMOD_CTRL && key == 'c')
+    {
+        quit (cs);
+        unhandled = 0;
+    }
+
     if (unhandled)
     {
         print_debug ("key: %c (%d), pressed: %d, repeat: %d", key, key, pressed, repeat);
@@ -2177,6 +2183,13 @@ static void update_image (CinterState *cs, SDL_Texture *texture, int init)
 
 static void signal_handler (int sig)
 {
+    if (interrupted)
+    {
+        print_debug ("Ctrl+C received again, Exiting process");
+        exit (0);
+    }
+
+    print_debug ("Ctrl+C received, stopping program");
     interrupted = 1;
 }
 
