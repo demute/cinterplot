@@ -106,6 +106,10 @@ int user_main (int argc, char **argv, CinterState *cs)
 
     
     cinterplot_set_bg_shade (cs, 0.0);
+    set_mouse_enabled (cs, 0);
+    set_statusline_enabled (cs, 0);
+    set_grid_enabled (cs, 0);
+
     if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
