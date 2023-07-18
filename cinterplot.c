@@ -9,7 +9,7 @@
 
 typedef struct CinterState
 {
-    uint32_t mouseEnabled : 1;
+    uint32_t crosshairEnabled : 1;
     uint32_t trackingMode : 2;
     uint32_t statuslineEnabled : 1;
     uint32_t gridEnabled : 1;
@@ -436,7 +436,7 @@ int continuous_scroll_update (SubWindow *sw)
 }
 
 
-int set_mouse_enabled (CinterState *cs, uint32_t enabled)      { cs->mouseEnabled      = enabled & 1; return 1; }
+int set_crosshair_enabled (CinterState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
 int set_statusline_enabled (CinterState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
 int set_grid_enabled (CinterState *cs, uint32_t enabled)       { cs->gridEnabled       = enabled & 1; return 1; }
 
@@ -1311,7 +1311,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
                 case 'h': toggle_help (cs); break;
-                case 'm': set_mouse_enabled (cs, !cs->mouseEnabled); break;
+                case 'm': set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
                 case 's': set_statusline_enabled (cs, !cs->statuslineEnabled); break;
                 case 'q': quit (cs); break;
                 case 'u': undo_zooming (cs->activeSw); break;
@@ -1843,7 +1843,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
 
             if (cs->bordered)
             {
-                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == cs->activeSw && cs->mouseEnabled) ? activeColor : inactiveColor);
+                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == cs->activeSw && cs->crosshairEnabled) ? activeColor : inactiveColor);
                 x0++; y0++; x1--; y1--;
             }
         }
@@ -1994,7 +1994,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
 
                     uint32_t *pixel = & pixels[y*w + x];
                     int cnt = bins[yi * subWidth + xi];
-                    if (cs->mouseEnabled && sw == cs->activeSw && (x == mousePosX || y == mousePosY))
+                    if (cs->crosshairEnabled && sw == cs->activeSw && (x == mousePosX || y == mousePosY))
                         *pixel = crossHairColor;
                     else if (cnt > 0)
                     {
@@ -2224,7 +2224,7 @@ static CinterState *cinterplot_init (void)
     cs->on_keyboard       = on_keyboard;
     cs->plot_data         = plot_data;
 
-    cs->mouseEnabled      = 1;
+    cs->crosshairEnabled  = 1;
     cs->trackingMode      = 0;
     cs->statuslineEnabled = 1;
     cs->gridEnabled       = 1;
