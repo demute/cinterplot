@@ -121,11 +121,11 @@ int user_main (int argc, char **argv, CinterState *cs)
     graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '5', "white white blue purple black", 1000);
 
     set_range (get_sub_window (cs, 0), -1.6, -1.0, 0.6,  1.0, 1);
-    set_range (get_sub_window (cs, 1), -1.9, -1.0, 1.0,  1.2, 1);
-    set_range (get_sub_window (cs, 2), -2.0, -2.0, 2.0,  2.0, 1);
-    set_range (get_sub_window (cs, 3), -2.5, -2.0, 0.1,  2.0, 1);
-    set_range (get_sub_window (cs, 4), -2.5, -1.7, 0.4,  1.6, 1);
-    set_range (get_sub_window (cs, 5), -2.7,  0.7, 0.7, -2.7, 1);
+    set_range (get_sub_window (cs, 1), -1.9, -1.2, 0.7,  1.0, 1);
+    set_range (get_sub_window (cs, 2), -2.2, -2.2, 2.2,  2.2, 1);
+    set_range (get_sub_window (cs, 3), -2.6, -2.2, 0.2,  2.2, 1);
+    set_range (get_sub_window (cs, 4), -2.7, -1.8, 0.6,  1.8, 1);
+    set_range (get_sub_window (cs, 5), -2.5,  0.7, 0.9, -2.7, 1);
 
     cinterplot_redraw_async (cs);
     return 0;
