@@ -36,3 +36,5 @@ _make_histogram
 _wait_for_access
 _release_access
 _histogram_line
+_set_mouse_enabled
+_set_statusline_enabled

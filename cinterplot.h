@@ -118,6 +118,8 @@ void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double yma
 void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault);
 void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
 int set_grid_enabled (CinterState *cs, uint32_t gridEnabled);
+int set_mouse_enabled (CinterState *cs, uint32_t enabled);
+int set_statusline_enabled (CinterState *cs, uint32_t enabled);
 uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType);
 void wait_for_access (atomic_flag* accessFlag);
 void release_access (atomic_flag* accessFlag);

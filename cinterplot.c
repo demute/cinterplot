@@ -436,8 +436,10 @@ int continuous_scroll_update (SubWindow *sw)
 }
 
 
-int toggle_mouse (CinterState *cs)                            { cs->mouseEnabled ^= 1;       return 1; }
-int toggle_statusline (CinterState *cs)                       { cs->statuslineEnabled ^= 1;  return 1; }
+int set_mouse_enabled (CinterState *cs, uint32_t enabled)      { cs->mouseEnabled      = enabled & 1; return 1; }
+int set_statusline_enabled (CinterState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
+int set_grid_enabled (CinterState *cs, uint32_t enabled)       { cs->gridEnabled       = enabled & 1; return 1; }
+
 int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;           return 1; }
 int quit (CinterState *cs)                                    { cs->running = 0; paused=0;   return 0; }
 int force_refresh (CinterState *cs)                           { cs->forceRefresh = 0;        return 1; }
@@ -524,12 +526,6 @@ static void reinitialise_sdl_context (CinterState *cs, int reinitWindow)
         exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
     SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-}
-
-int set_grid_enabled (CinterState *cs, uint32_t gridEnabled)
-{
-    cs->gridEnabled = gridEnabled & 1;
-    return 1;
 }
 
 int set_fullscreen (CinterState *cs, uint32_t fullscreen)
@@ -1315,8 +1311,8 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
                 case 'h': toggle_help (cs); break;
-                case 'm': toggle_mouse (cs); break;
-                case 's': toggle_statusline (cs); break;
+                case 'm': set_mouse_enabled (cs, !cs->mouseEnabled); break;
+                case 's': set_statusline_enabled (cs, !cs->statuslineEnabled); break;
                 case 'q': quit (cs); break;
                 case 'u': undo_zooming (cs->activeSw); break;
                 case 'e': force_refresh (cs); break;
