@@ -38,3 +38,4 @@ _release_access
 _histogram_line
 _set_crosshair_enabled
 _set_statusline_enabled
+_force_refresh

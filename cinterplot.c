@@ -12,10 +12,9 @@ typedef struct CinterState
     uint32_t crosshairEnabled : 1;
     uint32_t trackingMode : 2;
     uint32_t statuslineEnabled : 1;
-    uint32_t gridEnabled : 1;
+    uint32_t gridMode : 2;
     uint32_t zoomEnabled : 1;
     uint32_t fullscreen : 1;
-    uint32_t continuousScroll : 1;
     uint32_t redraw : 1;
     uint32_t redrawing : 1;
     uint32_t running : 1;
@@ -24,6 +23,7 @@ typedef struct CinterState
     uint32_t margin : 8;
     uint32_t showHelp : 1;
 
+    int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat);
 
     int mouseState;
     Position mouseWindowPos;
@@ -91,6 +91,9 @@ enum
 extern const unsigned int font[256][8];
 static int interrupted = 0;
 static int paused = 0;
+static Area storedDataRanges[10] = {0};
+
+static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType);
 
 void wait_for_access (atomic_flag* accessFlag)
 {
@@ -198,7 +201,7 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
     return -1;
 }
 
-static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
+ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 {
     ColorScheme *scheme = safe_calloc (1, sizeof (*scheme));
     scheme->colors      = safe_calloc (nLevels, sizeof (scheme->colors[0]));
@@ -308,6 +311,23 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
     return scheme;
 }
 
+void update_color_scheme (CinterState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels)
+{
+    ColorScheme *oldColorScheme = attacher->colorScheme;
+    attacher->colorScheme = make_color_scheme (spec, nLevels);
+
+    if (oldColorScheme)
+    {
+        while (cs->redrawing)
+            usleep (10);
+
+        if (oldColorScheme->colors)
+            free (oldColorScheme->colors);
+        free (oldColorScheme);
+    }
+
+}
+
 void cycle_graph_order (CinterState *cs)
 {
     cs->graphOrder++;
@@ -338,6 +358,12 @@ int autoscale (SubWindow *sw)
         {
             double x = xys[i][0];
             double y = xys[i][1];
+
+            if (sw->logMode & 1) x = log (x);
+            if (sw->logMode & 2) y = log (y);
+            if (isnan (x)) continue;
+            if (isnan (y)) continue;
+                
             if (xmin > x) xmin = x;
             if (xmax < x) xmax = x;
             if (ymin > y) ymin = y;
@@ -417,10 +443,14 @@ int continuous_scroll_update (SubWindow *sw)
         double (*xys)[2];
         uint32_t len;
         stream_buffer_get (graph->sb, & xys, & len);
-        double x0 = xys[0][0];
-        double x1 = xys[len-1][0];
-        if (xmin > x0) xmin = x0;
-        if (xmax < x1) xmax = x1;
+
+        if (len)
+        {
+            double x0 = xys[0][0];
+            double x1 = xys[len-1][0];
+            if (xmin > x0) xmin = x0;
+            if (xmax < x1) xmax = x1;
+        }
 
         release_access (& graph->insertAccess);
         release_access (& graph->readAccess);
@@ -438,11 +468,12 @@ int continuous_scroll_update (SubWindow *sw)
 
 int set_crosshair_enabled (CinterState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
 int set_statusline_enabled (CinterState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
-int set_grid_enabled (CinterState *cs, uint32_t enabled)       { cs->gridEnabled       = enabled & 1; return 1; }
+int set_grid_mode (CinterState *cs, uint32_t mode)             { cs->gridMode          = mode & 3;    return 1; }
+int cycle_selected_graph (SubWindow *sw, int step)             { sw->selectedGraph = (sw->selectedGraph + step) % sw->numAttachedGraphs; return 1; }
 
 int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;           return 1; }
 int quit (CinterState *cs)                                    { cs->running = 0; paused=0;   return 0; }
-int force_refresh (CinterState *cs)                           { cs->forceRefresh = 0;        return 1; }
+int force_refresh (CinterState *cs)                           { cs->forceRefresh = 1;        return 1; }
 int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode = mode & 3; return 1; }
 int toggle_paused (CinterState *cs)                           { paused ^= 1;                 return 1; }
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade) { cs->bgShade = bgShade; }
@@ -459,6 +490,76 @@ void undo_zooming (SubWindow *sw)
     memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (Area));
 }
 
+int set_log_mode (SubWindow *sw, uint32_t mode)
+{
+    if (!sw)
+        return 0;
+
+    mode &= 3;
+
+    int xIsLog = sw->logMode & 1;
+    int yIsLog = sw->logMode & 2;
+
+    int xWantsLog = mode & 1;
+    int yWantsLog = mode & 2;
+
+    if (xIsLog != xWantsLog)
+    {
+        if (xWantsLog)
+        {
+            sw->dataRange.x0 = log (sw->dataRange.x0);
+            sw->dataRange.x1 = log (sw->dataRange.x1);
+        }
+        else
+        {
+            sw->dataRange.x0 = exp (sw->dataRange.x0);
+            sw->dataRange.x1 = exp (sw->dataRange.x1);
+        }
+    }
+
+    if (yIsLog != yWantsLog)
+    {
+        if (yWantsLog)
+        {
+            sw->dataRange.y0 = log (sw->dataRange.y0);
+            sw->dataRange.y1 = log (sw->dataRange.y1);
+        }
+        else
+        {
+            sw->dataRange.y0 = exp (sw->dataRange.y0);
+            sw->dataRange.y1 = exp (sw->dataRange.y1);
+        }
+    }
+
+    sw->logMode = mode;
+    return 1;
+}
+
+static void transform_pos (const Area *srcArea, const Position *srcPos, const Area *dstArea, Position *dstPos)
+{
+    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
+    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
+    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
+    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
+}
+
+static void get_active_area (CinterState *cs, Area *src, Area *dst)
+{
+    uint32_t w = cs->windowWidth;
+    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+
+    double xp = (double) (cs->bordered + cs->margin) / w;
+    double yp = (double) (cs->bordered + cs->margin) / h;
+
+    double epsw = 1.0 / cs->windowWidth;
+    double epsh = 1.0 / cs->windowHeight;
+
+    dst->x0 = src->x0 + xp;
+    dst->y0 = src->y0 + yp;
+    dst->x1 = src->x1 - xp - epsw;
+    dst->y1 = src->y1 - yp - epsh;
+}
+
 static void sub_window_change (CinterState *cs, int dir)
 {
     int index = (int) (cs->activeSw - cs->subWindows);
@@ -467,6 +568,17 @@ static void sub_window_change (CinterState *cs, int dir)
         index = 0;
     if (index > (int) cs->numSubWindows - 1)
         index = (int) cs->numSubWindows - 1;
+    if (cs->zoomEnabled)
+    {
+        SubWindow *sw0 = cs->activeSw;
+        SubWindow *sw1 = & cs->subWindows[index];
+        Area activeArea;
+        Area zoomWindowArea = {0,0,1,1};
+        get_active_area (cs, & zoomWindowArea, & activeArea);
+        Position winPos;
+        transform_pos (& sw0->dataRange, & sw0->mouseDataPos, & activeArea, & winPos);
+        transform_pos (& activeArea, & winPos, & sw1->dataRange, & sw1->mouseDataPos);
+    }
     cs->activeSw = & cs->subWindows[index];
 }
 
@@ -699,31 +811,6 @@ static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, ui
     }
 }
 
-static void transform_pos (const Area *srcArea, const Position *srcPos, const Area *dstArea, Position *dstPos)
-{
-    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
-    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
-    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
-    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
-}
-
-static void get_active_area (CinterState *cs, Area *src, Area *dst)
-{
-    uint32_t w = cs->windowWidth;
-    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-
-    double xp = (double) (cs->bordered + cs->margin) / w;
-    double yp = (double) (cs->bordered + cs->margin) / h;
-
-    double epsw = 1.0 / cs->windowWidth;
-    double epsh = 1.0 / cs->windowHeight;
-
-    dst->x0 = src->x0 + xp;
-    dst->y0 = src->y0 + yp;
-    dst->x1 = src->x1 - xp - epsw;
-    dst->y1 = src->y1 - yp - epsh;
-}
-
 
 static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int clicks)
 {
@@ -875,6 +962,8 @@ static int on_mouse_wheel (CinterState *cs, float xf, float yf)
             dr->x1 += dx;
             dr->y0 -= dy;
             dr->y1 -= dy;
+            sw->mouseDataPos.x += dx;
+            sw->mouseDataPos.y -= dy;
             //print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
             return 1;
         }
@@ -1030,7 +1119,10 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
                      get_active_area (cs, & sw->windowArea, & activeArea);
                  }
 
-                 Histogram *hist = & sw->attachedGraphs[0]->hist;
+                 if (sw->selectedGraph > sw->numAttachedGraphs - 1)
+                     sw->selectedGraph = sw->numAttachedGraphs - 1;
+
+                 Histogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
                  uint32_t w = hist->w;
                  uint32_t h = hist->h;
                  int *bins = hist->bins;
@@ -1251,16 +1343,41 @@ void cycle_line_type (SubWindow *sw)
         {
          case 'p': attacher->plotType = '+'; break;
          case '+': attacher->plotType = 'l'; break;
-         case 'l': attacher->plotType = 's'; break;
+         case 'l': attacher->plotType = 't'; break;
+         case 't': attacher->plotType = 's'; break;
          case 's': attacher->plotType = 'p'; break;
          default: print_error ("unknown line type '%c'", attacher->plotType); break;
         }
     }
 }
 
+void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat))
+{
+    cs->app_on_keyboard = app_on_keyboard;
+}
 
 static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
 {
+    static int userRedirect = 0;
+    if (key == 27 && pressed)
+    {
+        if (cs->app_on_keyboard)
+        {
+            userRedirect ^= 1;
+            print_debug ("keyboard redirect turned %s", userRedirect ? "on" : "off");
+        }
+        else
+        {
+            print_debug ("call cinterplot_set_app_keyboard_callback to enable user keyboard callback");
+        }
+    }
+
+    if (userRedirect && cs->app_on_keyboard)
+    {
+        return cs->app_on_keyboard (cs, key, mod, pressed, repeat);
+    }
+
+
     // FIXME: If both the left and right key of the same modifier gets pressed at
     // the same time and then one gets released, the state of pressedModifiers
     // gets zeroed out
@@ -1309,18 +1426,27 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case 'a': autoscale (cs->activeSw); break;
                 case 'c': cycle_graph_order (cs); break;
                 case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
-                case 'g': set_grid_enabled (cs, ! cs->gridEnabled); break;
+                case 'g': set_grid_mode (cs, cs->gridMode + 1); print_debug ("grid mode %d", cs->gridMode); break;
                 case 'h': toggle_help (cs); break;
                 case 'm': set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
+                case 'o': if (cs->activeSw) {set_log_mode (cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
+                case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
                 case 's': set_statusline_enabled (cs, !cs->statuslineEnabled); break;
                 case 'q': quit (cs); break;
                 case 'u': undo_zooming (cs->activeSw); break;
                 case 'e': force_refresh (cs); break;
-                case 't': set_tracking_mode (cs, cs->trackingMode + 1); break;
+                case 't': set_tracking_mode (cs, cs->trackingMode + 1); cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);break;
                 case 'l': cycle_line_type (cs->activeSw); break;
                           //case 'x': exit_zoom (cs); break;
                 case ' ': toggle_paused (cs); break;
 
+                //case 'r':
+                //          {
+                //              extern int recording;
+                //              recording ^= 1;
+                //              print_debug ("recording %d", recording);
+                //              break;
+                //          }
                 case '0':
                 case '1':
                 case '2':
@@ -1332,13 +1458,30 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case '8':
                 case '9':
                           {
-                              int index = key - '1';
-                              if (index < 0)
-                                  index = 9;
-                              float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
-                              cs->bgShade = shades[index];
+                              if (cs->activeSw)
+                              {
+                                  int idx = key - '0';
+                                  SubWindow *sw = cs->activeSw;
+                                  Area *dstArea = & sw->dataRange;
+                                  Area *srcArea = & storedDataRanges[idx];
+                                  if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
+                                  {
+                                      memcpy (dstArea, srcArea, sizeof (*srcArea));
+                                      print_debug ("restore range from %d", idx);
+                                  }
+                                  else
+                                      print_debug ("no range stored at %d", idx);
+                              }
                               break;
                           }
+                          //{
+                          //    int index = key - '1';
+                          //    if (index < 0)
+                          //        index = 9;
+                          //    float shades[10] = {0.0f, 0.04f, 0.06f, 0.08f, 0.10f, 0.14f, 0.2f, 0.4f, 0.7f, 1.0f};
+                          //    cs->bgShade = shades[index];
+                          //    break;
+                          //}
                 case 27:
                           {
                               cs->mouseState = MOUSE_STATE_NONE;
@@ -1356,7 +1499,51 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
            }
            else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
            {
-               unhandled = 1;
+               switch (key)
+               {
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                case '8':
+                case '9':
+                    {
+                        if (cs->activeSw)
+                        {
+                            int idx = key - '0';
+                            SubWindow *sw = cs->activeSw;
+                            Area *srcArea = & sw->dataRange;
+                            Area *dstArea = & storedDataRanges[idx];
+                            if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
+                            {
+                                memcpy (dstArea, srcArea, sizeof (*srcArea));
+                                print_debug ("save range to %d", idx);
+                            }
+                        }
+                        break;
+                    }
+                case '\t':
+                    if (cs->activeSw)
+                    {
+                        cycle_selected_graph (cs->activeSw, cs->activeSw->numAttachedGraphs - 1);
+                        print_debug ("graph %d", cs->activeSw->selectedGraph);
+                        cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);
+                    }
+                    break;
+                case 't':
+                    {
+                        set_tracking_mode (cs, cs->trackingMode + 3);
+                        cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);
+                        break;
+                    }
+                case 'n': sub_window_change (cs, -1);
+                          break;
+                default: unhandled = 1;
+               }
            }
            else
            {
@@ -1365,22 +1552,34 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         }
         if (unhandled || repeat)
         {
-            double zf = 0.05;
-            double mf = 0.025;
             int unhandled2 = 0;
-            switch (key)
+            if (mod == KMOD_NONE)
             {
-             case 'n': sub_window_change (cs,  1); break;
-             case 'p': sub_window_change (cs, -1); break;
-             case '+': zoom (cs->activeSw,  zf,  zf); break;
-             case '-': zoom (cs->activeSw, -zf, -zf); break;
-             case ',': zoom (cs->activeSw, -zf,  0.00); break;
-             case '.': zoom (cs->activeSw,  zf,  0.00); break;
-             case SDLK_UP:    move (cs->activeSw,  0.00, -mf); break;
-             case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
-             case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
-             case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
-             default: unhandled2 = 1; break;
+                double zf = 0.05;
+                double mf = 0.025;
+                switch (key)
+                {
+                 case 'n': sub_window_change (cs,  1); break;
+                 case '+': zoom (cs->activeSw,  zf,  zf); break;
+                 case '-': zoom (cs->activeSw, -zf, -zf); break;
+                 case ',': zoom (cs->activeSw, -zf,  0.00); break;
+                 case '.': zoom (cs->activeSw,  zf,  0.00); break;
+                           //case 'i': zoom (cs->activeSw,  0.00, -zf); break;
+                           //case 'o': zoom (cs->activeSw,  0.00,  zf); break;
+                 case SDLK_UP:    move (cs->activeSw,  0.00, -mf); break;
+                 case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
+                 case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
+                 case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
+                 default: unhandled2 = 1; break;
+                }
+            }
+            else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
+            {
+                switch (key)
+                {
+                 case 'n': sub_window_change (cs, -1); break;
+                 default: unhandled2 = 1; break;
+                }
             }
             unhandled = (unhandled && unhandled2);
         }
@@ -1500,7 +1699,7 @@ void graph_remove_points (CinterGraph *graph)
     release_access (& graph->readAccess);
 }
 
-uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
+static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType)
 {
     uint64_t counter = 0;
     int *bins  = hist->bins;
@@ -1545,6 +1744,9 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             double x = xys[i][0];
             double y = xys[i][1];
 
+            if (logMode & 1) x = log (x);
+            if (logMode & 2) y = log (y);
+
             if (isnan (x) || isnan (y))
                 continue;
 
@@ -1560,6 +1762,9 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
         {
             double x = xys[i][0];
             double y = xys[i][1];
+
+            if (logMode & 1) x = log (x);
+            if (logMode & 2) y = log (y);
 
             if (isnan (x) || isnan (y))
                 continue;
@@ -1586,6 +1791,17 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             double x1 = xys[i+1][0];
             double y1 = xys[i+1][1];
 
+            if (logMode & 1)
+            {
+                x0 = log (x0);
+                x1 = log (x1);
+            }
+            if (logMode & 2)
+            {
+                y0 = log (y0);
+                y1 = log (y1);
+            }
+
             if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
                 continue;
 
@@ -1596,6 +1812,40 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             histogram_line (hist, xi0, yi0, xi1, yi1);
         }
     }
+    else if (plotType == 't')
+    {
+        for (uint32_t i=0; i<len-1; i++)
+        {
+            double x0 = xys[i][0];
+            double y0 = xys[i][1];
+            double x1 = xys[i+1][0];
+            double y1 = xys[i+1][1];
+
+            if (logMode & 1)
+            {
+                x0 = log (x0);
+                x1 = log (x1);
+            }
+            if (logMode & 2)
+            {
+                y0 = log (y0);
+                y1 = log (y1);
+            }
+
+            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
+                continue;
+
+            int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+            int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+            int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+            int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+            histogram_line (hist, xi0, yi0, xi1, yi1);
+            histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
+            histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
+            histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
+            histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
+        }
+    }
     else if (plotType == 's')
     {
         for (uint32_t i=0; i<len-1; i++)
@@ -1604,6 +1854,17 @@ uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType)
             double y0 = xys[i][1];
             double x1 = xys[i+1][0];
             double y1 = xys[i+1][1];
+
+            if (logMode & 1)
+            {
+                x0 = log (x0);
+                x1 = log (x1);
+            }
+            if (logMode & 2)
+            {
+                y0 = log (y0);
+                y1 = log (y1);
+            }
 
             if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
                 continue;
@@ -1836,10 +2097,10 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             x1 = (uint32_t) (sw->windowArea.x1 * w) - cs->margin;
             y1 = (uint32_t) (sw->windowArea.y1 * h) - cs->margin;
 
-            if (x0 >= w) exit_error ("bug %u >= %u m: %u", x0, w, cs->margin);
-            if (x1 >= w) exit_error ("bug %u >= %u m: %u", x1, w, cs->margin);
-            if (y0 >= h) exit_error ("bug %u >= %u m: %u", y0, h, cs->margin);
-            if (y1 >= h) exit_error ("bug %u >= %u m: %u", y1, h, cs->margin);
+            if (x0 > w) exit_error ("bug %u >= %u m: %u", x0, w, cs->margin);
+            if (x1 > w) exit_error ("bug %u >= %u m: %u", x1, w, cs->margin);
+            if (y0 > h) exit_error ("bug %u >= %u m: %u", y0, h, cs->margin);
+            if (y1 > h) exit_error ("bug %u >= %u m: %u", y1, h, cs->margin);
 
             if (cs->bordered)
             {
@@ -1856,13 +2117,13 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             for (uint32_t x=x0; x<x1;  x++)
                 pixels[y*w + x] = bgColor;
 
-        if (cs->continuousScroll && !paused)
+        if (sw->continuousScroll && !paused)
             continuous_scroll_update (sw);
 
-        if (cs->gridEnabled)
+        if (cs->gridMode & 1)
         {
             // keep in mind y1 < y0 because plot window has positive y-data direction upwards
-            double dy = pow (floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)), 10);
+            double dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
             double y0 = ceil (sw->dataRange.y0 / dy) * dy;
             double y1 = floor (sw->dataRange.y1 / dy) * dy;
             int numTens = (int) ((y0 - y1) / dy);
@@ -1914,6 +2175,60 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             }
         }
 
+        if (cs->gridMode & 2)
+        {
+            double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
+            double x0 = floor (sw->dataRange.x0 / dx) * dx;
+            double x1 = ceil (sw->dataRange.x1 / dx) * dx;
+            int numTens = (int) ((x1 - x0) / dx);
+            if (numTens < 1)
+                numTens = 1;
+            int numSubs = 1;
+            while (numSubs * numTens < 8)
+                numSubs *= 2;
+            int cnt = 0;
+            for (double x=x0; x<x1 && cnt<100 && subHeight > 200; x+=dx/(numSubs*5))
+            {
+                cnt++;
+                if (x0 <= x && x <= x1)
+                    draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor0);
+            }
+            cnt = 0;
+            uint32_t lastXi = 0;
+            for (double x=x0; x<x1 && cnt<100; x+=dx/numSubs)
+            {
+                cnt++;
+                if (x < sw->dataRange.x0 || sw->dataRange.x1 < x)
+                    continue;
+
+                Area activeArea;
+                Area zoomWindowArea = {0,0,1,1};
+                get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
+
+                uint32_t textColor = make_gray (0.9f);
+                int transparent = 1;
+                char text[256];
+                snprintf (text, sizeof (text), "%g", x);
+
+                Position dataPos;
+                dataPos.x = x;
+                dataPos.y = sw->dataRange.y1;
+
+                Position winPos;
+                transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+
+                uint32_t xi = (uint32_t) (winPos.x * w);
+                uint32_t yi = (uint32_t) (winPos.y * h) - 2;
+                uint32_t scale = 1+(cs->zoomEnabled || cs->fullscreen);
+                if (abs ((int) xi - (int) lastXi) > 10*scale)
+                {
+                    draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor1);
+                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BC);
+                    lastXi = xi;
+                }
+            }
+        }
+
         for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
         {
             GraphAttacher *attacher = sw->attachedGraphs[(gi + cs->graphOrder) % (sw->numAttachedGraphs)];
@@ -1950,7 +2265,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 hist->dataRange.x1 = sw->dataRange.x1;
                 hist->dataRange.y0 = sw->dataRange.y0;
                 hist->dataRange.y1 = sw->dataRange.y1;
-                attacher->lastGraphCounter = attacher->histogramFun (hist, attacher->graph, attacher->plotType);
+                attacher->lastGraphCounter = attacher->histogramFun (hist, attacher->graph, sw->logMode, attacher->plotType);
                 attacher->lastPlotType = attacher->plotType;
             }
             else
@@ -2018,7 +2333,10 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         double mx = cs->activeSw->mouseDataPos.x;
         double my = cs->activeSw->mouseDataPos.y;
         char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
-        snprintf (text, sizeof (text), "(x,y) = (%f,%f) trackingMode:%s", mx, my, tm[cs->trackingMode]);
+        char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
+        char *logMode = cs->activeSw ? lm[cs->activeSw->logMode] : "";
+
+        snprintf (text, sizeof (text), "(x,y) = (%0.8g,%0.8g) trackingMode:%s logMode:%s", mx, my, tm[cs->trackingMode], logMode);
         draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
 
         char *title = cs->activeSw->title;
@@ -2036,35 +2354,30 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         int transparent = 0;
         uint32_t x0 = 10;
         uint32_t y0 = 20;
-        char text[256];
-        snprintf (text, sizeof (text), "h - toggle help");
         HELP_TEXT (" Keyboard bindings:");
-        HELP_TEXT ("   a       - autoscale");
-        HELP_TEXT ("   c       - cycle graph order");
-        HELP_TEXT ("   e       - force refresh");
-        HELP_TEXT ("   f       - toggle fullscreen");
-        HELP_TEXT ("   g       - toggle grid");
-        HELP_TEXT ("   h       - toggle help");
-        HELP_TEXT ("   l       - cycle between line types");
-        HELP_TEXT ("   m       - toggle mouse crosshair");
-        HELP_TEXT ("   n       - next sub window");
-        HELP_TEXT ("   p       - prev sub window");
-        HELP_TEXT ("   q       - quit");
-        HELP_TEXT ("   s       - toggle statusline");
-        HELP_TEXT ("   t       - cycle between tracking modes");
-        HELP_TEXT ("   u       - reset zoom to default");
-        HELP_TEXT ("   <space> - pause new data");
-        HELP_TEXT ("   [0-9]   - set background shade");
-        HELP_TEXT ("   +       - zoom xy in");
-        HELP_TEXT ("   -       - zoom xy out");
-        HELP_TEXT ("   .       - zoom x in");
-        HELP_TEXT ("   ,       - zoom x out");
-        HELP_TEXT ("   <up>    - move center point up");
-        HELP_TEXT ("   <down>  - move center point down");
-        HELP_TEXT ("   <left>  - move center point left");
-        HELP_TEXT ("   <right> - move center point right");
-        HELP_TEXT ("   <up>    - move center point up");
-        HELP_TEXT ("   <C-c>   - quit");
+        HELP_TEXT ("   a        - autoscale");
+        HELP_TEXT ("   c        - cycle graph order");
+        HELP_TEXT ("   e        - force refresh");
+        HELP_TEXT ("   f        - toggle fullscreen");
+        HELP_TEXT ("   g        - cycle between grid modes");
+        HELP_TEXT ("   h        - toggle help");
+        HELP_TEXT ("   l        - cycle between line types");
+        HELP_TEXT ("   m        - toggle mouse crosshair");
+        HELP_TEXT ("   [nN]     - next/prev sub window");
+        HELP_TEXT ("   o        - cycle between log modes");
+        HELP_TEXT ("   q        - quit");
+        HELP_TEXT ("   s        - toggle statusline");
+        HELP_TEXT ("   [tT]     - next/prev tracking mode");
+        HELP_TEXT ("   u        - reset zoom to default");
+        HELP_TEXT ("   <space>  - pause new data");
+        HELP_TEXT ("   [0-9]    - recall range setting");
+        HELP_TEXT ("   S+[0-9]  - save range setting");
+        HELP_TEXT ("   +        - zoom xy in");
+        HELP_TEXT ("   -        - zoom xy out");
+        HELP_TEXT ("   .        - zoom x in");
+        HELP_TEXT ("   ,        - zoom x out");
+        HELP_TEXT ("   <arrows> - move center point");
+        HELP_TEXT ("   <C-c>    - quit");
         HELP_TEXT ("");
         HELP_TEXT (" Mouse gestures:");
         HELP_TEXT ("   click in sub window          - enter or exit zoom mode");
@@ -2227,10 +2540,9 @@ static CinterState *cinterplot_init (void)
     cs->crosshairEnabled  = 1;
     cs->trackingMode      = 0;
     cs->statuslineEnabled = 1;
-    cs->gridEnabled       = 1;
+    cs->gridMode          = 0;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;
-    cs->continuousScroll  = 0;
     cs->redraw            = 0;
     cs->redrawing         = 0;
     cs->running           = 1;
@@ -2255,6 +2567,9 @@ static CinterState *cinterplot_init (void)
     if (SDL_Init (SDL_INIT_VIDEO) < 0)
         exit_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
 
+    // allow screen to turn black
+    SDL_EnableScreenSaver ();
+
     reinitialise_sdl_context (cs, 1);
 
     update_image (cs, cs->texture, 1);
@@ -2267,9 +2582,9 @@ static CinterState *cinterplot_init (void)
 
 int cinterplot_is_running (CinterState *cs) { return cs->running; }
 void cinterplot_quit (CinterState *cs) { cs->running = 0; }
-void cinterplot_redraw_async(CinterState *cs) { cs->redraw=1; }
-void cinterplot_continuous_scroll_enable(CinterState *cs)  { cs->continuousScroll=1; }
-void cinterplot_continuous_scroll_disable(CinterState *cs) { cs->continuousScroll=0; }
+void cinterplot_redraw_async(CinterState *cs) {cs->redraw=1; }
+void cinterplot_continuous_scroll_enable(SubWindow *sw)  { sw->continuousScroll=1; }
+void cinterplot_continuous_scroll_disable(SubWindow *sw) { sw->continuousScroll=0; }
 
 static int cinterplot_run_until_quit (CinterState *cs)
 {
@@ -2341,13 +2656,13 @@ static int cinterplot_run_until_quit (CinterState *cs)
         double tsp = get_time ();
         if (cs->redraw && tsp - lastFrameTsp > periodTime)
         {
+            cs->redraw = 0;
             cs->redrawing = 1;
             lastFrameTsp = tsp;
             update_image (cs, cs->texture, 0);
             SDL_RenderCopy (cs->renderer, cs->texture, NULL, NULL);
             SDL_RenderPresent (cs->renderer);
             cs->redrawing = 0;
-            cs->redraw = 0;
         }
         else
             usleep (100);

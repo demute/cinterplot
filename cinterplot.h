@@ -10,7 +10,7 @@ extern "C" {
 
 #define INITIAL_VARIABLE_LENGTH 16384
 #define MAX_VARIABLE_LENGTH     16777216
-#define MAX_NUM_ATTACHED_GRAPHS 32
+#define MAX_NUM_ATTACHED_GRAPHS 512
 #define MAX_NUM_VERTICES        16
 #define CINTERPLOT_INIT_WIDTH   1100
 #define CINTERPLOT_INIT_HEIGHT  600
@@ -55,7 +55,7 @@ typedef struct Histogram
     int *bins;
 } Histogram;
 
-typedef uint64_t (*HistogramFun) (Histogram *hist, CinterGraph *graph, char plotType);
+typedef uint64_t (*HistogramFun) (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType);
 
 typedef struct GraphAttacher
 {
@@ -75,6 +75,9 @@ typedef struct SubWindow
     GraphAttacher **attachedGraphs;
     uint32_t maxNumAttachedGraphs;
     uint32_t numAttachedGraphs;
+    uint32_t continuousScroll : 1;
+    uint32_t logMode : 2;
+    uint32_t selectedGraph;
 
     Position mouseDataPos;
     Area dataRange;
@@ -108,6 +111,7 @@ typedef struct CinterState CinterState;
 
 int autoscale (SubWindow *sw);
 int toggle_mouse (CinterState *cs);
+void update_color_scheme (CinterState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels);
 int set_fullscreen (CinterState *cs, uint32_t fullscreen);
 int quit (CinterState *cs);
 int zoom (SubWindow *sw, double xf, double yf);
@@ -117,13 +121,14 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
 void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault);
 void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault);
 void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
-int set_grid_enabled (CinterState *cs, uint32_t gridEnabled);
+int set_grid_mode (CinterState *cs, uint32_t mode);
+int set_log_mode (SubWindow *sw, uint32_t mode);
 int set_crosshair_enabled (CinterState *cs, uint32_t enabled);
 int set_statusline_enabled (CinterState *cs, uint32_t enabled);
-uint64_t make_histogram (Histogram *hist, CinterGraph *graph, char plotType);
 void wait_for_access (atomic_flag* accessFlag);
 void release_access (atomic_flag* accessFlag);
 void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1);
+int force_refresh (CinterState *cs);
 
 CinterGraph *graph_new (uint32_t len);
 void graph_delete (CinterGraph *graph);
@@ -134,13 +139,14 @@ void graph_remove_points (CinterGraph *graph);
 int  cinterplot_is_running (CinterState *cs);
 void cinterplot_quit (CinterState *cs);
 void cinterplot_redraw_async (CinterState *cs);
-void cinterplot_continuous_scroll_enable (CinterState *cs);
-void cinterplot_continuous_scroll_disable (CinterState *cs);
+void cinterplot_continuous_scroll_enable (SubWindow *sw);
+void cinterplot_continuous_scroll_disable (SubWindow *sw);
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex);
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title);
 
+void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat));
 #ifdef __cplusplus
 } /* end extern C */
 #endif
