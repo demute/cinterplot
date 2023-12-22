@@ -2483,6 +2483,8 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
             sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
             sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
             sw->numAttachedGraphs = 0;
+            sw->logMode = 0;
+            sw->selectedGraph = 0;
 
             sw->selectedWindowArea0.x0 = NaN;
             sw->selectedWindowArea0.x1 = NaN;
