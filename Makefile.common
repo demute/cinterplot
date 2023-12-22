@@ -1,13 +1,18 @@
 LIBDIR  = $(TOPDIR)/lib
 
 MAKE = make
-PKGCONFIG = /opt/homebrew/bin/pkg-config
-#PKGCONFIG = /usr/local/bin/pkg-config
 CC      = gcc
 CXX     = g++
 
 UNAME=$(shell uname)
+
 ifeq ($(UNAME),Darwin)
+	ARCH=$(arch)
+	ifeq ($(ARCH),arm64)
+		PKGCONFIG = /opt/homebrew/bin/pkg-config
+	else
+		PKGCONFIG = /usr/local/bin/pkg-config
+	endif
 	CC      = gcc
 	CXX     = g++
 	LIBEXT  = dylib
@@ -20,6 +25,8 @@ ifeq ($(UNAME),Darwin)
 #CFLAGS += -Wno-deprecated -Wconversion -Werror -Wno-unused-function
 
 else
+	#PKGCONFIG = /opt/homebrew/bin/pkg-config
+	PKGCONFIG = /usr/local/bin/pkg-config
 	CC      = gcc
 	CXX     = g++
 	LIBEXT  = so
