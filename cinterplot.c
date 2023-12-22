@@ -1,11 +1,13 @@
 #include "common.h"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
 #include <stdatomic.h>
 
 #include "cinterplot.h"
 #include "font.c"
 #include "oklab.h"
+#include "savepng.h"
 
 typedef struct CinterState
 {
@@ -2379,7 +2381,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     if (cs->statuslineEnabled)
     {
         uint32_t textColor = make_gray (0.9f);
-        int transparent = 1;
+        int transparent = 0;
         uint32_t x0 = 10;
         uint32_t y0 = cs->windowHeight - STATUSLINE_HEIGHT / 2;
         char text[256];
@@ -2801,6 +2803,33 @@ static void cinterplot_cleanup (CinterState *cs)
     cs->renderer = NULL;
     cs->window = NULL;
 }
+
+void save_png (CinterState* cs, char* imageDir, int frameCounter, int format)
+{
+    uint32_t w = cs->windowWidth;
+    uint32_t h = cs->windowHeight;
+
+    static SDL_Surface *surface = NULL;
+    if (!surface || surface->w != w || surface->h != h)
+    {
+        if (surface)
+            SDL_FreeSurface (surface);
+        surface = SDL_CreateRGBSurface(0, (int) w, (int) h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+    }
+
+    char file[256];
+    char *dumpPrefix = "foo";
+    sprintf(file, "%s/%s-%06d-%dx%d", imageDir, dumpPrefix, frameCounter, cs->windowWidth, cs->windowHeight);
+    char* suffix = & file[strlen (file)];
+    static int j=0;
+    sprintf (suffix, "%d.png", j++);
+    while (file_exists (file))
+        sprintf (suffix, "%d.png", j++);
+
+    if (SDL_SavePNG (surface, file))
+        printf("Unable to save png -- %s\n", SDL_GetError());
+}
+
 
 int main (int argc, char **argv)
 {

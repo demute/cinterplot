@@ -11,6 +11,7 @@ OBJS += common.o
 OBJS += cinterplot.o
 OBJS += stream_buffer.o
 OBJS += oklab.o
+OBJS += savepng.o
 
 EXAMPLES = $(wildcard examples/*/.)
 .PHONY: run $(EXAMPLES)
