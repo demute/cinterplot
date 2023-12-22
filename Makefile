@@ -3,11 +3,9 @@ include $(TOPDIR)/Makefile.common
 
 .PHONY: all
 
-CC      = gcc
-CXX     = g++
  
-CFLAGS  += $(shell pkg-config --cflags sdl2)
-LDFLAGS += $(shell pkg-config --libs sdl2)
+CFLAGS  += $(shell $(PKGCONFIG) --cflags sdl2)
+LDFLAGS += $(shell $(PKGCONFIG) --libs sdl2)
 
 OBJS += common.o
 OBJS += cinterplot.o

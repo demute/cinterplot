@@ -1,18 +1,23 @@
 LIBDIR  = $(TOPDIR)/lib
+
 MAKE = make
+PKGCONFIG = /opt/homebrew/bin/pkg-config
+#PKGCONFIG = /usr/local/bin/pkg-config
+CC      = gcc
+CXX     = g++
 
 UNAME=$(shell uname)
 ifeq ($(UNAME),Darwin)
 	CC      = gcc
 	CXX     = g++
 	LIBEXT  = dylib
-	LDFLAGS = -L$(LIBDIR) -lm -lpthread
+	LDFLAGS = -L$(LIBDIR) -lpthread
 	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE
 	CFLAGS += -D_BSD_SOURCE -ferror-limit=5
-	CFLAGS += $(shell pkg-config --cflags sdl2)
+	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl2)
 	CFLAGS += -I$(TOPDIR)
 	CXXFLAGS := $(CFLAGS)
-	CFLAGS += -Wno-deprecated -Wconversion -Werror -Wno-unused-function
+#CFLAGS += -Wno-deprecated -Wconversion -Werror -Wno-unused-function
 
 else
 	CC      = gcc
@@ -21,7 +26,7 @@ else
 	LDFLAGS = -L$(LIBDIR) -lm -lpthread
 	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE
 	CFLAGS += -D_XOPEN_SOURCE=500 -fmax-errors=5
-	CFLAGS += $(shell pkg-config --cflags sdl2)
+	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl2)
 	CFLAGS += -I$(TOPDIR)
 	CXXFLAGS := $(CFLAGS)
 	CFLAGS += -Wno-deprecated -Wconversion -Werror -Wno-unused-function
