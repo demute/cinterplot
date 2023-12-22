@@ -371,9 +371,9 @@ int autoscale (SubWindow *sw)
 
             if (sw->logMode & 1) x = log (x);
             if (sw->logMode & 2) y = log (y);
-            if (isnan (x)) continue;
-            if (isnan (y)) continue;
-                
+            if (isnan (x) || isinf (x)) continue;
+            if (isnan (y) || isinf (y)) continue;
+
             if (xmin > x) xmin = x;
             if (xmax < x) xmax = x;
             if (ymin > y) ymin = y;
@@ -1794,8 +1794,8 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             double x = xys[i][0];
             double y = xys[i][1];
 
-            if (logMode & 1) x = log (x);
-            if (logMode & 2) y = log (y);
+            //if (logMode & 1) x = log (x);
+            //if (logMode & 2) y = log (y);
 
             if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
                 continue;
@@ -2406,6 +2406,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         {
             uint32_t numGraphs = 0;
             uint64_t totalNumPoints = 0;
+            char totalNumPointsStr[32];
             for (uint32_t wi=0; wi < (cs->numSubWindows); wi++)
             {
                 SubWindow *sw = & cs->subWindows[wi];
@@ -2416,7 +2417,20 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                     totalNumPoints += (sb->len < sb->counter) ? sb->len : sb->counter;
                 }
             }
-            snprintf (text, sizeof (text), "Graphs loaded: %u total number of points: %llu", numGraphs, totalNumPoints);
+
+            char temp[32];
+            sprintf (temp, "%llu", totalNumPoints);
+            int len = (int) strlen (temp);
+            int j=0;
+            for (int i=0; i<len; i++,j++)
+            {
+                if (i && (len - i) % 3 == 0)
+                    totalNumPointsStr[j++] = ' ';
+                totalNumPointsStr[j] = temp[i];
+            }
+            totalNumPointsStr[j] = '\0';
+
+            snprintf (text, sizeof (text), "Graphs loaded: %u total number of points: %s", numGraphs, totalNumPointsStr);
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
         }
     }
