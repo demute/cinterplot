@@ -235,7 +235,7 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
         char *str = argv[i];
         if (str[0] == '#')
         {
-            int r,g,b;
+            unsigned int r,g,b;
             if (sscanf (& str[1], "%02x%02x%02x", & r, & g, & b) != 3)
                 exit_error ("parse error at '%s' in str spec '%s'", str, spec);
             float s = 1.0f / 255.0f;
@@ -2392,8 +2392,9 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             double my = cs->activeSw->mouseDataPos.y;
             char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
-            char *logMode = cs->activeSw ? lm[cs->activeSw->logMode] : "";
-            snprintf (text, sizeof (text), "(x,y) = (%0.8g,%0.8g) trackingMode:%s logMode:%s", mx, my, tm[cs->trackingMode], logMode);
+            char *trackingModeStr = tm[cs->trackingMode];
+            char *logModeStr      = lm[cs->activeSw->logMode];
+            snprintf (text, sizeof (text), "(x,y) = (%0.8g,%0.8g) trackingMode:%s logMode:%s", mx, my, trackingModeStr, logModeStr);
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
 
             char *title = cs->activeSw->title;

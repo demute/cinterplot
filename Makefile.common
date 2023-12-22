@@ -17,7 +17,7 @@ ifeq ($(UNAME),Darwin)
 	CXX     = g++
 	LIBEXT  = dylib
 	LDFLAGS = -L$(LIBDIR) -lpthread
-	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE
+	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE -std=c2x
 	CFLAGS += -D_BSD_SOURCE -ferror-limit=5
 	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl2)
 	CFLAGS += -I$(TOPDIR)
@@ -30,7 +30,7 @@ else
 	CXX     = g++
 	LIBEXT  = so
 	LDFLAGS = -L$(LIBDIR) -lm -lpthread
-	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE
+	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE -std=c2x
 	CFLAGS += -D_XOPEN_SOURCE=500 -fmax-errors=5
 	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl2)
 	CFLAGS += -I$(TOPDIR)
