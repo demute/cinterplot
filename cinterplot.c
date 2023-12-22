@@ -2401,7 +2401,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             {
                 snprintf (text, sizeof (text), "<%s>", title);
                 x0 = cs->windowWidth - 10;
-                draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_MR);
+                draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, 0, text, 2, ALIGN_MR);
             }
         }
         else
