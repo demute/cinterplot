@@ -479,7 +479,7 @@ int continuous_scroll_update (SubWindow *sw)
 int set_crosshair_enabled (CinterState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
 int set_statusline_enabled (CinterState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
 int set_grid_mode (CinterState *cs, uint32_t mode)             { cs->gridMode          = mode & 3;    return 1; }
-int cycle_selected_graph (SubWindow *sw, int step)             { sw->selectedGraph = (sw->selectedGraph + step) % sw->numAttachedGraphs; return 1; }
+int cycle_selected_graph (SubWindow *sw, int step)             { sw->selectedGraph = sw->numAttachedGraphs ? (sw->selectedGraph + step) % sw->numAttachedGraphs : 0; return 1; }
 
 int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;           return 1; }
 int quit (CinterState *cs)                                    { cs->running = 0; paused=0;   return 0; }
@@ -1636,7 +1636,8 @@ GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windo
     attacher->colorScheme = make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
-    sw->attachedGraphs[sw->numAttachedGraphs++] = attacher;
+    sw->attachedGraphs[sw->numAttachedGraphs] = attacher;
+    sw->numAttachedGraphs++;
     return attacher;
 }
 
@@ -1796,7 +1797,7 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             if (logMode & 1) x = log (x);
             if (logMode & 2) y = log (y);
 
-            if (isnan (x) || isnan (y))
+            if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
                 continue;
 
             int xi = (int) ((w-1) * (x - xmin) * invXRange);
@@ -1815,7 +1816,7 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             if (logMode & 1) x = log (x);
             if (logMode & 2) y = log (y);
 
-            if (isnan (x) || isnan (y))
+            if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
                 continue;
 
             int xi = (int) ((w-1) * (x - xmin) * invXRange);
@@ -1851,7 +1852,8 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
                 y1 = log (y1);
             }
 
-            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
+            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
+                isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
                 continue;
 
             int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
@@ -1881,7 +1883,8 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
                 y1 = log (y1);
             }
 
-            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
+            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
+                isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
                 continue;
 
             int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
@@ -1915,7 +1918,8 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
                 y1 = log (y1);
             }
 
-            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1))
+            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
+                isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
                 continue;
 
             int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
