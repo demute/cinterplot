@@ -128,6 +128,7 @@ int set_statusline_enabled (CinterState *cs, uint32_t enabled);
 void wait_for_access (atomic_flag* accessFlag);
 void release_access (atomic_flag* accessFlag);
 void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1);
+void cinterplot_recursive_free_sub_windows (CinterState *cs);
 int force_refresh (CinterState *cs);
 
 CinterGraph *graph_new (uint32_t len);
@@ -145,6 +146,7 @@ void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex);
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title);
+int toggle_paused (CinterState *cs);
 
 void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat));
 #ifdef __cplusplus

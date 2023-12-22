@@ -22,6 +22,7 @@ typedef struct CinterState
     uint32_t forceRefresh : 1;
     uint32_t margin : 8;
     uint32_t showHelp : 1;
+    uint32_t stopped : 1;
 
     int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat);
 
@@ -201,7 +202,16 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
     return -1;
 }
 
-ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
+void delete_color_scheme (ColorScheme *scheme)
+{
+    if (scheme)
+    {
+        free (scheme->colors);
+        free (scheme);
+    }
+}
+
+static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 {
     ColorScheme *scheme = safe_calloc (1, sizeof (*scheme));
     scheme->colors      = safe_calloc (nLevels, sizeof (scheme->colors[0]));
@@ -1630,6 +1640,45 @@ GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windo
     return attacher;
 }
 
+void cinterplot_wait (CinterState *cs)
+{
+    cs->stopped = 1;
+    while (cs->redrawing)
+        usleep (10000);
+}
+
+void cinterplot_continue (CinterState *cs)
+{
+    cs->stopped = 0;
+}
+
+void graph_deattach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex)
+{
+    cinterplot_wait (cs);
+    SubWindow *sw = & cs->subWindows[windowIndex];
+    uint32_t giNew = 0;
+    for (uint32_t giOld=0; giOld<sw->numAttachedGraphs; giOld++)
+    {
+        //print_debug ("giOld: %d giNew: %d sw:%p", giOld, giNew, sw);
+        GraphAttacher *attacher = sw->attachedGraphs[giOld];
+        if (attacher->graph == graph)
+        {
+            // delete this attacher
+            //print_debug ("freeing attacher %p", attacher);
+            attacher->graph = NULL;
+            delete_color_scheme (attacher->colorScheme);
+            free (attacher);
+        }
+        else
+        {
+            // keep this attacher
+            sw->attachedGraphs[giNew++] = sw->attachedGraphs[giOld];
+        }
+    }
+    sw->numAttachedGraphs = giNew;
+    cinterplot_continue (cs);
+}
+
 CinterGraph *graph_new (uint32_t len)
 {
     CinterGraph *graph = safe_calloc (1, sizeof (*graph));
@@ -2323,28 +2372,48 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             }
         }
     }
-    if (cs->statuslineEnabled && cs->activeSw)
+    if (cs->statuslineEnabled)
     {
         uint32_t textColor = make_gray (0.9f);
         int transparent = 1;
         uint32_t x0 = 10;
         uint32_t y0 = cs->windowHeight - STATUSLINE_HEIGHT / 2;
         char text[256];
-        double mx = cs->activeSw->mouseDataPos.x;
-        double my = cs->activeSw->mouseDataPos.y;
-        char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
-        char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
-        char *logMode = cs->activeSw ? lm[cs->activeSw->logMode] : "";
 
-        snprintf (text, sizeof (text), "(x,y) = (%0.8g,%0.8g) trackingMode:%s logMode:%s", mx, my, tm[cs->trackingMode], logMode);
-        draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
-
-        char *title = cs->activeSw->title;
-        if (title)
+        if (cs->activeSw)
         {
-            snprintf (text, sizeof (text), "<%s>", title);
-            x0 = cs->windowWidth - 10;
-            draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_MR);
+            double mx = cs->activeSw->mouseDataPos.x;
+            double my = cs->activeSw->mouseDataPos.y;
+            char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
+            char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
+            char *logMode = cs->activeSw ? lm[cs->activeSw->logMode] : "";
+            snprintf (text, sizeof (text), "(x,y) = (%0.8g,%0.8g) trackingMode:%s logMode:%s", mx, my, tm[cs->trackingMode], logMode);
+            draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
+
+            char *title = cs->activeSw->title;
+            if (title)
+            {
+                snprintf (text, sizeof (text), "<%s>", title);
+                x0 = cs->windowWidth - 10;
+                draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_MR);
+            }
+        }
+        else
+        {
+            uint32_t numGraphs = 0;
+            uint64_t totalNumPoints = 0;
+            for (uint32_t wi=0; wi < (cs->numSubWindows); wi++)
+            {
+                SubWindow *sw = & cs->subWindows[wi];
+                for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
+                {
+                    numGraphs++;
+                    StreamBuffer *sb = sw->attachedGraphs[gi]->graph->sb;
+                    totalNumPoints += (sb->len < sb->counter) ? sb->len : sb->counter;
+                }
+            }
+            snprintf (text, sizeof (text), "Graphs loaded: %u total number of points: %llu", numGraphs, totalNumPoints);
+            draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
         }
     }
 
@@ -2439,6 +2508,35 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
     }
 
     return 0;
+}
+
+void cinterplot_recursive_free_sub_windows (CinterState *cs)
+{
+    cinterplot_wait (cs);
+    for (int wi=0; wi<cs->numSubWindows; wi++)
+    {
+        SubWindow *sw = & cs->subWindows[wi];
+        while (sw->numAttachedGraphs)
+        {
+            CinterGraph *graph = sw->attachedGraphs[0]->graph;
+            for (uint32_t wi2=0; wi2<cs->numSubWindows; wi2++)
+            {
+                //print_debug ("wi2: %d", wi2);
+                graph_deattach (cs, graph, wi2);
+            }
+            //print_debug ("delete %p", graph);
+            graph_delete (graph);
+        }
+        //print_debug ("free %p", sw->attachedGraphs);
+        free (sw->attachedGraphs);
+        sw->attachedGraphs = NULL;
+    }
+    cs->numSubWindows = 0;
+    free (cs->subWindows);
+    cs->subWindows = NULL;
+    cs->zoomEnabled = 0;
+    cs->activeSw = NULL;
+    cinterplot_continue (cs);
 }
 
 void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title)
@@ -2654,6 +2752,10 @@ static int cinterplot_run_until_quit (CinterState *cs)
             cs->redraw = 1;
 
         double tsp = get_time ();
+        while (cs->stopped)
+        {
+            usleep (10000);
+        }
         if (cs->redraw && tsp - lastFrameTsp > periodTime)
         {
             cs->redraw = 0;
