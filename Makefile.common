@@ -25,8 +25,7 @@ ifeq ($(UNAME),Darwin)
 #CFLAGS += -Wno-deprecated -Wconversion -Werror -Wno-unused-function
 
 else
-	#PKGCONFIG = /opt/homebrew/bin/pkg-config
-	PKGCONFIG = /usr/local/bin/pkg-config
+	PKGCONFIG = $(shell which pkg-config)
 	CC      = gcc
 	CXX     = g++
 	LIBEXT  = so

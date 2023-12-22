@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#include <inttypes.h>
+#include <stddef.h>
 //#include "common.h"
 typedef struct
 {

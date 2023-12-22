@@ -481,7 +481,7 @@ int continuous_scroll_update (SubWindow *sw)
 int set_crosshair_enabled (CinterState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
 int set_statusline_enabled (CinterState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
 int set_grid_mode (CinterState *cs, uint32_t mode)             { cs->gridMode          = mode & 3;    return 1; }
-int cycle_selected_graph (SubWindow *sw, int step)             { sw->selectedGraph = sw->numAttachedGraphs ? (sw->selectedGraph + step) % sw->numAttachedGraphs : 0; return 1; }
+int cycle_selected_graph (SubWindow *sw, uint32_t step)        { sw->selectedGraph = sw->numAttachedGraphs ? (sw->selectedGraph + step) % sw->numAttachedGraphs : 0; return 1; }
 
 int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;           return 1; }
 int quit (CinterState *cs)                                    { cs->running = 0; paused=0;   return 0; }
@@ -543,7 +543,7 @@ int set_log_mode (SubWindow *sw, uint32_t mode)
         }
     }
 
-    sw->logMode = mode;
+    sw->logMode = mode & 3;
     return 1;
 }
 
@@ -2421,7 +2421,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             }
 
             char temp[32];
-            sprintf (temp, "%llu", totalNumPoints);
+            sprintf (temp, "%" PRIu64, totalNumPoints);
             int len = (int) strlen (temp);
             int j=0;
             for (int i=0; i<len; i++,j++)
