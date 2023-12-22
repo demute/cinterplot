@@ -10,7 +10,6 @@ int user_main (int argc, char **argv, CinterState *cs)
 {
     randlib_init (0);
 
-    cinterplot_continuous_scroll_enable (cs);
     const uint32_t nRows = 2;
     const uint32_t nCols = 3;
     const uint32_t n = nRows * nCols;
@@ -34,6 +33,7 @@ int user_main (int argc, char **argv, CinterState *cs)
     char plotType[6] = {'p','l','s','p','l','s'};
     for (int i=0; i<n; i++)
     {
+        cinterplot_continuous_scroll_enable (get_sub_window (cs, i));
         sineGraph[i] = graph_new (1000000);
         graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
     }
