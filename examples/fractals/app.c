@@ -6,11 +6,15 @@
 
 
 
-uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
+uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType)
 {
     int *bins  = hist->bins;
     uint32_t w = hist->w;
     uint32_t h = hist->h;
+    static double s = 1.00 - 0.65;
+    s += 0.05;
+    //s = -0.95;
+    print_debug ("s: %f", s);
 
     for (uint32_t yi=0; yi<h; yi++)
     {
@@ -28,10 +32,22 @@ uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
                  // mandelbrot
                  for (int j=0; j<T; j++)
                  {
-                     double a = Re;
-                     double b = Im;
-                     Re = a*a - b*b + x;
-                     Im = 2*a*b + y;
+                     double r = hypot (Re, Im);
+                     double t = atan2 (Im, Re);
+
+                     double rr = pow (r, 2);
+                     //double tt = pow(s,t);
+                     double tt = pow(2,t);
+
+                     Re = rr * cos (tt) + x;
+                     Im = rr * sin (tt) + y;
+
+
+
+                     //double a = Re;
+                     //double b = Im;
+                     //Re = a*a - b*b + x;
+                     //Im = 2*a*b + y;
                  }
                  break;
              case '1':
@@ -88,9 +104,12 @@ uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
                  break;
             }
 
-            double dist = sqrt (Re*Re + Im*Im);
+            //double dist = sqrt (Re*Re + Im*Im);
 
-            int cnt = (int) (sqrt(dist)*1000);
+            //int cnt = (int) (sqrt(dist)*1000);
+
+            int cnt = (int) (1000 * (1.1-fabs(atan2 (Im, Re) - atan2 (y, x)) / (2 * M_PI)));
+            //int cnt = (int) (1000 * ((atan2 (Im, Re) + M_PI) / (2 * M_PI)));
             bins[yi*w+xi] = cnt;
         }
     }
@@ -108,7 +127,7 @@ int user_main (int argc, char **argv, CinterState *cs)
     cinterplot_set_bg_shade (cs, 0.0);
     set_crosshair_enabled (cs, 0);
     set_statusline_enabled (cs, 0);
-    set_grid_enabled (cs, 0);
+    set_grid_mode (cs, 0);
 
     if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;

@@ -35,7 +35,6 @@ int on_encoder (void *twisterDev, int encoder, int dir)
     double f = (dir > 0) ? 1.01 : 1.0 / 1.01;
     speed *= f;
 
-    sineGraph = safe_calloc (n, sizeof (*sineGraph));
     graph_remove_points (sineGraph[0]);
     for (int i=0; i<N; i++)
     {
@@ -114,6 +113,7 @@ int user_main (int argc, char **argv, CinterState *_cs)
         return 1;
 
     char plotType[6] = {'p','l','s','p','l','s'};
+    sineGraph = safe_calloc (n, sizeof (*sineGraph));
     for (int i=0; i<n; i++)
     {
         sineGraph[i] = graph_new (N);
