@@ -239,7 +239,8 @@ void internal_quicksort (void *buf, size_t itemSize, size_t offset, uint32_t fir
     if (pivot != j)
         SWAP (buf,itemSize,pivot,j);
 
-    internal_quicksort  (buf, itemSize, offset, first, j-1, ascending);
+    if (j)
+        internal_quicksort  (buf, itemSize, offset, first, j-1, ascending);
     internal_quicksort  (buf, itemSize, offset, j+1, last, ascending);
 }
 

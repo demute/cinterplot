@@ -26,8 +26,21 @@ extern "C" {
 #define STDFS stderr
 #endif
 
+#define LOG_LEVEL_DEBUG   5
+#define LOG_LEVEL_STATUS  4
+#define LOG_LEVEL_INFO    3
+#define LOG_LEVEL_WARNING 2
+#define LOG_LEVEL_ERROR   1
+#define LOG_LEVEL_NONE    0
+
+#ifndef logLevel
+#define logLevel LOG_LEVEL_DEBUG
+#endif
+
+
 #define MESSAGE(fs,lvl,prefix,...)  do{fprintf (fs, "%s:%d: %s: %s",__FILE__,__LINE__,__func__,prefix);fprintf (fs,__VA_ARGS__);fprintf(fs, "\n");fflush(fs);}while(0)
 #define MESSAGEn(fs,lvl,prefix,...) do{fprintf (fs, "%s:%d: %s: %s",__FILE__,__LINE__,__func__,prefix);fprintf (fs,__VA_ARGS__);                  fflush(fs);}while(0)
+#define MESSAGEcx(fs,lvl,col,...)         do{if(lvl<=logLevel) {fprintf (fs, "\033[0;%dm",col);fprintf (fs,__VA_ARGS__);fprintf(fs, "\033[0m"); fflush(fs);}}while(0)
 
 #define fprint_debug(fs,...)   MESSAGE  (fs, 5, "debug: ",   __VA_ARGS__)
 #define fprint_status(fs,...)  MESSAGE  (fs, 4, "status: ",  __VA_ARGS__)
@@ -62,6 +75,41 @@ extern "C" {
 #define catch_nan(x) if (isnan(x)){exit_error ("caught nan! %s", #x);}
 
 #define foobar print_debug ("foobar")
+
+#define ASCII_RED         31
+#define ASCII_GREEN       32
+#define ASCII_YELLOW      33
+#define ASCII_BLUE        34
+#define ASCII_PURPLE      35
+#define ASCII_CYAN        36
+#define ASCII_GRAY        37
+
+#define COLOR_RED    "\033[0;31m"
+#define COLOR_GREEN  "\033[0;32m"
+#define COLOR_YELLOW "\033[0;33m"
+#define COLOR_BLUE   "\033[0;34m"
+#define COLOR_PURPLE "\033[0;35m"
+#define COLOR_CYAN   "\033[0;36m"
+#define COLOR_GRAY   "\033[0;37m"
+#define COLOR_END    "\033[0m"
+
+#define fprint_col(fs,col,...)  MESSAGEcx  (fs, 0, col,  __VA_ARGS__)
+
+#define fprint_red(fs,...)         fprint_col     (fs, ASCII_RED   , __VA_ARGS__)
+#define fprint_green(fs,...)       fprint_col     (fs, ASCII_GREEN , __VA_ARGS__)
+#define fprint_yellow(fs,...)      fprint_col     (fs, ASCII_YELLOW, __VA_ARGS__)
+#define fprint_blue(fs,...)        fprint_col     (fs, ASCII_BLUE  , __VA_ARGS__)
+#define fprint_purple(fs,...)      fprint_col     (fs, ASCII_PURPLE, __VA_ARGS__)
+#define fprint_cyan(fs,...)        fprint_col     (fs, ASCII_CYAN  , __VA_ARGS__)
+#define fprint_gray(fs,...)        fprint_col     (fs, ASCII_GRAY  , __VA_ARGS__)
+
+#define print_red(...)         fprint_red     (STDFS, __VA_ARGS__)
+#define print_green(...)       fprint_green   (STDFS, __VA_ARGS__)
+#define print_yellow(...)      fprint_yellow  (STDFS, __VA_ARGS__)
+#define print_blue(...)        fprint_blue    (STDFS, __VA_ARGS__)
+#define print_purple(...)      fprint_purple  (STDFS, __VA_ARGS__)
+#define print_cyan(...)        fprint_cyan    (STDFS, __VA_ARGS__)
+#define print_gray(...)        fprint_gray    (STDFS, __VA_ARGS__)
 
 void *safe_malloc (size_t size);
 void *safe_calloc (size_t num, size_t size);
