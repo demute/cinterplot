@@ -7,7 +7,7 @@ CXX     = g++
 UNAME=$(shell uname)
 
 ifeq ($(UNAME),Darwin)
-	ARCH=$(arch)
+	ARCH=$(shell arch)
 	ifeq ($(ARCH),arm64)
 		PKGCONFIG = /opt/homebrew/bin/pkg-config
 	else
