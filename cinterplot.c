@@ -373,8 +373,8 @@ int autoscale (SubWindow *sw)
 
             if (sw->logMode & 1) x = log (x);
             if (sw->logMode & 2) y = log (y);
-            if (isnan (x) || isinf (x)) continue;
-            if (isnan (y) || isinf (y)) continue;
+            if (isnan (x) || isnan (y)) continue;
+            if (isinf (x) || isinf (y)) continue;
 
             if (xmin > x) xmin = x;
             if (xmax < x) xmax = x;
@@ -906,6 +906,7 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
                  transform_pos (& activeArea, & wPos0, & sw->dataRange, & dPos0);
                  transform_pos (& activeArea, & wPos1, & sw->dataRange, & dPos1);
 
+                 memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
                  dr->x0 = dPos0.x;
                  dr->y0 = dPos0.y;
                  dr->x1 = dPos1.x;
@@ -2177,11 +2178,11 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
 
         if (cs->gridMode & 1)
         {
-            // keep in mind y1 < y0 because plot window has positive y-data direction upwards
+            // keep in mind y1 < y0 because plot window has positive y-data direction downwards
             double dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
             double y0 = ceil (sw->dataRange.y0 / dy) * dy;
             double y1 = floor (sw->dataRange.y1 / dy) * dy;
-            int numTens = (int) ((y0 - y1) / dy);
+            int numTens = (int) ((sw->dataRange.y0 - sw->dataRange.y1) / dy);
             if (numTens < 1)
                 numTens = 1;
             int numSubs = 1;
@@ -2235,7 +2236,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
             double x0 = floor (sw->dataRange.x0 / dx) * dx;
             double x1 = ceil (sw->dataRange.x1 / dx) * dx;
-            int numTens = (int) ((x1 - x0) / dx);
+            int numTens = (int) ((sw->dataRange.x1 - sw->dataRange.x0) / dx);
             if (numTens < 1)
                 numTens = 1;
             int numSubs = 1;
@@ -2394,7 +2395,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
             char *trackingModeStr = tm[cs->trackingMode];
             char *logModeStr      = lm[cs->activeSw->logMode];
-            snprintf (text, sizeof (text), "(x,y) = (%0.8g,%0.8g) trackingMode:%s logMode:%s", mx, my, trackingModeStr, logModeStr);
+            snprintf (text, sizeof (text), "(x,y) = (%0.8g, %0.8g) tracking:%s logMode:%s", mx, my, trackingModeStr, logModeStr);
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
 
             char *title = cs->activeSw->title;
@@ -2831,6 +2832,58 @@ void save_png (CinterState* cs, char* imageDir, int frameCounter, int format)
         printf("Unable to save png -- %s\n", SDL_GetError());
 }
 
+SDL_Surface *createSurfaceFromImage (char *file)
+{
+    SDL_Surface* srcSurface = IMG_Load (file);
+    if(!srcSurface)
+        return NULL;
+
+    int w = srcSurface->w;
+    int h = srcSurface->h;
+
+    SDL_Surface *dstSurface = SDL_CreateRGBSurface (0, w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+    uint8_t *src = srcSurface->pixels;
+    uint32_t *dst = dstSurface->pixels;
+
+    int bytesPerPixel = srcSurface->format->BytesPerPixel;
+    int ri = srcSurface->format->Rshift / 8;
+    int gi = srcSurface->format->Gshift / 8;
+    int bi = srcSurface->format->Bshift / 8;
+    int ai = srcSurface->format->Ashift / 8;
+
+    //print_debug ("bytesPerPixel: %d", srcSurface->format->BytesPerPixel);
+    //print_debug ("dimension: %d x %d, pitch: %d", w, h, srcSurface->pitch);
+    //print_debug ("ri,gi,bi: %d,%d,%d", ri, gi, bi);
+
+    int pitch = srcSurface->pitch;
+
+    if (w * dstSurface->format->BytesPerPixel != dstSurface->pitch)
+        exit_error ("unexpected width * bytesPerPixel != pitch");
+
+    //char c[12] = {'#', '@', '8', '%', 'O', 'o', '"', ';', ',', '\'', '.', ' '};
+    for (int y=0; y<h; y++)
+    {
+        for (int x=0; x<w; x++)
+        {
+            uint32_t color = 0;
+            color |= src[y * pitch + x * bytesPerPixel + ri] << 16;
+            color |= src[y * pitch + x * bytesPerPixel + gi] <<  8;
+            color |= src[y * pitch + x * bytesPerPixel + bi] <<  0;
+            if (bytesPerPixel == 4)
+                color |= src[y * pitch + x * bytesPerPixel + ai] << 24;
+            dst[y*w+x] = color;
+            //float value = (float) ((color & 0xff) + ((color >> 8) & 0xff) + ((color >> 16) & 0xff)) / (256*3);
+            //printf ("%c", c[(int) (value * 12)]);
+            //printf ("%c", value > 197 ? '#' : ' ');
+        }
+        //printf ("\n");
+    }
+    //exit (0);
+    SDL_FreeSurface (srcSurface);
+    return dstSurface;
+}
+
+
 
 int main (int argc, char **argv)
 {
@@ -2849,12 +2902,12 @@ int main (int argc, char **argv)
 
     int ret = cinterplot_run_until_quit (cs);
     cs->running = 0;
-    cinterplot_cleanup (cs);
 
     // Wait for the thread to finish
     if (pthread_join (userThread, NULL)) {
         exit_error("could not join thread\n");
     }
+    cinterplot_cleanup (cs);
 
     return userMainRetVal ? userMainRetVal : ret;
 }

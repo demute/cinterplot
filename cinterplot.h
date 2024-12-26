@@ -6,11 +6,12 @@ extern "C" {
 #endif
 
 #include <stdatomic.h>
+#include <SDL2/SDL.h>
 #include "stream_buffer.h"
 
 #define INITIAL_VARIABLE_LENGTH 16384
 #define MAX_VARIABLE_LENGTH     16777216
-#define MAX_NUM_ATTACHED_GRAPHS 512
+#define MAX_NUM_ATTACHED_GRAPHS 4096
 #define MAX_NUM_VERTICES        16
 #define CINTERPLOT_INIT_WIDTH   1100
 #define CINTERPLOT_INIT_HEIGHT  600
@@ -147,6 +148,7 @@ SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex);
 void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title);
 int toggle_paused (CinterState *cs);
+SDL_Surface *createSurfaceFromImage (char *file);
 
 void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat));
 #ifdef __cplusplus
