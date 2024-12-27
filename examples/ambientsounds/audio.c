@@ -136,7 +136,7 @@ void audio_in_init (float *dstBuffer)
     request.freq = AUDIO_FREQUENCY;
     request.format = AUDIO_F32;
     request.channels = 2;
-    request.samples = 1024;
+    request.samples = 512;
     request.callback = audio_in_callback;
     char *devs[] =
     {
@@ -205,7 +205,7 @@ void audio_out_init (float *srcBuffer)
     request.freq = AUDIO_FREQUENCY;
     request.format = AUDIO_F32;
     request.channels = 2;
-    request.samples = 1024;
+    request.samples = 512;
     request.callback = audio_out_callback;
     char *devs[] =
     {

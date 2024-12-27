@@ -15,7 +15,7 @@ char *stateFile = "/Users/manne/.cinterplot/ambientsounds";
 
 #define N 1000000
 
-#define DCTLEN 16384
+#define DCTLEN 32768
 #define UPDATE_INTERVAL (512)
 
 enum
@@ -61,38 +61,61 @@ static void kiss_fct (kiss_fft_cfg cfg, kiss_fft_cpx *fin, kiss_fft_cpx *fout)
 {
     // assuming all imaginary numbers are zero
 
-    int n = cfg->nfft / 2;
-    for (int i=0; i<n; i++)
+    int len = cfg->nfft;
+    int halflen = len / 2;
+
+    for (int i=0; i<len; i++)
     {
-        fin[n + i].r = fin [n - i - 1].r;
-        fin[n + i].i = 0;
+        fin[i].i = 0;
+        fout[i].r = fin[i].r;
+    }
+
+    for (int i=0; i<halflen; i++)
+    {
+        fin[i].r = fout[i * 2].r;
+        fin[len - 1 - i].r = fout[i * 2 + 1].r;
     }
 
     kiss_fft (cfg, fin, fout);
 
-    for (int i=0; i<n; i++)
+    for (int i=0; i<len; i++)
     {
-        double rotRe = cos (- M_PI * i / (2 * n));
-        double rotIm = sin (- M_PI * i / (2 * n));
-
-        fout[i].r = fout[i].r * rotRe - fout[i].i * rotIm;
+        double theta = i * M_PI / (2 * len);
+        fout[i].r = fout[i].r * cos (theta) + fout[i].i * sin (theta);
         fout[i].i = 0;
     }
 }
 
 static void kiss_ifct (kiss_fft_cfg cfg, kiss_fft_cpx *fin, kiss_fft_cpx *fout)
 {
-    kiss_fct (cfg, fin, fout);
+    int len = cfg->nfft;
+    int halflen = len / 2;
 
-    int n = cfg->nfft / 2;
-    float s = 2.0 / n;
-    for (int i=0; i<n; i++)
-        fout[i].r *= s;
+    if (len > 0)
+        fin[0].r /= 2;
+
+    for (int i=0; i<len; i++)
+    {
+        double theta = i * M_PI / (2 * len);
+        fin[i].i = -fin[i].r * sin (theta);
+        fin[i].r =  fin[i].r * cos (theta);
+    }
+
+    kiss_fft (cfg, fin, fout);
+
+    for (int i=0; i<halflen; i++)
+    {
+        fout[i * 2 + 0].i = fout[i].r;
+        fout[i * 2 + 1].i = fout[len - 1 - i].r;
+    }
+
+    for (int i=0; i<len; i++)
+        fout[i].r = fout[i].i / halflen;
 }
 
 void apply_features (void)
 {
-    int idx = (featureIndex + FEATURES_HIST_SIZE - 1) % FEATURES_HIST_SIZE;
+    //int idx = (featureIndex + FEATURES_HIST_SIZE - 1) % FEATURES_HIST_SIZE;
     //double *features = featureHist[idx];
 
 
@@ -113,13 +136,16 @@ void apply_features (void)
             mag = w0 * mel_in[b0].r + w1 * mel_in[b1].r;
         else if (b0 < FEATLEN)
             mag = mel_in[b0].r;
-        float coeff = (expm1 (mag));
-        if (coeff < 0)
-            coeff = 0;
-        coeff = cx_out1[i].r;
+        float coeff = (mag);
+        //if (coeff < 0)
+        //    coeff = 0;
+        //coeff = sqrtf (coeff);
+        //coeff = cx_out1[i].r;
+        //coeff = 1;
+        //float coeff = mag;
 
-        flt_in[i].r = coeff *  fabs (cx_out2[i].r);
-        flt_in[i].i = 0;
+        flt_in[i].r = coeff * (cx_out2[i].r);
+        flt_in[i].i = coeff * (cx_out2[i].i);
     }
 }
 
@@ -129,7 +155,7 @@ void compute_features ()
     double weights[FEATLEN] = {0};
     for (int i=1; i<DCTLEN; i++)
     {
-        double mag =  log1p (cx_out1[i].r * cx_out1[i].r);
+        double mag = (cx_out1[i].r * cx_out1[i].r);
 
         double f = i * (((double) AUDIO_FREQUENCY) / DCTLEN);
         double fMin = 0;
@@ -323,6 +349,39 @@ int user_main (int argc, char **argv, CinterState *_cs)
 
     //cinterplot_set_app_keyboard_callback (cs, on_keyboard);
 
+#if 0
+    kiss_fft_cfg  testCfg  = kiss_fft_alloc (DCTLEN, 0, NULL, NULL);
+    kiss_fft_cpx *testIn   = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    kiss_fft_cpx *testOut  = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    kiss_fft_cpx *testRes  = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    for (int i=0; i<DCTLEN; i++)
+    {
+        testIn[i].r = (i % 2) * 2;
+        testIn[i].i = 0;
+    }
+
+    printf ("\n");
+    for (int i=0; i<DCTLEN; i++)
+        printf ("%7.4f  ", testIn[i].r);
+
+    kiss_fct (testCfg, testIn, testOut);
+    printf ("\n");
+    for (int i=0; i<DCTLEN; i++)
+        printf ("%7.4f  ", testOut[i].r);
+
+    kiss_ifct (testCfg, testOut, testRes);
+    printf ("\n");
+    for (int i=0; i<DCTLEN; i++)
+        printf ("%7.4f  ", testRes[i].r);
+
+    printf ("\n");
+
+    cinterplot_quit (cs);
+    return 0;
+#endif
+
+
+
     for (int gi=0; gi<GRAPH_SIZE; gi++)
     {
         switch (gi)
@@ -437,21 +496,21 @@ int user_main (int argc, char **argv, CinterState *_cs)
 
     int audioCounter = 0;
 
-    cx_in1   = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
-    cx_in2   = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
-    cx_out1  = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
-    cx_out2  = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
-    flt_in   = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
-    flt_out  = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
+    cx_in1   = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    cx_in2   = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    cx_out1  = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    cx_out2  = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    flt_in   = calloc (DCTLEN, sizeof (kiss_fft_cpx));
+    flt_out  = calloc (DCTLEN, sizeof (kiss_fft_cpx));
     assert (cx_in1); assert (cx_out1);
     assert (cx_in2); assert (cx_out2);
     assert (flt_in); assert (flt_out);
 
-    kiss_fft_cfg kissCfg = kiss_fft_alloc (2 * DCTLEN, 0, NULL, NULL);
+    kiss_fft_cfg kissCfg = kiss_fft_alloc (DCTLEN, 0, NULL, NULL);
 
-    melCfg   = kiss_fft_alloc (2 * FEATLEN, 0, NULL, NULL);
-    mel_in   = calloc (2 * FEATLEN, sizeof (kiss_fft_cpx));
-    mel_out  = calloc (2 * FEATLEN, sizeof (kiss_fft_cpx));
+    melCfg   = kiss_fft_alloc (FEATLEN, 0, NULL, NULL);
+    mel_in   = calloc (FEATLEN, sizeof (kiss_fft_cpx));
+    mel_out  = calloc (FEATLEN, sizeof (kiss_fft_cpx));
     assert (mel_in); assert (mel_out);
 
     while (cinterplot_is_running (cs))
@@ -515,14 +574,16 @@ int user_main (int argc, char **argv, CinterState *_cs)
             graph_add_point (graphs[GRAPH_FEAT], i, features[i]);
 
         apply_features ();
-        kiss_ifct (kissCfg, flt_in, flt_out);
+
         graph_add_point (graphs[GRAPH_NOISE_FLT_FD], 0, 0.0);
+        for (int i=1; i<DCTLEN; i++)
+            graph_add_point (graphs[GRAPH_NOISE_FLT_FD], i, flt_in[i].r);
+
+        kiss_ifct (kissCfg, flt_in, flt_out);
+
         graph_add_point (graphs[GRAPH_NOISE_FLT_TD], 0, 0.0);
         for (int i=1; i<DCTLEN; i++)
-        {
-            graph_add_point (graphs[GRAPH_NOISE_FLT_FD], i, flt_in[i].r);
             graph_add_point (graphs[GRAPH_NOISE_FLT_TD], i, flt_out[i].r);
-        }
 
         static float outPrev[UPDATE_INTERVAL] = {0};
         static float outCurrent[UPDATE_INTERVAL] = {0};
@@ -538,6 +599,7 @@ int user_main (int argc, char **argv, CinterState *_cs)
             float sample = wPrev * outPrev[i] + wCurrent * outCurrent[i];
             outPrev[i] = outNext[i];
             audio_out_sample_push (sample * volume);
+            //audio_out_sample_push (0);
         }
 
         cinterplot_redraw_async (cs);
