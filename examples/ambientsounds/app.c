@@ -1,0 +1,553 @@
+#include "common.h"
+
+#include "randlib.h"
+#include "midilib.h"
+#include "cinterplot.h"
+#include "audio.h"
+#include "kiss_fft.h"
+#include "_kiss_fft_guts.h"
+
+char *stateFile = "/Users/manne/.cinterplot/ambientsounds";
+
+#ifndef randf
+#define randf() ((double) rand () / ((double) RAND_MAX+1))
+#endif
+
+#define N 1000000
+
+#define DCTLEN 16384
+#define UPDATE_INTERVAL (512)
+
+enum
+{
+    GRAPH_TD,
+    GRAPH_NOISE_TD,
+
+    GRAPH_FD,
+    GRAPH_NOISE_FD,
+
+    GRAPH_FEAT,
+    GRAPH_NOISE_FLT_FD,
+
+    GRAPH_FEATFALL,
+    GRAPH_NOISE_FLT_TD,
+
+    GRAPH_SIZE
+};
+
+static uint32_t bordered = 1;
+static uint32_t margin = 4;
+static CinterGraph *graphs[GRAPH_SIZE];
+static CinterState *cs = NULL;
+double volume = 0.5;
+double decay = 1;
+
+kiss_fft_cpx *cx_in1  = NULL;
+kiss_fft_cpx *cx_in2  = NULL;
+kiss_fft_cpx *cx_out1 = NULL;
+kiss_fft_cpx *cx_out2 = NULL;
+kiss_fft_cpx *flt_in  = NULL;
+kiss_fft_cpx *flt_out = NULL;
+
+#define FEATLEN 2048
+#define FEATURES_HIST_SIZE 4096
+kiss_fft_cfg melCfg;
+kiss_fft_cpx *mel_in   = NULL;
+kiss_fft_cpx *mel_out  = NULL;
+int featureIndex = 0;
+double featureHist[FEATURES_HIST_SIZE][FEATLEN] = {0};
+
+static void kiss_fct (kiss_fft_cfg cfg, kiss_fft_cpx *fin, kiss_fft_cpx *fout)
+{
+    // assuming all imaginary numbers are zero
+
+    int n = cfg->nfft / 2;
+    for (int i=0; i<n; i++)
+    {
+        fin[n + i].r = fin [n - i - 1].r;
+        fin[n + i].i = 0;
+    }
+
+    kiss_fft (cfg, fin, fout);
+
+    for (int i=0; i<n; i++)
+    {
+        double rotRe = cos (- M_PI * i / (2 * n));
+        double rotIm = sin (- M_PI * i / (2 * n));
+
+        fout[i].r = fout[i].r * rotRe - fout[i].i * rotIm;
+        fout[i].i = 0;
+    }
+}
+
+static void kiss_ifct (kiss_fft_cfg cfg, kiss_fft_cpx *fin, kiss_fft_cpx *fout)
+{
+    kiss_fct (cfg, fin, fout);
+
+    int n = cfg->nfft / 2;
+    float s = 2.0 / n;
+    for (int i=0; i<n; i++)
+        fout[i].r *= s;
+}
+
+void apply_features (void)
+{
+    int idx = (featureIndex + FEATURES_HIST_SIZE - 1) % FEATURES_HIST_SIZE;
+    //double *features = featureHist[idx];
+
+
+    kiss_ifct (melCfg, mel_out, mel_in);
+    for (int i=0; i<DCTLEN; i++)
+    {
+        double f = i * (((double) AUDIO_FREQUENCY) / DCTLEN);
+        double fMin = 0;
+        double fMax = AUDIO_FREQUENCY;
+        double bucket = (f - fMin) / (fMax - fMin) * FEATLEN;
+        int b0 = (int) floor (bucket);
+        int b1 = b0 + 1;
+        double w0 = 1.0 - (bucket - b0);
+        double w1 = 1.0 - w0;
+
+        float mag = 0;
+        if (b0 < FEATLEN && b1 < FEATLEN)
+            mag = w0 * mel_in[b0].r + w1 * mel_in[b1].r;
+        else if (b0 < FEATLEN)
+            mag = mel_in[b0].r;
+        float coeff = (expm1 (mag));
+        if (coeff < 0)
+            coeff = 0;
+        coeff = cx_out1[i].r;
+
+        flt_in[i].r = coeff *  fabs (cx_out2[i].r);
+        flt_in[i].i = 0;
+    }
+}
+
+void compute_features ()
+{
+    double buckets[FEATLEN] = {0};
+    double weights[FEATLEN] = {0};
+    for (int i=1; i<DCTLEN; i++)
+    {
+        double mag =  log1p (cx_out1[i].r * cx_out1[i].r);
+
+        double f = i * (((double) AUDIO_FREQUENCY) / DCTLEN);
+        double fMin = 0;
+        double fMax = AUDIO_FREQUENCY;
+        double bucket = (f - fMin) / (fMax - fMin) * FEATLEN;
+        int b0 = (int) floor (bucket);
+        int b1 = b0 + 1;
+        double w0 = 1.0 - (bucket - b0);
+        double w1 = 1.0 - w0;
+
+        if (b0 > FEATLEN - 1)
+        {
+            print_debug ("break at i:%d", i);
+            break;
+        }
+
+        //print_debug ("f: %f melsPerBucket: %f fMax: %f bucket: %f => b0:%d w0:%f b1:%d w1:%f mag:%f", f, melsPerBucket, fMax, bucket, b0, w0, b1, w1, mag);
+
+        if (b0 >= 0)
+        {
+            buckets[b0] += w0 * mag;
+            weights[b0] += w0;
+        }
+
+        if (b1 < FEATLEN)
+        {
+            buckets[b1] += w1 * mag;
+            weights[b1] += w1;
+        }
+
+    }
+
+    for (int i=0; i<FEATLEN; i++)
+    {
+        //print_debug ("s:%f w:%f => a:%f", buckets[i], weights[i], buckets[i] / weights[i]);
+        buckets[i] = (buckets[i] / weights[i]);
+    }
+
+    for (int i=0; i<FEATLEN; i++)
+    {
+        mel_in[i].r = buckets[i];
+        mel_in[i].i = 0;
+    }
+    kiss_ifct (melCfg, mel_in, mel_out);
+
+    double *features = featureHist[featureIndex];
+    features[0] = 0;
+    for (int i=1; i<FEATLEN; i++)
+    {
+        //features[i] = mel_out[i].r * mel_out[i].r * i;
+        //features[i] = log (mel_out[i].r * mel_out[i].r);
+        features[i] = mel_out[i].r;
+        //print_debug ("%d: m: %f => f: %f", i, mel_out[i].r, features[i]);
+    }
+    featureIndex = (featureIndex + 1) % FEATURES_HIST_SIZE;
+}
+
+
+int on_press (void *twisterDev, int encoder, int pressed)
+{
+    print_debug ("encoder: %d, pressed: %d", encoder, pressed);
+    return 0;
+}
+
+int on_button (int button, int pressed)
+{
+    print_debug ("button: %d pressed: %d", button, pressed);
+    return 1;
+}
+
+#define F 1.01
+int on_encoder (void *twisterDev, int encoder, int dir)
+{
+    double f = (dir > 0) ? F : 1.0 / F;
+    switch (encoder)
+    {
+     case 0: volume *= f; print_debug ("volume %f", volume); break;
+     case 1: decay *= f; print_debug ("decay %f", decay); break;
+     default: print_debug ("%d: %+d %f", encoder, dir, f); break;
+    }
+    return 1;
+}
+
+int twister_poll (void *twisterDev)
+{
+    static int lastDirs[16] = {0};
+    static double lastTsps[16] = {0};
+    uint8_t buf[16];
+    int len = 16;
+    while (midi_get_message (twisterDev, & buf[0], & len))
+    {
+        switch (buf[0])
+        {
+         case 0xb0:
+             {
+                 int encoder = buf[1];
+                 int dir     = ((buf[2] == 0x3f) ? -1 : 1);
+                 double tsp  = get_time ();
+                 double elapsed = tsp - lastTsps[encoder];
+                 lastTsps[encoder] = tsp;
+                 if (lastDirs[encoder] != dir || elapsed > 4.0)
+                 {
+                     lastDirs[encoder] = dir;
+                     break;
+                 }
+                 on_encoder (twisterDev, encoder, dir);
+                 break;
+             }
+         case 0xb1:
+             {
+                 int encoder = buf[1];
+                 int pressed = (buf[2] == 0x7f);
+                 on_press (twisterDev, encoder, pressed);
+                 break;
+             }
+         case 0xb3:
+             {
+                 int button = buf[1] - 8;
+                 int pressed = (buf[2] == 0x7f);
+                 on_button (button, pressed);
+                 break;
+             }
+         default: printf ("%02x %02x %02x\n", buf[0], buf[1], buf[2]);
+        }
+    }
+    return 0;
+}
+
+int on_keyboard (CinterState *_cs, int key, int mod, int pressed, int repeat)
+{
+    if (repeat)
+        return 0;
+
+    switch (key)
+    {
+     default: break;
+    }
+    return 0;
+}
+
+#define GET_DATA_POS_X(hist,xi) (((double) xi / (hist->w-1)) * (hist->dataRange.x1 - hist->dataRange.x0) + hist->dataRange.x0)
+#define GET_DATA_POS_Y(hist,yi) (((double) yi / (hist->h-1)) * (hist->dataRange.y1 - hist->dataRange.y0) + hist->dataRange.y0)
+
+SubWindow *featWin = NULL;
+
+uint64_t melfall_xy (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType)
+{
+    int *bins  = hist->bins;
+    uint32_t w = hist->w;
+    uint32_t h = hist->h;
+
+    double featMinVal = 0;
+    double featMaxVal = 0;
+    Area dataRange = featWin->dataRange;
+    featMinVal = dataRange.y1;
+    featMaxVal = dataRange.y0;
+
+    double featX0 = dataRange.x0;
+    double featX1 = dataRange.x1;
+
+    for (uint32_t yi=0; yi<h; yi++)
+    {
+        int idx = (featureIndex + FEATURES_HIST_SIZE - yi - 1) % FEATURES_HIST_SIZE;
+        double *feat = featureHist[idx];
+        for (uint32_t xi=0; xi<w; xi++)
+        {
+            int x = (xi * (1.0 / w)) * (featX1 - featX0) + featX0;
+            if (x >= 0 && x < FEATLEN)
+                bins[yi*w+xi] = (int) ((feat[x] - featMinVal) / (featMaxVal - featMinVal) * 1000);
+            else
+                bins[yi*w+xi] = 0;
+        }
+    }
+    static int cnt = 1;
+    return cnt++;
+}
+
+int user_main (int argc, char **argv, CinterState *_cs)
+{
+    audio_init ();
+    cs = _cs;
+    randlib_init (0);
+    void *twisterDev = NULL;
+    twisterDev = midi_init ("Midi Fighter Twister");
+
+    uint32_t nRows = GRAPH_SIZE / 2;
+    uint32_t nCols = 2;
+
+    if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
+        return 1;
+
+    //cinterplot_set_app_keyboard_callback (cs, on_keyboard);
+
+    for (int gi=0; gi<GRAPH_SIZE; gi++)
+    {
+        switch (gi)
+        {
+         case GRAPH_TD:
+             {
+                 graphs[gi] = graph_new (DCTLEN);
+                 graph_attach (cs, graphs[gi], gi, NULL, 'l', "red", 4);
+
+                 for (int j=0; j<DCTLEN; j++)
+                     graph_add_point (graphs[gi], j, 0.0);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 cinterplot_continuous_scroll_enable (sw);
+                 set_x_range (sw, 0, DCTLEN - 1, 1);
+                 set_y_range (sw, -0.5, 0.5, 1);
+                 break;
+             }
+         case GRAPH_FD:
+             {
+                 graphs[gi] = graph_new (DCTLEN);
+                 graph_attach (cs, graphs[gi], gi, NULL, 'l', "yellow", 4);
+
+                 for (int j=0; j<DCTLEN; j++)
+                     graph_add_point (graphs[gi], j, 0.0);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 set_x_range (sw, 0, DCTLEN - 1, 1);
+                 set_y_range (sw, -70, 70, 1);
+                 break;
+             }
+         case GRAPH_FEAT:
+             {
+                 graphs[gi] = graph_new (FEATLEN);
+                 graph_attach (cs, graphs[gi], gi, NULL, 'l', "gold", 4);
+
+                 for (int j=0; j<FEATLEN; j++)
+                     graph_add_point (graphs[gi], j, 0.0);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 featWin = sw;
+                 set_x_range (sw, 0, FEATLEN - 1, 1);
+                 set_y_range (sw, -0.4, 0.4, 1);
+                 break;
+             }
+         case GRAPH_FEATFALL:
+             {
+                 CinterGraph *nullGraph = graph_new (0);
+                 graph_attach (cs, nullGraph, gi, melfall_xy, '0', "gold red black #4444ff cyan", 1000);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 set_x_range (sw, 0, FEATLEN - 1, 1);
+                 set_y_range (sw, 0, 2000, 1);
+                 break;
+             }
+         case GRAPH_NOISE_TD:
+             {
+                 graphs[gi] = graph_new (DCTLEN);
+                 graph_attach (cs, graphs[gi], gi, NULL, 'l', "red", 4);
+
+                 for (int j=0; j<DCTLEN; j++)
+                     graph_add_point (graphs[gi], j, 0.0);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 cinterplot_continuous_scroll_enable (sw);
+                 set_x_range (sw, 0, DCTLEN - 1, 1);
+                 set_y_range (sw, -0.5, 0.5, 1);
+                 break;
+             }
+         case GRAPH_NOISE_FD:
+             {
+                 graphs[gi] = graph_new (DCTLEN);
+                 graph_attach (cs, graphs[gi], gi, NULL, 'l', "yellow", 4);
+
+                 for (int j=0; j<DCTLEN; j++)
+                     graph_add_point (graphs[gi], j, 0.0);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 set_x_range (sw, 0, DCTLEN - 1, 1);
+                 set_y_range (sw, -70, 70, 1);
+                 break;
+             }
+         case GRAPH_NOISE_FLT_FD:
+             {
+                 graphs[gi] = graph_new (DCTLEN);
+                 graph_attach (cs, graphs[gi], gi, NULL, 'l', "gold", 4);
+
+                 for (int j=0; j<DCTLEN; j++)
+                     graph_add_point (graphs[gi], j, 0.0);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 set_x_range (sw, 0, DCTLEN - 1, 1);
+                 set_y_range (sw, -230, 230, 1);
+                 break;
+             }
+         case GRAPH_NOISE_FLT_TD:
+             {
+                 graphs[gi] = graph_new (DCTLEN);
+                 graph_attach (cs, graphs[gi], gi, NULL, 'l', "red", 4);
+
+                 for (int j=0; j<DCTLEN; j++)
+                     graph_add_point (graphs[gi], j, 0.0);
+
+                 SubWindow *sw = get_sub_window (cs, gi);
+                 cinterplot_continuous_scroll_enable (sw);
+                 set_x_range (sw, 0, DCTLEN - 1, 1);
+                 set_y_range (sw, -2.5, 2.5, 1);
+                 break;
+             }
+        }
+    }
+
+    int audioCounter = 0;
+
+    cx_in1   = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
+    cx_in2   = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
+    cx_out1  = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
+    cx_out2  = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
+    flt_in   = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
+    flt_out  = calloc (2 * DCTLEN, sizeof (kiss_fft_cpx));
+    assert (cx_in1); assert (cx_out1);
+    assert (cx_in2); assert (cx_out2);
+    assert (flt_in); assert (flt_out);
+
+    kiss_fft_cfg kissCfg = kiss_fft_alloc (2 * DCTLEN, 0, NULL, NULL);
+
+    melCfg   = kiss_fft_alloc (2 * FEATLEN, 0, NULL, NULL);
+    mel_in   = calloc (2 * FEATLEN, sizeof (kiss_fft_cpx));
+    mel_out  = calloc (2 * FEATLEN, sizeof (kiss_fft_cpx));
+    assert (mel_in); assert (mel_out);
+
+    while (cinterplot_is_running (cs))
+    {
+        midi_connect (twisterDev);
+        twister_poll (twisterDev);
+        for (int i=0; i<UPDATE_INTERVAL; i++)
+        {
+            float sample = audio_in_sample_get ();
+            graph_add_point (graphs[GRAPH_TD],       audioCounter, sample);
+            graph_add_point (graphs[GRAPH_NOISE_TD], audioCounter, randf () *0.1 - 0.05);
+            audioCounter++;
+        }
+
+
+        wait_for_access (& graphs[GRAPH_TD]->readAccess);
+        double (*xys)[2];
+        uint32_t len;
+        stream_buffer_get (graphs[GRAPH_TD]->sb, & xys, & len);
+        if (len != DCTLEN)
+            print_error ("wtf");
+
+        for (int i=0; i<DCTLEN; i++)
+        {
+            float x = 1 - (float) i * (1.0 / DCTLEN);
+            float w = expf (-x * decay);
+            cx_in1[i].r = w * xys[i][1];
+            cx_in1[i].i = 0;
+        }
+        release_access (& graphs[GRAPH_TD]->readAccess);
+
+
+        wait_for_access (& graphs[GRAPH_NOISE_TD]->readAccess);
+        stream_buffer_get (graphs[GRAPH_NOISE_TD]->sb, & xys, & len);
+        if (len != DCTLEN)
+            print_error ("wtf");
+
+        for (int i=0; i<DCTLEN; i++)
+        {
+            cx_in2[i].r = xys[i][1];
+            cx_in2[i].i = 0;
+        }
+        release_access (& graphs[GRAPH_NOISE_TD]->readAccess);
+
+
+        kiss_fct (kissCfg, cx_in1, cx_out1);
+        kiss_fct (kissCfg, cx_in2, cx_out2);
+
+        graph_add_point (graphs[GRAPH_FD], 0, 0.0);
+        graph_add_point (graphs[GRAPH_NOISE_FD], 0, 0.0);
+        for (int i=1; i<DCTLEN; i++)
+        {
+            graph_add_point (graphs[GRAPH_FD], i, cx_out1[i].r);
+            graph_add_point (graphs[GRAPH_NOISE_FD], i, cx_out2[i].r);
+        }
+
+        compute_features ();
+        graph_add_point (graphs[GRAPH_FEAT], 0, 0.0);
+        double *features = featureHist[(featureIndex + FEATURES_HIST_SIZE - 1) % FEATURES_HIST_SIZE];
+        for (int i=1; i<FEATLEN; i++)
+            graph_add_point (graphs[GRAPH_FEAT], i, features[i]);
+
+        apply_features ();
+        kiss_ifct (kissCfg, flt_in, flt_out);
+        graph_add_point (graphs[GRAPH_NOISE_FLT_FD], 0, 0.0);
+        graph_add_point (graphs[GRAPH_NOISE_FLT_TD], 0, 0.0);
+        for (int i=1; i<DCTLEN; i++)
+        {
+            graph_add_point (graphs[GRAPH_NOISE_FLT_FD], i, flt_in[i].r);
+            graph_add_point (graphs[GRAPH_NOISE_FLT_TD], i, flt_out[i].r);
+        }
+
+        static float outPrev[UPDATE_INTERVAL] = {0};
+        static float outCurrent[UPDATE_INTERVAL] = {0};
+        static float outNext[UPDATE_INTERVAL] = {0};
+
+        for (int i=0; i<UPDATE_INTERVAL; i++)
+        {
+            outCurrent[i] = flt_out[DCTLEN - 2 * UPDATE_INTERVAL + i].r;
+            outNext[i]    = flt_out[DCTLEN -     UPDATE_INTERVAL + i].r;
+
+            float wCurrent = (float) i / UPDATE_INTERVAL;
+            float wPrev = 1.0 - wCurrent;
+            float sample = wPrev * outPrev[i] + wCurrent * outCurrent[i];
+            outPrev[i] = outNext[i];
+            audio_out_sample_push (sample * volume);
+        }
+
+        cinterplot_redraw_async (cs);
+    }
+
+    free (kissCfg);
+    free (cx_in1);
+    free (cx_in2);
+    free (cx_out1);
+    free (cx_out2);
+    audio_close ();
+    return 0;
+}
