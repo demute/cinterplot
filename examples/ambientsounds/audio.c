@@ -9,19 +9,19 @@ static SDL_AudioDeviceID audioOutDev;
 SDL_AudioSpec* audioInSpec;
 SDL_AudioSpec* audioOutSpec;
 
-#define AUDIO_BUFFER_SIZE (4096)
+#define AUDIO_BUFFER_SIZE (2048)
 #define AUDIO_BUFFER_MASK (AUDIO_BUFFER_SIZE - 1)
 int  audioInBufHead = 0;
 int  audioInBufTail = 0;
-float audioInBuf[AUDIO_BUFFER_SIZE] = {0};
+float audioInBuf[AUDIO_BUFFER_SIZE][2] = {0};
 int  audioOutBufHead = 0;
 int  audioOutBufTail = 0;
-float audioOutBuf[AUDIO_BUFFER_SIZE] = {0};
+float audioOutBuf[AUDIO_BUFFER_SIZE][2] = {0};
 
 static int quit = 0;
 static int delay = 0;
 
-void audio_out_sample_push (float sample)
+void audio_out_samples_push (float *samples)
 {
     while (((audioOutBufHead + 1) & AUDIO_BUFFER_MASK) == audioOutBufTail)
     {
@@ -33,11 +33,12 @@ void audio_out_sample_push (float sample)
             usleep (1000);
     }
     int nextHead = (audioOutBufHead + 1) & AUDIO_BUFFER_MASK;
-    audioOutBuf[audioOutBufHead] = sample;
+    audioOutBuf[audioOutBufHead][0] = samples[0];
+    audioOutBuf[audioOutBufHead][1] = samples[1];
     audioOutBufHead = nextHead;
 }
 
-void audio_in_sample_push (float sample)
+void audio_in_samples_push (float *samples)
 {
     if (delay > 2048)
         return;
@@ -51,36 +52,42 @@ void audio_in_sample_push (float sample)
             usleep (1000);
     }
     int nextHead = (audioInBufHead + 1) & AUDIO_BUFFER_MASK;
-    audioInBuf[audioInBufHead] = sample;
+    audioInBuf[audioInBufHead][0] = samples[0];
+    audioInBuf[audioInBufHead][1] = samples[1];
     audioInBufHead = nextHead;
     delay++;
 }
 
-float audio_in_sample_get (void)
+float *audio_in_samples_get (void)
 {
-    float sample = 0;
+    static float samples[2] = {0};
     while (audioInBufTail == audioInBufHead)
     {
         if (quit)
-            return 0.0;
+        {
+            samples[0] = samples[1];
+            return samples;
+        }
         else
             usleep (1000);
     }
 
     int nextTail = (audioInBufTail + 1) & AUDIO_BUFFER_MASK;
-    sample = audioInBuf[audioInBufTail];
+    samples[0] = audioInBuf[audioInBufTail][0];
+    samples[1] = audioInBuf[audioInBufTail][1];
     audioInBufTail = nextTail;
 
-    return sample;
+    return samples;
 }
 
-float try_dequeue (void)
+float *try_dequeue (void)
 {
-    float sample = 0;
+    static float samples[2] = {0};
     if (audioOutBufTail != audioOutBufHead)
     {
         int nextTail = (audioOutBufTail + 1) & AUDIO_BUFFER_MASK;
-        sample = audioOutBuf[audioOutBufTail];
+        samples[0] = audioOutBuf[audioOutBufTail][0];
+        samples[1] = audioOutBuf[audioOutBufTail][1];
         audioOutBufTail = nextTail;
         delay--;
     }
@@ -95,7 +102,7 @@ float try_dequeue (void)
             printf ("%s: underflow\n", double_to_date_string (tsp));
         }
     }
-    return sample;
+    return samples;
 }
 
 
@@ -106,8 +113,7 @@ void audio_in_callback (void *_buf, Uint8 *stream, int size)
 
     for (int i=0; i<len; i++)
     {
-        //audio_in_sample_push (s[i][0] + s[i][1]);
-        audio_in_sample_push (s[i][0]);
+        audio_in_samples_push (s[i]);
     }
 }
 
@@ -118,9 +124,9 @@ void audio_out_callback (void *_buf, Uint8 *stream, int size)
 
     for (int i=0; i<len; i++)
     {
-        float sample = try_dequeue ();
-        s[i][0] = sample;
-        s[i][1] = sample;
+        float *samples = try_dequeue ();
+        s[i][0] = samples[0];
+        s[i][1] = samples[1];
     }
 }
 
@@ -141,8 +147,8 @@ void audio_in_init (float *dstBuffer)
     char *devs[] =
     {
         "USB AUDIO  CODEC",
-        "H Series Stereo Track Usb Audio",
         "MacBook Pro Microphone",
+        "H Series Stereo Track Usb Audio",
         "Built-in Microphone",
         "External Microphone",
         "H1n Digital Stereo (IEC958)",
@@ -209,6 +215,7 @@ void audio_out_init (float *srcBuffer)
     request.callback = audio_out_callback;
     char *devs[] =
     {
+        "Audio Pro T14",
         "External Headphones",
         "MacBook Pro Speakers",
         "USB Audio DAC",

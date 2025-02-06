@@ -21,7 +21,7 @@ OBJS += kiss_fft.o
 
 .PHONY: run
 
-TARGET=app
+TARGET=app app2
 all:$(TARGET)
 
 run: app
@@ -29,6 +29,9 @@ run: app
 	@./app && echo "[process completed successfully]" || echo "[process completed abnormally]"
 
 app: $(OBJS) app.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+app2: $(OBJS) app2.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o:%.c
