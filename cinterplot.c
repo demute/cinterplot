@@ -2494,6 +2494,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         HELP_TEXT ("   ,        - zoom x out");
         HELP_TEXT ("   <arrows> - move center point");
         HELP_TEXT ("   <C-c>    - quit");
+        HELP_TEXT ("   <Esc>    - toggle user's keyboard handler");
         HELP_TEXT ("");
         HELP_TEXT (" Mouse gestures:");
         HELP_TEXT ("   click in sub window          - enter or exit zoom mode");
