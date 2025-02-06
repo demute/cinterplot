@@ -130,6 +130,7 @@ void wait_for_access (atomic_flag* accessFlag);
 void release_access (atomic_flag* accessFlag);
 void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1);
 void cinterplot_recursive_free_sub_windows (CinterState *cs);
+void cinterplot_remove_attached_graphs (CinterState *cs, uint32_t wi);
 int force_refresh (CinterState *cs);
 
 CinterGraph *graph_new (uint32_t len);

@@ -1656,8 +1656,9 @@ void cinterplot_continue (CinterState *cs)
     cs->stopped = 0;
 }
 
-void graph_deattach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex)
+int graph_deattach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex)
 {
+    int removed = 0;
     cinterplot_wait (cs);
     SubWindow *sw = & cs->subWindows[windowIndex];
     uint32_t giNew = 0;
@@ -1672,6 +1673,7 @@ void graph_deattach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex)
             attacher->graph = NULL;
             delete_color_scheme (attacher->colorScheme);
             free (attacher);
+            removed = 1;
         }
         else
         {
@@ -1681,6 +1683,7 @@ void graph_deattach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex)
     }
     sw->numAttachedGraphs = giNew;
     cinterplot_continue (cs);
+    return removed;
 }
 
 CinterGraph *graph_new (uint32_t len)
@@ -2534,27 +2537,52 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
     return 0;
 }
 
+void cinterplot_remove_attached_graphs (CinterState *cs, uint32_t wi)
+{
+    SubWindow *sw = & cs->subWindows[wi];
+    while (sw->numAttachedGraphs)
+    {
+        CinterGraph *graph = sw->attachedGraphs[0]->graph;
+
+        int graphExistsInAnotherWindow = 0;
+        for (uint32_t wi2=0; wi2<cs->numSubWindows && graphExistsInAnotherWindow == 0; wi2++)
+        {
+            if (wi2 == wi)
+                continue;
+            SubWindow *sw2 = & cs->subWindows[wi2];
+            for (uint32_t gi2=0; gi2<sw2->numAttachedGraphs; gi2++)
+            {
+                GraphAttacher *attacher2 = sw2->attachedGraphs[gi2];
+                if (attacher2->graph == graph)
+                {
+                    graphExistsInAnotherWindow = 1;
+                    break;
+                }
+            }
+        }
+
+        graph_deattach (cs, graph, wi);
+
+        if (!graphExistsInAnotherWindow)
+        {
+            //print_debug ("delete %p", graph);
+            graph_delete (graph);
+        }
+    }
+}
+
 void cinterplot_recursive_free_sub_windows (CinterState *cs)
 {
     cinterplot_wait (cs);
     for (int wi=0; wi<cs->numSubWindows; wi++)
     {
+        cinterplot_remove_attached_graphs (cs, wi);
         SubWindow *sw = & cs->subWindows[wi];
-        while (sw->numAttachedGraphs)
-        {
-            CinterGraph *graph = sw->attachedGraphs[0]->graph;
-            for (uint32_t wi2=0; wi2<cs->numSubWindows; wi2++)
-            {
-                //print_debug ("wi2: %d", wi2);
-                graph_deattach (cs, graph, wi2);
-            }
-            //print_debug ("delete %p", graph);
-            graph_delete (graph);
-        }
         //print_debug ("free %p", sw->attachedGraphs);
         free (sw->attachedGraphs);
         sw->attachedGraphs = NULL;
     }
+
     cs->numSubWindows = 0;
     free (cs->subWindows);
     cs->subWindows = NULL;
