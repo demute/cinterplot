@@ -1,4 +1,4 @@
-#include "common.h"
+#include "cinterplot_common.h"
 #include "randlib.h"
 #include "cinterplot.h"
 

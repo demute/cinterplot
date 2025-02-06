@@ -1,4 +1,4 @@
-#include "common.h"
+#include "cinterplot_common.h"
 #include "cinterplot.h"
 
 #define GET_DATA_POS_X(hist,xi) (((double) xi / (hist->w-1)) * (hist->dataRange.x1 - hist->dataRange.x0) + hist->dataRange.x0)

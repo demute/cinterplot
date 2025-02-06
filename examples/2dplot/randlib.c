@@ -1,10 +1,10 @@
-#include "common.h"
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_randist.h>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_test.h>
 #include <gsl/gsl_ieee_utils.h>
 #include <gsl/gsl_integration.h>
+#include <time.h>
 
 #include "randlib.h"
 

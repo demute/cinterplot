@@ -4,7 +4,7 @@
 #include <string.h>
 #include <assert.h>
 
-#include "common.h"
+#include "cinterplot_common.h"
 #include "stream_buffer.h"
 
 static uint32_t next_power_of_two (uint32_t len)

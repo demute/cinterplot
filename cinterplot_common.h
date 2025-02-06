@@ -1,5 +1,5 @@
-#ifndef _COMMON_H_
-#define _COMMON_H_
+#ifndef _CIP_COMMON_H_
+#define _CIP_COMMON_H_
 #include <stdio.h>
 
 #include <fcntl.h>
@@ -125,4 +125,4 @@ extern "C" {
 } /* end extern C */
 #endif
 
-#endif /* _COMMON_H_ */
+#endif /* _CIP_COMMON_H_ */
