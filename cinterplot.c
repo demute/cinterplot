@@ -1344,22 +1344,41 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
     return 1;
 }
 
-void cycle_line_type (SubWindow *sw)
+void cycle_line_type (SubWindow *sw, int dir)
 {
     if (!sw)
         return;
 
-    for (int i=0; i<sw->numAttachedGraphs; i++)
+    if (dir > 0)
     {
-        GraphAttacher *attacher = sw->attachedGraphs[i];
-        switch (attacher->plotType)
+        for (int i=0; i<sw->numAttachedGraphs; i++)
         {
-         case 'p': attacher->plotType = '+'; break;
-         case '+': attacher->plotType = 'l'; break;
-         case 'l': attacher->plotType = 't'; break;
-         case 't': attacher->plotType = 's'; break;
-         case 's': attacher->plotType = 'p'; break;
-         default: print_error ("unknown line type '%c'", attacher->plotType); break;
+            GraphAttacher *attacher = sw->attachedGraphs[i];
+            switch (attacher->plotType)
+            {
+             case 'p': attacher->plotType = '+'; break;
+             case '+': attacher->plotType = 'l'; break;
+             case 'l': attacher->plotType = 't'; break;
+             case 't': attacher->plotType = 's'; break;
+             case 's': attacher->plotType = 'p'; break;
+             default: print_error ("unknown line type '%c'", attacher->plotType); break;
+            }
+        }
+    }
+    else
+    {
+        for (int i=0; i<sw->numAttachedGraphs; i++)
+        {
+            GraphAttacher *attacher = sw->attachedGraphs[i];
+            switch (attacher->plotType)
+            {
+             case 'p': attacher->plotType = 's'; break;
+             case '+': attacher->plotType = 'p'; break;
+             case 'l': attacher->plotType = '+'; break;
+             case 't': attacher->plotType = 'l'; break;
+             case 's': attacher->plotType = 't'; break;
+             default: print_error ("unknown line type '%c'", attacher->plotType); break;
+            }
         }
     }
 }
@@ -1449,7 +1468,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case 'u': undo_zooming (cs->activeSw); break;
                 case 'e': force_refresh (cs); break;
                 case 't': set_tracking_mode (cs, cs->trackingMode + 1); cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);break;
-                case 'l': cycle_line_type (cs->activeSw); break;
+                case 'l': cycle_line_type (cs->activeSw, 1); break;
                           //case 'x': exit_zoom (cs); break;
                 case ' ': toggle_paused (cs); break;
 
@@ -1547,6 +1566,8 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                         cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);
                     }
                     break;
+                case 'l': cycle_line_type (cs->activeSw, -1);
+                          break;
                 case 't':
                     {
                         set_tracking_mode (cs, cs->trackingMode + 3);
@@ -2455,7 +2476,8 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         HELP_TEXT ("   f        - toggle fullscreen");
         HELP_TEXT ("   g        - cycle between grid modes");
         HELP_TEXT ("   h        - toggle help");
-        HELP_TEXT ("   l        - cycle between line types");
+        HELP_TEXT ("   i        - save image");
+        HELP_TEXT ("   [lL]     - cycle between line types");
         HELP_TEXT ("   m        - toggle mouse crosshair");
         HELP_TEXT ("   [nN]     - next/prev sub window");
         HELP_TEXT ("   o        - cycle between log modes");
