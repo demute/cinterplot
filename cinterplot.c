@@ -2404,8 +2404,8 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     {
         // keep in mind y1 < y0 because plot window has positive y-data direction upwards
         dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
-        y0 = ceil (sw->dataRange.y0 / dy) * dy;
-        y1 = floor (sw->dataRange.y1 / dy) * dy;
+        y0 = ceil (sw->dataRange.y0 / dy) * dy + dy;
+        y1 = floor (sw->dataRange.y1 / dy) * dy - dy;
         yTens = (int) ((sw->dataRange.y0 - sw->dataRange.y1) / dy);
         if (yTens < 1)
             yTens = 1;
@@ -2450,8 +2450,8 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     if (sw->gridMode & 2)
     {
         double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
-        double x0 = floor (sw->dataRange.x0 / dx) * dx;
-        double x1 = ceil (sw->dataRange.x1 / dx) * dx;
+        double x0 = floor (sw->dataRange.x0 / dx) * dx - dx;
+        double x1 = ceil (sw->dataRange.x1 / dx) * dx + dx;
         int xTens = (int) ((sw->dataRange.x1 - sw->dataRange.x0) / dx);
         if (xTens < 1)
             xTens = 1;
