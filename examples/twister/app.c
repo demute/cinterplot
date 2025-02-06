@@ -17,6 +17,23 @@ static uint32_t margin = 4;
 static CipGraph **sineGraph;
 static CipState *cs = NULL;
 
+static double get_time (void)
+{
+    struct timeval t;
+    gettimeofday (& t, 0);
+    double timestamp = (double) t.tv_sec + (double) t.tv_usec / 1000000;
+    return timestamp;
+}
+
+static void *safe_calloc (size_t count, size_t size)
+{
+    void *ptr = calloc (count, size);
+    if (!ptr)
+        exit_error ("can't calloc %ld %ld", count, size);
+    return ptr;
+}
+
+
 int on_press (void *twisterDev, int encoder, int pressed)
 {
     print_debug ("encoder: %d, pressed: %d", encoder, pressed);
