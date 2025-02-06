@@ -33,7 +33,7 @@ int user_main (int argc, char **argv, CipState *cs)
     char plotType[6] = {'p','l','s','p','l','s'};
     for (int i=0; i<n; i++)
     {
-        cip_continuous_scroll_enable (cip_get_sub_window (cs, i));
+        cip_continuous_scroll_enable (cs, i);
         sineGraph[i] = cip_graph_new (1000000);
         cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
     }

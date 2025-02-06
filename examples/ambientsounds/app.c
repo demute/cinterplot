@@ -316,7 +316,7 @@ int on_keyboard (CipState *_cs, int key, int mod, int pressed, int repeat)
 #define GET_DATA_POS_X(hist,xi) (((double) xi / (hist->w-1)) * (hist->dataRange.x1 - hist->dataRange.x0) + hist->dataRange.x0)
 #define GET_DATA_POS_Y(hist,yi) (((double) yi / (hist->h-1)) * (hist->dataRange.y1 - hist->dataRange.y0) + hist->dataRange.y0)
 
-SubWindow *featWin = NULL;
+CipSubWindow *featWin = NULL;
 
 uint64_t melfall_xy (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
@@ -412,10 +412,9 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<DCTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_continuous_scroll_enable (sw);
-                 cip_set_x_range (sw, 0, DCTLEN - 1, 1);
-                 cip_set_y_range (sw, -0.5, 0.5, 1);
+                 cip_continuous_scroll_enable (cs, gi);
+                 cip_set_x_range (cs, gi, 0, DCTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -0.5, 0.5, 1);
                  break;
              }
          case GRAPH_FD:
@@ -426,9 +425,8 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<DCTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_set_x_range (sw, 0, DCTLEN - 1, 1);
-                 cip_set_y_range (sw, -70, 70, 1);
+                 cip_set_x_range (cs, gi, 0, DCTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -70, 70, 1);
                  break;
              }
          case GRAPH_FEAT:
@@ -439,10 +437,9 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<FEATLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 featWin = sw;
-                 cip_set_x_range (sw, 0, FEATLEN - 1, 1);
-                 cip_set_y_range (sw, -0.4, 0.4, 1);
+                 featWin = cip_get_sub_window (cs, gi);
+                 cip_set_x_range (cs, gi, 0, FEATLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -0.4, 0.4, 1);
                  break;
              }
          case GRAPH_FEATFALL:
@@ -450,9 +447,8 @@ int user_main (int argc, char **argv, CipState *_cs)
                  CipGraph *nullGraph = cip_graph_new (0);
                  cip_graph_attach (cs, nullGraph, gi, melfall_xy, '0', "gold red black #4444ff cyan", 1000);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_set_x_range (sw, 0, FEATLEN - 1, 1);
-                 cip_set_y_range (sw, -0.4, 0.4, 1);
+                 cip_set_x_range (cs, gi, 0, FEATLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -0.4, 0.4, 1);
                  break;
              }
          case GRAPH_NOISE_TD:
@@ -463,10 +459,9 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<DCTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_continuous_scroll_enable (sw);
-                 cip_set_x_range (sw, 0, DCTLEN - 1, 1);
-                 cip_set_y_range (sw, -0.5, 0.5, 1);
+                 cip_continuous_scroll_enable (cs, gi);
+                 cip_set_x_range (cs, gi, 0, DCTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -0.5, 0.5, 1);
                  break;
              }
          case GRAPH_NOISE_FD:
@@ -477,9 +472,8 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<DCTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_set_x_range (sw, 0, DCTLEN - 1, 1);
-                 cip_set_y_range (sw, -70, 70, 1);
+                 cip_set_x_range (cs, gi, 0, DCTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -70, 70, 1);
                  break;
              }
          case GRAPH_NOISE_FLT_FD:
@@ -490,9 +484,8 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<DCTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_set_x_range (sw, 0, DCTLEN - 1, 1);
-                 cip_set_y_range (sw, -230, 230, 1);
+                 cip_set_x_range (cs, gi, 0, DCTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -230, 230, 1);
                  break;
              }
          case GRAPH_NOISE_FLT_TD:
@@ -503,10 +496,9 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<DCTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_continuous_scroll_enable (sw);
-                 cip_set_x_range (sw, 0, DCTLEN - 1, 1);
-                 cip_set_y_range (sw, -2.5, 2.5, 1);
+                 cip_continuous_scroll_enable (cs, gi);
+                 cip_set_x_range (cs, gi, 0, DCTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -2.5, 2.5, 1);
                  break;
              }
         }

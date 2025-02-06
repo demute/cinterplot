@@ -154,7 +154,7 @@ int on_keyboard (CipState *_cs, int key, int mod, int pressed, int repeat)
 #define GET_DATA_POS_X(hist,xi) (((double) xi / (hist->w-1)) * (hist->dataRange.x1 - hist->dataRange.x0) + hist->dataRange.x0)
 #define GET_DATA_POS_Y(hist,yi) (((double) yi / (hist->h-1)) * (hist->dataRange.y1 - hist->dataRange.y0) + hist->dataRange.y0)
 
-SubWindow *featWin = NULL;
+CipSubWindow *featWin = NULL;
 
 #define NUM_KERNELS 20
 Kernel kernels[NUM_KERNELS] = {0};
@@ -261,10 +261,9 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<PLOTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_continuous_scroll_enable (sw);
-                 cip_set_x_range (sw, 0, PLOTLEN - 1, 1);
-                 cip_set_y_range (sw, -1.5, 1.5, 1);
+                 cip_continuous_scroll_enable (cs, gi);
+                 cip_set_x_range (cs, gi, 0, PLOTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -1.5, 1.5, 1);
                  break;
              }
          case GRAPH_TD2:
@@ -275,9 +274,8 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<PLOTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_set_x_range (sw, 0, PLOTLEN - 1, 1);
-                 cip_set_y_range (sw, -0.5, 0.5, 1);
+                 cip_set_x_range (cs, gi, 0, PLOTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -0.5, 0.5, 1);
                  break;
              }
          case GRAPH_FD1:
@@ -288,9 +286,8 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<PLOTLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_set_x_range (sw, 0, PLOTLEN - 1, 1);
-                 cip_set_y_range (sw, -1, 1, 1);
+                 cip_set_x_range (cs, gi, 0, PLOTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, -1, 1, 1);
                  break;
              }
          case GRAPH_FD2:
@@ -301,9 +298,8 @@ int user_main (int argc, char **argv, CipState *_cs)
                  for (int j=0; j<FEATLEN; j++)
                      cip_graph_add_point (graphs[gi], j, 0.0);
 
-                 SubWindow *sw = cip_get_sub_window (cs, gi);
-                 cip_set_x_range (sw, 0, PLOTLEN - 1, 1);
-                 cip_set_y_range (sw, 0, 2 * M_PI, 1);
+                 cip_set_x_range (cs, gi, 0, PLOTLEN - 1, 1);
+                 cip_set_y_range (cs, gi, 0, 2 * M_PI, 1);
                  break;
              }
          default:
