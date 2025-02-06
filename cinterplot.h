@@ -150,6 +150,7 @@ void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
 void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title);
 int toggle_paused (CinterState *cs);
 SDL_Surface *createSurfaceFromImage (char *file);
+void save_png (CinterState* cs, char* imageDir, int frameCounter, int format);
 
 void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat));
 void cinterplot_set_app_mouse_motion (CinterState *cs, int (*app_on_mouse_motion) (CinterState *cs, int windowIndex, double x, double y));

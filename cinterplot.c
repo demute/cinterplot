@@ -1489,6 +1489,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': set_grid_mode (cs, cs->gridMode + 1); print_debug ("grid mode %d", cs->gridMode); break;
                 case 'h': toggle_help (cs); break;
+                case 'i': save_png (cs, ".", cs->frameCounter, 0); break;
                 case 'm': set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
                 case 'o': if (cs->activeSw) {set_log_mode (cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
                 case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
