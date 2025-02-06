@@ -123,14 +123,16 @@ int user_main (int argc, char **argv, CipState *cs)
     uint32_t bordered = 0;
     uint32_t margin = 4;
 
-    
+
     cip_set_bg_shade (cs, 0.0);
     cip_set_crosshair_enabled (cs, 0);
     cip_set_statusline_enabled (cs, 0);
-    cip_set_grid_mode (cs, 0);
 
     if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
+
+    for (int i=0; i<nRows*nCols; i++)
+        cip_set_grid_mode (cs, i, 0);
 
     CipGraph *nullGraph = cip_graph_new (0);
 

@@ -78,6 +78,7 @@ typedef struct CipSubWindow
     uint32_t numAttachedGraphs;
     uint32_t continuousScroll : 1;
     uint32_t logMode : 2;
+    uint32_t gridMode : 2;
     uint32_t selectedGraph;
 
     CipPosition mouseDataPos;
@@ -122,7 +123,8 @@ int  cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_
 void cip_set_range (CipSubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault);
 void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xmax, int setAsDefault);
 void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ymax, int setAsDefault);
-int  cip_set_grid_mode (CipState *cs, uint32_t mode);
+int  cip_set_grid_mode (CipState *cs, uint32_t windowIndex, uint32_t mode);
+int  cip_set_grid_mode_sw (CipSubWindow *sw, uint32_t mode);
 int  cip_set_log_mode_sw (CipSubWindow *sw, uint32_t mode);
 int  cip_set_log_mode (CipState *cs, uint32_t windowIndex, uint32_t mode);
 int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled);

@@ -23,7 +23,6 @@ typedef struct CipState
     uint32_t crosshairEnabled : 1;
     uint32_t trackingMode : 2;
     uint32_t statuslineEnabled : 1;
-    uint32_t gridMode : 2;
     uint32_t zoomEnabled : 1;
     uint32_t fullscreen : 1;
     uint32_t redraw : 1;
@@ -564,14 +563,15 @@ int cip_continuous_scroll_update (CipSubWindow *sw)
 }
 
 
-void cip_continuous_scroll_enable (CipState *cs, uint32_t windowIndex)  { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=1; }
-void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex) { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=0; }
+void cip_continuous_scroll_enable (CipState *cs, uint32_t windowIndex)     { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=1; }
+void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex)    { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=0; }
+int  cip_set_grid_mode (CipState *cs, uint32_t windowIndex, uint32_t mode) { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); return cip_set_grid_mode_sw (sw, mode); }
+int  cip_set_grid_mode_sw (CipSubWindow *sw, uint32_t mode) { if (sw) sw->gridMode = mode & 3; return 1; }
 int  cip_force_refresh (CipState *cs)                            { cs->forceRefresh = 1;        return 1; }
 int  cip_is_running (CipState *cs)                               { return cs->running; }
 void cip_redraw_async(CipState *cs)                              { cs->redraw=1; }
 void cip_set_bg_shade (CipState *cs, float bgShade)              { cs->bgShade = bgShade; }
 int  cip_set_crosshair_enabled (CipState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
-int  cip_set_grid_mode (CipState *cs, uint32_t mode)             { cs->gridMode          = mode & 3;    return 1; }
 int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
 int  cip_set_tracking_mode (CipState *cs, uint32_t mode)         { cs->trackingMode = mode & 3; return 1; }
 int  cip_toggle_paused (CipState *cs)                            { paused ^= 1;                 return 1; }
@@ -1578,7 +1578,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case 'a': cip_autoscale_sw (cs->activeSw); break;
                 case 'c': cycle_graph_order (cs); break;
                 case 'f': cip_set_fullscreen (cs, ! cs->fullscreen); break;
-                case 'g': cip_set_grid_mode (cs, cs->gridMode + 1); print_debug ("grid mode %d", cs->gridMode); break;
+                case 'g': if (cs->activeSw) { cip_set_grid_mode_sw (cs->activeSw, cs->activeSw->gridMode + 1); print_debug ("grid mode %d", cs->activeSw->gridMode); } break;
                 case 'h': toggle_help (cs); break;
                 case 'i': cip_save_png (cs, ".", cs->frameCounter, 0); break;
                 case 'm': cip_set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
@@ -2268,7 +2268,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     double dy, y0, y1;
     int yTens, ySubs;
 
-    if (cs->gridMode & 1)
+    if (sw->gridMode & 1)
     {
         // keep in mind y1 < y0 because plot window has positive y-data direction upwards
         dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
@@ -2309,13 +2309,13 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
             if (abs ((int) yi - (int) lastYi) > 10*scale)
             {
                 draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor1);
-                if (! ((cs->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
+                if (! ((sw->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
                     lastYi = yi;
             }
         }
     }
 
-    if (cs->gridMode & 2)
+    if (sw->gridMode & 2)
     {
         double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
         double x0 = floor (sw->dataRange.x0 / dx) * dx;
@@ -2366,7 +2366,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
         }
     }
 
-    if (cs->gridMode & 1)
+    if (sw->gridMode & 1)
     {
         int cnt = 0;
         uint32_t lastYi = 0;
@@ -2395,7 +2395,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 snprintf (text, sizeof (text), "%g", y);
 
                 // draw text only if it will not collide with text on x-axis
-                if (! ((cs->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
+                if (! ((sw->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
                 {
                     draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BL);
                     lastYi = yi;
@@ -2471,7 +2471,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         if (sw->continuousScroll && !paused)
             cip_continuous_scroll_update (sw);
 
-        if (cs->gridMode)
+        if (sw->gridMode)
             draw_grid (cs, sw, pixels, w, h, subWidth, subHeight);
 
         for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
@@ -2697,6 +2697,7 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
             sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
             sw->numAttachedGraphs = 0;
             sw->logMode = 0;
+            sw->gridMode = 0;
             sw->selectedGraph = 0;
 
             sw->selectedWindowArea0.x0 = NaN;
@@ -2878,7 +2879,6 @@ static CipState *cip_init (void)
     cs->crosshairEnabled  = 1;
     cs->trackingMode      = 0;
     cs->statuslineEnabled = 1;
-    cs->gridMode          = 0;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;
     cs->redraw            = 0;
