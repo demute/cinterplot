@@ -9,6 +9,14 @@
 #include "oklab.h"
 #include "savepng.h"
 
+#define LOG101_VALUE 0.0099503308531681
+#define LOG101_VALUE_INV (1.0 / LOG101_VALUE)
+#define log101(x) (log (x) * LOG101_VALUE_INV)
+#define exp101(x) exp ((x) * LOG101_VALUE)
+
+#define LOGFUN log101
+#define EXPFUN exp101
+
 typedef struct CinterState
 {
     uint32_t crosshairEnabled : 1;
@@ -371,8 +379,8 @@ int autoscale (SubWindow *sw)
             double x = xys[i][0];
             double y = xys[i][1];
 
-            if (sw->logMode & 1) x = log (x);
-            if (sw->logMode & 2) y = log (y);
+            if (sw->logMode & 1) x = LOGFUN (x);
+            if (sw->logMode & 2) y = LOGFUN (y);
             if (isnan (x) || isnan (y)) continue;
             if (isinf (x) || isinf (y)) continue;
 
@@ -519,13 +527,15 @@ int set_log_mode (SubWindow *sw, uint32_t mode)
     {
         if (xWantsLog)
         {
-            sw->dataRange.x0 = log (sw->dataRange.x0);
-            sw->dataRange.x1 = log (sw->dataRange.x1);
+            sw->dataRange.x0   = LOGFUN (sw->dataRange.x0);
+            sw->dataRange.x1   = LOGFUN (sw->dataRange.x1);
+            sw->mouseDataPos.x = LOGFUN (sw->mouseDataPos.x);
         }
         else
         {
-            sw->dataRange.x0 = exp (sw->dataRange.x0);
-            sw->dataRange.x1 = exp (sw->dataRange.x1);
+            sw->dataRange.x0   = EXPFUN (sw->dataRange.x0);
+            sw->dataRange.x1   = EXPFUN (sw->dataRange.x1);
+            sw->mouseDataPos.x = EXPFUN (sw->mouseDataPos.x);
         }
     }
 
@@ -533,13 +543,15 @@ int set_log_mode (SubWindow *sw, uint32_t mode)
     {
         if (yWantsLog)
         {
-            sw->dataRange.y0 = log (sw->dataRange.y0);
-            sw->dataRange.y1 = log (sw->dataRange.y1);
+            sw->dataRange.y0   = LOGFUN (sw->dataRange.y0);
+            sw->dataRange.y1   = LOGFUN (sw->dataRange.y1);
+            sw->mouseDataPos.y = LOGFUN (sw->mouseDataPos.y);
         }
         else
         {
-            sw->dataRange.y0 = exp (sw->dataRange.y0);
-            sw->dataRange.y1 = exp (sw->dataRange.y1);
+            sw->dataRange.y0   = EXPFUN (sw->dataRange.y0);
+            sw->dataRange.y1   = EXPFUN (sw->dataRange.y1);
+            sw->mouseDataPos.y = EXPFUN (sw->mouseDataPos.y);
         }
     }
 
@@ -1821,8 +1833,8 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             double x = xys[i][0];
             double y = xys[i][1];
 
-            //if (logMode & 1) x = log (x);
-            //if (logMode & 2) y = log (y);
+            //if (logMode & 1) x = LOGFUN (x);
+            //if (logMode & 2) y = LOGFUN (y);
 
             if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
                 continue;
@@ -1840,8 +1852,8 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             double x = xys[i][0];
             double y = xys[i][1];
 
-            if (logMode & 1) x = log (x);
-            if (logMode & 2) y = log (y);
+            if (logMode & 1) x = LOGFUN (x);
+            if (logMode & 2) y = LOGFUN (y);
 
             if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
                 continue;
@@ -1870,13 +1882,13 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
 
             if (logMode & 1)
             {
-                x0 = log (x0);
-                x1 = log (x1);
+                x0 = LOGFUN (x0);
+                x1 = LOGFUN (x1);
             }
             if (logMode & 2)
             {
-                y0 = log (y0);
-                y1 = log (y1);
+                y0 = LOGFUN (y0);
+                y1 = LOGFUN (y1);
             }
 
             if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
@@ -1901,13 +1913,13 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
 
             if (logMode & 1)
             {
-                x0 = log (x0);
-                x1 = log (x1);
+                x0 = LOGFUN (x0);
+                x1 = LOGFUN (x1);
             }
             if (logMode & 2)
             {
-                y0 = log (y0);
-                y1 = log (y1);
+                y0 = LOGFUN (y0);
+                y1 = LOGFUN (y1);
             }
 
             if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
@@ -1936,13 +1948,13 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
 
             if (logMode & 1)
             {
-                x0 = log (x0);
-                x1 = log (x1);
+                x0 = LOGFUN (x0);
+                x1 = LOGFUN (x1);
             }
             if (logMode & 2)
             {
-                y0 = log (y0);
-                y1 = log (y1);
+                y0 = LOGFUN (y0);
+                y1 = LOGFUN (y1);
             }
 
             if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
