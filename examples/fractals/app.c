@@ -120,7 +120,7 @@ int user_main (int argc, char **argv, CipState *cs)
 {
     const uint32_t nRows = 2;
     const uint32_t nCols = 3;
-    uint32_t bordered = 0;
+    uint32_t bordered = 1;
     uint32_t margin = 4;
 
 
