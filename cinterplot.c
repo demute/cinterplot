@@ -3,6 +3,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <stdatomic.h>
+#include <sys/stat.h>
 
 #include "cinterplot.h"
 #include "font.c"
@@ -106,6 +107,75 @@ static int paused = 0;
 static CipArea storedDataRanges[10] = {0};
 
 static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
+
+//static void *safe_malloc (size_t size)
+//{
+//    void *ptr = malloc (size);
+//    if (!ptr)
+//        exit_error ("can't malloc %ld", size);
+//    return ptr;
+//}
+
+static void *safe_calloc (size_t count, size_t size)
+{
+    void *ptr = calloc (count, size);
+    if (!ptr)
+        exit_error ("can't calloc %ld %ld", count, size);
+    return ptr;
+}
+
+static char *parse_csv (char *str, int *argc, char ***argv, char sep, int inplace)
+{
+    if (!str)
+        return NULL;
+
+    char *modStr = inplace ? str : strdup (str);
+    assert (modStr);
+
+    int cnt = 1;
+    int len = (int) strlen (modStr);
+    for (int i=0; i<len; i++)
+        if (modStr[i] == sep)
+            cnt++;
+
+    char **strings = (char**) malloc ((uint32_t) cnt * sizeof (char*));
+    assert (strings);
+
+
+    int argi=0, i=0;
+    strings[argi++] = modStr;
+    while (modStr[i])
+    {
+        if (modStr[i] == sep)
+        {
+            modStr[i++] = '\0';
+            strings[argi++] = & modStr[i];
+        }
+        else
+        {
+            i++;
+        }
+    }
+
+    *argc = cnt;
+    *argv = strings;
+
+    return modStr;
+}
+
+static int file_exists (const char* file)
+{
+    struct stat s;
+    return stat (file, & s) == 0;
+}
+
+static double get_time (void)
+{
+    struct timeval t;
+    gettimeofday (& t, 0);
+    double timestamp = (double) t.tv_sec + (double) t.tv_usec / 1000000;
+    return timestamp;
+}
 
 void wait_for_access (atomic_flag* accessFlag)
 {

@@ -7,7 +7,6 @@ include $(TOPDIR)/Makefile.common
 CFLAGS  += $(shell $(PKGCONFIG) --cflags sdl2)
 LDFLAGS += $(shell $(PKGCONFIG) --libs sdl2)
 
-OBJS += common.o
 OBJS += cinterplot.o
 OBJS += stream_buffer.o
 OBJS += oklab.o

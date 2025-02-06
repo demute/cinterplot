@@ -111,26 +111,6 @@ extern "C" {
 #define print_cyan(...)        fprint_cyan    (STDFS, __VA_ARGS__)
 #define print_gray(...)        fprint_gray    (STDFS, __VA_ARGS__)
 
-void *safe_malloc (size_t size);
-void *safe_calloc (size_t num, size_t size);
-
-double date_string_to_double (char* str);
-char* double_to_date_string (double uClock);
-void copy_file (char* from, char* to);
-int file_exists (const char* file);
-char* read_file (const char* file);
-double get_time (void);
-long get_time_us (void);
-void print_remaining_time (double startTime, double tsp, double doneRatio, int counter);
-char *parse_csv (char *str, int *argc, char ***argv, char sep, int inplace);
-double get_sorted_value_at_index (double *list, int n, int j);
-
-void internal_quicksort (void *buf, size_t itemSize, size_t offset, uint32_t first, uint32_t last, int ascending);
-
-enum {SORT_MODE_DESCENDING, SORT_MODE_ASCENDING};
-#define quicksort_double(buf,len,ascending) internal_quicksort (buf, sizeof ((buf)[0]), 0, 0, len-1, ascending);
-#define quicksort_structd(buf,element,len,ascending) internal_quicksort (buf, sizeof ((buf)[0]), (uint8_t *) & (buf)->element - (uint8_t *) (buf), 0, len-1, ascending);
-
 #define SIGN(x) (((x) > 0) - ((x) < 0))
 #define MIN(a,b) (((a) < (b)) ? (a) : (b))
 #define MAX(a,b) (((a) > (b)) ? (a) : (b))
