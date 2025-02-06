@@ -9,7 +9,6 @@ LDFLAGS += -L$(LIBDIR) -lcinterplot
 LDFLAGS += $(shell pkg-config --libs gsl)
 LDFLAGS += $(shell pkg-config --libs sdl2)
 
-OBJS += common.o
 
 .PHONY: run
 

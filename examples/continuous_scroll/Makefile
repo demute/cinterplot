@@ -10,7 +10,6 @@ LDFLAGS += $(shell pkg-config --libs gsl)
 LDFLAGS += $(shell pkg-config --libs sdl2)
 
 OBJS += randlib.o
-OBJS += common.o
 
 .PHONY: run
 

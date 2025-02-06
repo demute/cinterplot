@@ -15,7 +15,6 @@ CXXFLAGS += $(shell pkg-config --cflags rtmidi)
 
 OBJS  = midilib.o
 OBJS += randlib.o
-OBJS += common.o
 
 .PHONY: run
 
