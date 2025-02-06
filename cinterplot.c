@@ -45,8 +45,8 @@ typedef struct CipState
     float bgShade;
 
     uint32_t numSubWindows;
-    SubWindow *subWindows;
-    SubWindow *activeSw;
+    CipSubWindow *subWindows;
+    CipSubWindow *activeSw;
 
     SDL_Window   *window;
     SDL_Renderer *renderer;
@@ -355,7 +355,7 @@ static void cycle_graph_order (CipState *cs)
     //print_debug ("graph order %u", cs->graphOrder);
 }
 
-int cip_autoscale_sw (SubWindow *sw)
+int cip_autoscale_sw (CipSubWindow *sw)
 {
     if (!sw)
         return 0;
@@ -416,7 +416,7 @@ int cip_autoscale (CipState *cs, uint32_t windowIndex)
     return cip_autoscale_sw (cip_get_sub_window (cs, windowIndex));
 }
 
-void cip_set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault)
+void cip_set_range (CipSubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault)
 {
     if (!sw)
         exit_error ("bug");
@@ -432,7 +432,7 @@ void cip_set_range (SubWindow *sw, double xmin, double ymin, double xmax, double
 
 void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xmax, int setAsDefault)
 {
-    SubWindow *sw = cip_get_sub_window (cs, windowIndex);
+    CipSubWindow *sw = cip_get_sub_window (cs, windowIndex);
     if (!sw)
         exit_error ("bug");
 
@@ -445,7 +445,7 @@ void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xm
 
 void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ymax, int setAsDefault)
 {
-    SubWindow *sw = cip_get_sub_window (cs, windowIndex);
+    CipSubWindow *sw = cip_get_sub_window (cs, windowIndex);
     if (!sw)
         exit_error ("bug");
 
@@ -456,7 +456,7 @@ void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ym
         memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 }
 
-int cip_continuous_scroll_update (SubWindow *sw)
+int cip_continuous_scroll_update (CipSubWindow *sw)
 {
     double xmin =  DBL_MAX;
     double xmax = -DBL_MAX;
@@ -494,8 +494,8 @@ int cip_continuous_scroll_update (SubWindow *sw)
 }
 
 
-void cip_continuous_scroll_enable (CipState *cs, uint32_t windowIndex)  { SubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=1; }
-void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex) { SubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=0; }
+void cip_continuous_scroll_enable (CipState *cs, uint32_t windowIndex)  { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=1; }
+void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex) { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=0; }
 int  cip_force_refresh (CipState *cs)                            { cs->forceRefresh = 1;        return 1; }
 int  cip_is_running (CipState *cs)                               { return cs->running; }
 void cip_redraw_async(CipState *cs)                              { cs->redraw=1; }
@@ -509,13 +509,13 @@ int  cip_quit (CipState *cs)                                     { cs->running =
 
 static int toggle_help (CipState *cs)                            { cs->showHelp ^= 1;           return 1; }
 
-static int cycle_selected_graph (SubWindow *sw, uint32_t step)
+static int cycle_selected_graph (CipSubWindow *sw, uint32_t step)
 {
     sw->selectedGraph = sw->numAttachedGraphs ? (sw->selectedGraph + step) % sw->numAttachedGraphs : 0;
     return 1;
 }
 
-static void undo_zooming (SubWindow *sw)
+static void undo_zooming (CipSubWindow *sw)
 {
     if (!sw)
         return;
@@ -527,7 +527,7 @@ static void undo_zooming (SubWindow *sw)
     memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
 }
 
-int cip_set_log_mode_sw (SubWindow *sw, uint32_t mode)
+int cip_set_log_mode_sw (CipSubWindow *sw, uint32_t mode)
 {
     if (!sw)
         return 0;
@@ -616,8 +616,8 @@ static void sub_window_change (CipState *cs, int dir)
         index = (int) cs->numSubWindows - 1;
     if (cs->zoomEnabled)
     {
-        SubWindow *sw0 = cs->activeSw;
-        SubWindow *sw1 = & cs->subWindows[index];
+        CipSubWindow *sw0 = cs->activeSw;
+        CipSubWindow *sw1 = & cs->subWindows[index];
         CipArea activeArea;
         CipArea zoomWindowArea = {0,0,1,1};
         get_active_area (cs, & zoomWindowArea, & activeArea);
@@ -628,7 +628,7 @@ static void sub_window_change (CipState *cs, int dir)
     cs->activeSw = & cs->subWindows[index];
 }
 
-int cip_zoom (SubWindow *sw, double xf, double yf)
+int cip_zoom (CipSubWindow *sw, double xf, double yf)
 {
     if (!sw)
         return 0;
@@ -642,7 +642,7 @@ int cip_zoom (SubWindow *sw, double xf, double yf)
     return 1;
 }
 
-int cip_move (SubWindow *sw, double xf, double yf)
+int cip_move (CipSubWindow *sw, double xf, double yf)
 {
     if (!sw)
         return 0;
@@ -927,7 +927,7 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
              else
              {
 
-                 SubWindow *sw = cs->activeSw;
+                 CipSubWindow *sw = cs->activeSw;
                  CipArea *dr  = & sw->dataRange;
                  CipArea *swa = & sw->selectedWindowArea1;
                  CipArea activeArea;
@@ -964,7 +964,7 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
 
 static int on_mouse_wheel (CipState *cs, float xf, float yf)
 {
-    SubWindow *sw = cs->activeSw;
+    CipSubWindow *sw = cs->activeSw;
     if (sw && cs->mouseState == MOUSE_STATE_NONE)
     {
         if (cs->pressedModifiers == KMOD_GUI)
@@ -985,7 +985,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         else
         {
             // moving
-            SubWindow *sw = cs->activeSw;
+            CipSubWindow *sw = cs->activeSw;
             CipArea *dr = & sw->dataRange;
 
             double dx = xf * 0.01;
@@ -1127,7 +1127,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
 
              for (int i=0; i<cs->numSubWindows; i++)
              {
-                 SubWindow *sw;
+                 CipSubWindow *sw;
                  if (cs->zoomEnabled)
                  {
                      sw = cs->activeSw;
@@ -1155,7 +1155,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
 
              if (cs->trackingMode && cs->activeSw && cs->activeSw->numAttachedGraphs > 0)
              {
-                 SubWindow *sw = cs->activeSw;
+                 CipSubWindow *sw = cs->activeSw;
                  if (cs->zoomEnabled)
                  {
                      CipArea zoomWindowArea = {0,0,1,1};
@@ -1256,7 +1256,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
 
              if (cs->app_on_mouse_motion && cs->activeSw)
              {
-                 SubWindow *sw = cs->activeSw;
+                 CipSubWindow *sw = cs->activeSw;
                  int windowIndex = 0;
                  for (windowIndex=0; windowIndex<cs->numSubWindows; windowIndex++)
                      if (& cs->subWindows[windowIndex] == sw)
@@ -1274,7 +1274,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
              uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
              cs->mouseWindowPos.x = (double) xi / w;
              cs->mouseWindowPos.y = (double) yi / h;
-             SubWindow *sw = cs->activeSw;
+             CipSubWindow *sw = cs->activeSw;
              CipArea *dr = & sw->dataRange;
              double dx = (cs->mouseWindowPos.x - oldPos.x);
              double dy = (cs->mouseWindowPos.y - oldPos.y);
@@ -1389,7 +1389,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
     return 1;
 }
 
-static void cycle_line_type (SubWindow *sw, int dir)
+static void cycle_line_type (CipSubWindow *sw, int dir)
 {
     if (!sw)
         return;
@@ -1544,7 +1544,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                               if (cs->activeSw)
                               {
                                   int idx = key - '0';
-                                  SubWindow *sw = cs->activeSw;
+                                  CipSubWindow *sw = cs->activeSw;
                                   CipArea *dstArea = & sw->dataRange;
                                   CipArea *srcArea = & storedDataRanges[idx];
                                   if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
@@ -1598,7 +1598,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                         if (cs->activeSw)
                         {
                             int idx = key - '0';
-                            SubWindow *sw = cs->activeSw;
+                            CipSubWindow *sw = cs->activeSw;
                             CipArea *srcArea = & sw->dataRange;
                             CipArea *dstArea = & storedDataRanges[idx];
                             if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
@@ -1697,7 +1697,7 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
         return NULL;
     }
 
-    SubWindow *sw = & cs->subWindows[windowIndex];
+    CipSubWindow *sw = & cs->subWindows[windowIndex];
     if (sw->numAttachedGraphs >= sw->maxNumAttachedGraphs)
     {
         print_error ("maximum number of attached graphs reached");
@@ -1735,7 +1735,7 @@ int cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex)
 {
     int removed = 0;
     cinterplot_wait (cs);
-    SubWindow *sw = & cs->subWindows[windowIndex];
+    CipSubWindow *sw = & cs->subWindows[windowIndex];
     uint32_t giNew = 0;
     for (uint32_t giOld=0; giOld<sw->numAttachedGraphs; giOld++)
     {
@@ -2143,7 +2143,7 @@ static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0
     return y - y0;
 }
 
-static void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *cs, SubWindow *sw, double pos, int vertical, uint32_t color)
+static void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *cs, CipSubWindow *sw, double pos, int vertical, uint32_t color)
 {
     CipArea activeArea;
     CipArea zoomWindowArea = {0,0,1,1};
@@ -2186,7 +2186,7 @@ static void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *
     }
 }
 
-static void draw_grid (CipState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
+static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
 {
     uint32_t gridColor0 = make_gray (0.2f);
     uint32_t gridColor1 = make_gray (0.4f);
@@ -2354,7 +2354,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
     for (uint32_t wi=0; wi < (cs->numSubWindows); wi++)
     {
-        SubWindow *sw = & cs->subWindows[wi];
+        CipSubWindow *sw = & cs->subWindows[wi];
 
         uint32_t x0, y0, x1, y1;
 
@@ -2532,7 +2532,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             char totalNumPointsStr[32];
             for (uint32_t wi=0; wi < (cs->numSubWindows); wi++)
             {
-                SubWindow *sw = & cs->subWindows[wi];
+                CipSubWindow *sw = & cs->subWindows[wi];
                 for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
                 {
                     numGraphs++;
@@ -2622,7 +2622,7 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
     {
         for (uint32_t ci=0; ci<nCols; ci++)
         {
-            SubWindow *sw = & cs->subWindows[ri * nCols + ci];
+            CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
             sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
             sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
             sw->numAttachedGraphs = 0;
@@ -2657,7 +2657,7 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
 
 void cip_remove_attached_graphs (CipState *cs, uint32_t wi)
 {
-    SubWindow *sw = & cs->subWindows[wi];
+    CipSubWindow *sw = & cs->subWindows[wi];
     while (sw->numAttachedGraphs)
     {
         CipGraph *graph = sw->attachedGraphs[0]->graph;
@@ -2667,7 +2667,7 @@ void cip_remove_attached_graphs (CipState *cs, uint32_t wi)
         {
             if (wi2 == wi)
                 continue;
-            SubWindow *sw2 = & cs->subWindows[wi2];
+            CipSubWindow *sw2 = & cs->subWindows[wi2];
             for (uint32_t gi2=0; gi2<sw2->numAttachedGraphs; gi2++)
             {
                 GraphAttacher *attacher2 = sw2->attachedGraphs[gi2];
@@ -2695,7 +2695,7 @@ void cip_recursive_free_sub_windows (CipState *cs)
     for (int wi=0; wi<cs->numSubWindows; wi++)
     {
         cip_remove_attached_graphs (cs, wi);
-        SubWindow *sw = & cs->subWindows[wi];
+        CipSubWindow *sw = & cs->subWindows[wi];
         //print_debug ("free %p", sw->attachedGraphs);
         free (sw->attachedGraphs);
         sw->attachedGraphs = NULL;
@@ -2713,15 +2713,15 @@ void cip_set_sub_window_title (CipState *cs, uint32_t windowIndex, char *title)
 {
     if (windowIndex >= cs->numSubWindows)
         exit_error ("windowIndex %d out of range", windowIndex);
-    SubWindow *sw = & cs->subWindows[windowIndex];
+    CipSubWindow *sw = & cs->subWindows[windowIndex];
     sw->title = strdup (title);
 }
 
-SubWindow *cip_get_sub_window (CipState *cs, uint32_t windowIndex)
+CipSubWindow *cip_get_sub_window (CipState *cs, uint32_t windowIndex)
 {
     if (windowIndex >= cs->numSubWindows)
         exit_error ("windowIndex %d out of range", windowIndex);
-    SubWindow *sw = & cs->subWindows[windowIndex];
+    CipSubWindow *sw = & cs->subWindows[windowIndex];
     return sw;
 }
 
