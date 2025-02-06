@@ -2147,6 +2147,155 @@ void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CinterState *cs, 
     }
 }
 
+void draw_grid (CinterState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
+{
+    uint32_t gridColor0 = make_gray (0.2f);
+    uint32_t gridColor1 = make_gray (0.4f);
+
+    Area activeArea;
+    Area zoomWindowArea = {0,0,1,1};
+    get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
+
+    double dy, y0, y1;
+    int yTens, ySubs;
+
+    if (cs->gridMode & 1)
+    {
+        // keep in mind y1 < y0 because plot window has positive y-data direction upwards
+        dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
+        y0 = ceil (sw->dataRange.y0 / dy) * dy;
+        y1 = floor (sw->dataRange.y1 / dy) * dy;
+        yTens = (int) ((sw->dataRange.y0 - sw->dataRange.y1) / dy);
+        if (yTens < 1)
+            yTens = 1;
+        ySubs = 1;
+        while (ySubs * yTens < 8)
+            ySubs *= 2;
+
+        int cnt = 0;
+        for (double y=y1; y<y0 && cnt<100 && subHeight > 200; y+=dy/(ySubs*5))
+        {
+            cnt++;
+            if (y1 <= y && y <= y0)
+                draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
+        }
+        cnt = 0;
+        uint32_t lastYi = 0;
+        for (double y=y1; y<y0 && cnt<100; y+=dy/ySubs)
+        {
+            cnt++;
+            if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
+                continue;
+
+            Position dataPos;
+            dataPos.x = sw->dataRange.x0;
+            dataPos.y = y;
+
+            Position winPos;
+            transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+
+            uint32_t yi = (uint32_t) (winPos.y * h);
+            uint32_t scale = 1 + (cs->zoomEnabled || cs->fullscreen);
+
+            if (abs ((int) yi - (int) lastYi) > 10*scale)
+            {
+                draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor1);
+                if (! ((cs->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
+                    lastYi = yi;
+            }
+        }
+    }
+
+    if (cs->gridMode & 2)
+    {
+        double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
+        double x0 = floor (sw->dataRange.x0 / dx) * dx;
+        double x1 = ceil (sw->dataRange.x1 / dx) * dx;
+        int xTens = (int) ((sw->dataRange.x1 - sw->dataRange.x0) / dx);
+        if (xTens < 1)
+            xTens = 1;
+        int xSubs = 1;
+        while (xSubs * xTens < 8)
+            xSubs *= 2;
+
+        int cnt = 0;
+        for (double x=x0; x<x1 && cnt<100 && subHeight > 200; x+=dx/(xSubs*5))
+        {
+            cnt++;
+            if (x0 <= x && x <= x1)
+                draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor0);
+        }
+        cnt = 0;
+        uint32_t lastXi = 0;
+        for (double x=x0; x<x1 && cnt<100; x+=dx/xSubs)
+        {
+            cnt++;
+            if (x < sw->dataRange.x0 || sw->dataRange.x1 < x)
+                continue;
+
+            Position dataPos;
+            dataPos.x = x;
+            dataPos.y = sw->dataRange.y1;
+
+            Position winPos;
+            transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+
+            uint32_t xi = (uint32_t) (winPos.x * w);
+            uint32_t yi = (uint32_t) (winPos.y * h) - 2;
+            uint32_t scale = 1 + (cs->zoomEnabled || cs->fullscreen);
+            if (abs ((int) xi - (int) lastXi) > 10*scale)
+            {
+                uint32_t textColor = make_gray (0.9f);
+                int transparent = 1;
+                char text[256];
+                snprintf (text, sizeof (text), "%g", x);
+
+                draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor1);
+                draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BC);
+                lastXi = xi;
+            }
+        }
+    }
+
+    if (cs->gridMode & 1)
+    {
+        int cnt = 0;
+        uint32_t lastYi = 0;
+        for (double y=y1; y<y0 && cnt<100; y+=dy/ySubs)
+        {
+            cnt++;
+            if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
+                continue;
+
+            Position dataPos;
+            dataPos.x = sw->dataRange.x0;
+            dataPos.y = y;
+
+            Position winPos;
+            transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+
+            uint32_t xi = (uint32_t) (winPos.x * w) + 2;
+            uint32_t yi = (uint32_t) (winPos.y * h);
+            uint32_t scale = 1 + (cs->zoomEnabled || cs->fullscreen);
+
+            if (abs ((int) yi - (int) lastYi) > 10*scale)
+            {
+                uint32_t textColor = make_gray (0.9f);
+                int transparent = 1;
+                char text[256];
+                snprintf (text, sizeof (text), "%g", y);
+
+                // draw text only if it will not collide with text on x-axis
+                if (! ((cs->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
+                {
+                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BL);
+                    lastYi = yi;
+                }
+            }
+        }
+    }
+}
+
 #define HELP_TEXT(text) \
 draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL); y0+=16
 
@@ -2157,8 +2306,6 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     uint32_t crossHairColor = MAKE_COLOR (0,255,255);
     uint32_t bgColor        = make_gray (cs->bgShade);
     //uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.2f : -0.2f));
-    uint32_t gridColor0     = make_gray (0.2f);
-    uint32_t gridColor1     = make_gray (0.4f);
 
     uint32_t forceRefresh = cs->forceRefresh;
     cs->forceRefresh = 0;
@@ -2215,114 +2362,8 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         if (sw->continuousScroll && !paused)
             continuous_scroll_update (sw);
 
-        if (cs->gridMode & 1)
-        {
-            // keep in mind y1 < y0 because plot window has positive y-data direction downwards
-            double dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
-            double y0 = ceil (sw->dataRange.y0 / dy) * dy;
-            double y1 = floor (sw->dataRange.y1 / dy) * dy;
-            int numTens = (int) ((sw->dataRange.y0 - sw->dataRange.y1) / dy);
-            if (numTens < 1)
-                numTens = 1;
-            int numSubs = 1;
-            while (numSubs * numTens < 8)
-                numSubs *= 2;
-            int cnt = 0;
-            for (double y=y1; y<y0 && cnt<100 && subHeight > 200; y+=dy/(numSubs*5))
-            {
-                cnt++;
-                if (y1 <= y && y <= y0)
-                    draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
-            }
-            cnt = 0;
-            uint32_t lastYi = 0;
-            for (double y=y1; y<y0 && cnt<100; y+=dy/numSubs)
-            {
-                cnt++;
-                if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
-                    continue;
-
-                Area activeArea;
-                Area zoomWindowArea = {0,0,1,1};
-                get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
-
-                uint32_t textColor = make_gray (0.9f);
-                int transparent = 1;
-                char text[256];
-                snprintf (text, sizeof (text), "%g", y);
-
-                Position dataPos;
-                dataPos.x = sw->dataRange.x0;
-                dataPos.y = y;
-
-                Position winPos;
-                transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
-
-                uint32_t xi = (uint32_t) (winPos.x * w) + 2;
-                uint32_t yi = (uint32_t) (winPos.y * h);
-                uint32_t scale = 1+(cs->zoomEnabled || cs->fullscreen);
-                if (abs ((int) yi - (int) lastYi) > 10*scale)
-                {
-                    draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor1);
-                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BL);
-                    lastYi = yi;
-                }
-            }
-        }
-
-        if (cs->gridMode & 2)
-        {
-            double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
-            double x0 = floor (sw->dataRange.x0 / dx) * dx;
-            double x1 = ceil (sw->dataRange.x1 / dx) * dx;
-            int numTens = (int) ((sw->dataRange.x1 - sw->dataRange.x0) / dx);
-            if (numTens < 1)
-                numTens = 1;
-            int numSubs = 1;
-            while (numSubs * numTens < 8)
-                numSubs *= 2;
-            int cnt = 0;
-            for (double x=x0; x<x1 && cnt<100 && subHeight > 200; x+=dx/(numSubs*5))
-            {
-                cnt++;
-                if (x0 <= x && x <= x1)
-                    draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor0);
-            }
-            cnt = 0;
-            uint32_t lastXi = 0;
-            for (double x=x0; x<x1 && cnt<100; x+=dx/numSubs)
-            {
-                cnt++;
-                if (x < sw->dataRange.x0 || sw->dataRange.x1 < x)
-                    continue;
-
-                Area activeArea;
-                Area zoomWindowArea = {0,0,1,1};
-                get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
-
-                uint32_t textColor = make_gray (0.9f);
-                int transparent = 1;
-                char text[256];
-                snprintf (text, sizeof (text), "%g", x);
-
-                Position dataPos;
-                dataPos.x = x;
-                dataPos.y = sw->dataRange.y1;
-
-                Position winPos;
-                transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
-
-                uint32_t xi = (uint32_t) (winPos.x * w);
-                uint32_t yi = (uint32_t) (winPos.y * h) - 2;
-                uint32_t scale = 1+(cs->zoomEnabled || cs->fullscreen);
-                if (abs ((int) xi - (int) lastXi) > 10*scale)
-                {
-                    draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor1);
-                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BC);
-                    lastXi = xi;
-                }
-            }
-        }
+        if (cs->gridMode)
+            draw_grid (cs, sw, pixels, w, h, subWidth, subHeight);
 
         for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
         {
