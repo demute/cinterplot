@@ -133,9 +133,10 @@ void cip_recursive_free_sub_windows (CipState *cs);
 void cip_remove_attached_graphs (CipState *cs, uint32_t wi);
 int  cip_force_refresh (CipState *cs);
 
-CipGraph *cip_graph_new (uint32_t len);
+CipGraph *cip_graph_new (int dim, uint32_t len);
 void cip_graph_delete (CipGraph *graph);
-void cip_graph_add_point (CipGraph *graph, double x, double y);
+void cip_graph_add_2d_point (CipGraph *graph, double x, double y);
+void cip_graph_add_3d_point (CipGraph *graph, double x, double y, double z);
 GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors);
 int  cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex);
 void cip_graph_remove_points (CipGraph *graph);

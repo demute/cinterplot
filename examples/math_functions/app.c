@@ -81,7 +81,7 @@ int user_main (int argc, char **argv, CipState *cs)
     if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
-    CipGraph *nullGraph = cip_graph_new (0);
+    CipGraph *nullGraph = cip_graph_new (2, 0);
 
     uint32_t windowIndex = 0;
     cip_graph_attach (cs, nullGraph, windowIndex++, y_of_x, '1', "black white", 1024);

@@ -105,7 +105,8 @@ static int interrupted = 0;
 static int paused = 0;
 static CipArea storedDataRanges[10] = {0};
 
-static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
+static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
+static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
 
 //static void *safe_malloc (size_t size)
 //{
@@ -444,7 +445,12 @@ int cip_autoscale_sw (CipSubWindow *sw)
         double (*xys)[2];
         uint32_t len;
         stream_buffer_get (graph->sb, & xys, & len);
-        for (uint32_t i=0; i<len; i++)
+
+        int firstIdx = (int) len - (int) graph->len;
+        if (firstIdx < 0)
+            firstIdx = 0;
+
+        for (uint32_t i=firstIdx; i<len; i++)
         {
             double x = xys[i][0];
             double y = xys[i][1];
@@ -543,7 +549,10 @@ int cip_continuous_scroll_update (CipSubWindow *sw)
 
         if (len)
         {
-            double x0 = xys[0][0];
+            int firstIdx = (int) len - (int) graph->len;
+            if (firstIdx < 0)
+                firstIdx = 0;
+            double x0 = xys[firstIdx][0];
             double x1 = xys[len-1][0];
             if (xmin > x0) xmin = x0;
             if (xmax < x1) xmax = x1;
@@ -556,8 +565,9 @@ int cip_continuous_scroll_update (CipSubWindow *sw)
     if (xmin == DBL_MAX || xmax == -DBL_MAX)
         return 0;
 
-    sw->dataRange.x0 = xmin;
+    double width = sw->dataRange.x1 - sw->dataRange.x0;
     sw->dataRange.x1 = xmax;
+    sw->dataRange.x0 = sw->dataRange.x1 - width;
 
     return 1;
 }
@@ -1774,13 +1784,14 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
         return NULL;
     }
 
+    int is3d = graph->sb->itemSize == sizeof (double) * 3;
     GraphAttacher *attacher = safe_calloc (1, sizeof (*attacher));
     attacher->graph = graph;
     attacher->plotType = plotType;
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->histogramFun = histogramFun ? histogramFun : make_histogram;
+    attacher->histogramFun = histogramFun ? histogramFun : is3d ? make_histogram_3d : make_histogram_2d;
     attacher->colorScheme = make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
@@ -1831,14 +1842,17 @@ int cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex)
     return removed;
 }
 
-CipGraph *cip_graph_new (uint32_t len)
+CipGraph *cip_graph_new (int dim, uint32_t len)
 {
+    if (dim < 2 || dim > 3)
+        exit_error ("dimension not supported");
+
     CipGraph *graph = safe_calloc (1, sizeof (*graph));
     graph->len = len;
     atomic_flag_clear (& graph->readAccess);
     atomic_flag_clear (& graph->insertAccess);
 
-    size_t itemSize = 2 * sizeof (double);
+    size_t itemSize = dim * sizeof (double);
 
     if (graph->len == 0)
     {
@@ -1863,13 +1877,16 @@ void cip_graph_delete (CipGraph *graph)
     free (graph);
 }
 
-void cip_graph_add_point (CipGraph *graph, double x, double y)
+void cip_graph_add_2d_point (CipGraph *graph, double x, double y)
 {
     while (paused)
         usleep (10000);
 
     StreamBuffer *sb = graph->sb;
     assert (sb);
+
+    if (sb->itemSize != sizeof (double) * 2)
+        exit_error ("function can only be used for two dimensional graphs");
 
     if (graph->len == 0 &&
         sb->counter == sb->len &&
@@ -1887,6 +1904,33 @@ void cip_graph_add_point (CipGraph *graph, double x, double y)
     release_access (& graph->insertAccess);
 }
 
+void cip_graph_add_3d_point (CipGraph *graph, double x, double y, double z)
+{
+    while (paused)
+        usleep (10000);
+
+    StreamBuffer *sb = graph->sb;
+    assert (sb);
+
+    if (sb->itemSize != sizeof (double) * 3)
+        exit_error ("function can only be used for three dimensional graphs");
+
+    if (graph->len == 0 &&
+        sb->counter == sb->len &&
+        sb->len <= MAX_VARIABLE_LENGTH)
+    {
+
+        wait_for_access (& graph->readAccess);
+        stream_buffer_resize (sb, sb->len << 1);
+        release_access (& graph->readAccess);
+    }
+
+    double xyz[3] = {x,y,z};
+    wait_for_access (& graph->insertAccess);
+    stream_buffer_insert (sb, xyz);
+    release_access (& graph->insertAccess);
+}
+
 void cip_graph_remove_points (CipGraph *graph)
 {
     while (paused)
@@ -1900,7 +1944,95 @@ void cip_graph_remove_points (CipGraph *graph)
     release_access (& graph->readAccess);
 }
 
-static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
+static double phi   = 0.0;
+static double theta = 0.0;
+static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
+{
+    uint64_t counter = 0;
+    int *bins  = hist->bins;
+    uint32_t w = hist->w;
+    uint32_t h = hist->h;
+
+    wait_for_access (& graph->readAccess);
+
+    double xmin = (double) hist->dataRange.x0;
+    double xmax = (double) hist->dataRange.x1;
+    double ymin = (double) hist->dataRange.y0;
+    double ymax = (double) hist->dataRange.y1;
+
+    double (*xyzs)[3];
+    uint32_t len;
+    wait_for_access (& graph->insertAccess);
+    stream_buffer_get (graph->sb, & xyzs, & len);
+    if (!len)
+    {
+        release_access (& graph->insertAccess);
+        release_access (& graph->readAccess);
+        return 0;
+    }
+    if (graph->len && graph->len < len)
+    {
+        xyzs += (len - graph->len);
+        len = graph->len;
+    }
+    counter = graph->sb->counter;
+    release_access (& graph->insertAccess);
+
+    uint32_t nBins = w * h;
+    for (uint32_t i=0; i<nBins; i++)
+        bins[i] = 0;
+
+    double invXRange = 1.0 / (xmax - xmin);
+    double invYRange = 1.0 / (ymax - ymin);
+    if (plotType == 'p')
+    {
+        for (uint32_t i=0; i<len; i++)
+        {
+            double x = xyzs[i][0];
+            double y = xyzs[i][1];
+            double z = xyzs[i][2];
+
+            double cosPhi   = cos (phi);
+            double sinPhi   = sin (phi);
+            double cosTheta = cos (theta);
+            double sinTheta = sin (theta);
+
+            double x1 = cosTheta * x - sinTheta * y;
+            double y1 = sinTheta * x + cosTheta * y;
+            double z1 = z;
+
+            double x2 = cosPhi * x1 - sinPhi * z1;
+            double y2 = y1;
+            double z2 = sinPhi * x1 + cosPhi * z1;
+
+            double scale = z2 + 3;
+
+            if (scale < 0)
+                continue;
+
+            x2 /= scale;
+            y2 /= scale;
+
+
+            if (isnan (x2) || isnan (y2) || isnan (z2) || isinf (x2) || isinf (y2) || isinf (z2))
+                continue;
+
+            int xi = (int) ((w-1) * (x2 - xmin) * invXRange);
+            int yi = (int) ((h-1) * (y2 - ymin) * invYRange);
+            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+                bins[(uint32_t) yi*w + (uint32_t) xi]++;
+        }
+    }
+    else
+    {
+        exit_error ("unknown plot type '%c'", plotType);
+    }
+
+    release_access (& graph->readAccess);
+    return counter;
+}
+
+static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
     uint64_t counter = 0;
     int *bins  = hist->bins;
@@ -1945,8 +2077,8 @@ static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t lo
             double x = xys[i][0];
             double y = xys[i][1];
 
-            //if (logMode & 1) x = LOGFUN (x);
-            //if (logMode & 2) y = LOGFUN (y);
+            if (logMode & 1) x = LOGFUN (x);
+            if (logMode & 2) y = LOGFUN (y);
 
             if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
                 continue;
@@ -2993,6 +3125,13 @@ static int cinterplot_run_until_quit (CipState *cs)
         }
         if (cs->redraw && tsp - lastFrameTsp > periodTime)
         {
+            // FIXME: This is just some example rotation code, to be removed
+            if (!paused)
+            {
+                theta += 0.01;
+                phi   += 0.0165;
+            }
+
             cs->redraw = 0;
             cs->redrawing = 1;
             lastFrameTsp = tsp;

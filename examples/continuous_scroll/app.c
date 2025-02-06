@@ -34,7 +34,7 @@ int user_main (int argc, char **argv, CipState *cs)
     for (int i=0; i<n; i++)
     {
         cip_continuous_scroll_enable (cs, i);
-        sineGraph[i] = cip_graph_new (1000000);
+        sineGraph[i] = cip_graph_new (2, 1000000);
         cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
     }
 
@@ -47,6 +47,7 @@ int user_main (int argc, char **argv, CipState *cs)
     {
         usleep (0);
 
+        double *r = heavy_tail_ncube (n);
         for (int i=0; i<n; i++)
         {
             v += (1.0 / 1024.0) * 1.3;
@@ -54,11 +55,10 @@ int user_main (int argc, char **argv, CipState *cs)
                 v -= 5;
 
             double f = 0.99;
-            double *r = heavy_tail_ncube (n);
             a[i] = f * a[i] + (1-f) * r[i] * 0.1;
             double y = a[i] * sin (2 * M_PI * v * a[i] * (i+1));
-            double x = (double) t;
-            cip_graph_add_point (sineGraph[i], x, y);
+            double x = (double) t++;
+            cip_graph_add_2d_point (sineGraph[i], x, y);
         }
         t++;
         cip_redraw_async (cs);

@@ -57,7 +57,7 @@ int on_encoder (void *twisterDev, int encoder, int dir)
     {
         double x = i * 1e-3;
         double y = sin (x * 2 * M_PI * speed);
-        cip_graph_add_point (sineGraph[0], x, y);
+        cip_graph_add_2d_point (sineGraph[0], x, y);
     }
     print_debug ("en: %d dir: %d", encoder, dir);
     return 1;
@@ -133,7 +133,7 @@ int user_main (int argc, char **argv, CipState *_cs)
     sineGraph = safe_calloc (n, sizeof (*sineGraph));
     for (int i=0; i<n; i++)
     {
-        sineGraph[i] = cip_graph_new (N);
+        sineGraph[i] = cip_graph_new (2, N);
         cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 4);
     }
 

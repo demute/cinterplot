@@ -134,7 +134,7 @@ int user_main (int argc, char **argv, CipState *cs)
     for (int i=0; i<nRows*nCols; i++)
         cip_set_grid_mode (cs, i, 0);
 
-    CipGraph *nullGraph = cip_graph_new (0);
+    CipGraph *nullGraph = cip_graph_new (2, 0);
 
     //graph_attach (cs, nullGraph, 0, count_of_xy, '4', "white yellow red black", 1000);
     uint32_t windowIndex = 0;
