@@ -6,7 +6,7 @@
 
 
 
-uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType)
+uint64_t count_of_xy (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
     int *bins  = hist->bins;
     uint32_t w = hist->w;
@@ -116,7 +116,7 @@ uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, uint32_t logMode, cha
     return 0;
 }
 
-int user_main (int argc, char **argv, CinterState *cs)
+int user_main (int argc, char **argv, CipState *cs)
 {
     const uint32_t nRows = 2;
     const uint32_t nCols = 3;
@@ -124,32 +124,32 @@ int user_main (int argc, char **argv, CinterState *cs)
     uint32_t margin = 4;
 
     
-    cinterplot_set_bg_shade (cs, 0.0);
-    set_crosshair_enabled (cs, 0);
-    set_statusline_enabled (cs, 0);
-    set_grid_mode (cs, 0);
+    cip_set_bg_shade (cs, 0.0);
+    cip_set_crosshair_enabled (cs, 0);
+    cip_set_statusline_enabled (cs, 0);
+    cip_set_grid_mode (cs, 0);
 
-    if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
+    if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
-    CinterGraph *nullGraph = graph_new (0);
+    CipGraph *nullGraph = cip_graph_new (0);
 
     //graph_attach (cs, nullGraph, 0, count_of_xy, '4', "white yellow red black", 1000);
     uint32_t windowIndex = 0;
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '0', "white yellow red black", 1000);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '1', "white yellow red black blue cyan black", 1000);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '2', "white yellow red black", 1000);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '3', "white yellow red black blue cyan black", 1000);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '4', "white yellow red black", 1000);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '5', "white white blue purple black", 1000);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '0', "white yellow red black", 1000);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '1', "white yellow red black blue cyan black", 1000);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '2', "white yellow red black", 1000);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '3', "white yellow red black blue cyan black", 1000);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '4', "white yellow red black", 1000);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '5', "white white blue purple black", 1000);
 
-    set_range (get_sub_window (cs, 0), -1.6, -1.0, 0.6,  1.0, 1);
-    set_range (get_sub_window (cs, 1), -1.9, -1.2, 0.7,  1.0, 1);
-    set_range (get_sub_window (cs, 2), -2.2, -2.2, 2.2,  2.2, 1);
-    set_range (get_sub_window (cs, 3), -2.6, -2.2, 0.2,  2.2, 1);
-    set_range (get_sub_window (cs, 4), -2.7, -1.8, 0.6,  1.8, 1);
-    set_range (get_sub_window (cs, 5), -2.5,  0.7, 0.9, -2.7, 1);
+    cip_set_range (cip_get_sub_window (cs, 0), -1.6, -1.0, 0.6,  1.0, 1);
+    cip_set_range (cip_get_sub_window (cs, 1), -1.9, -1.2, 0.7,  1.0, 1);
+    cip_set_range (cip_get_sub_window (cs, 2), -2.2, -2.2, 2.2,  2.2, 1);
+    cip_set_range (cip_get_sub_window (cs, 3), -2.6, -2.2, 0.2,  2.2, 1);
+    cip_set_range (cip_get_sub_window (cs, 4), -2.7, -1.8, 0.6,  1.8, 1);
+    cip_set_range (cip_get_sub_window (cs, 5), -2.5,  0.7, 0.9, -2.7, 1);
 
-    cinterplot_redraw_async (cs);
+    cip_redraw_async (cs);
     return 0;
 }

@@ -5,14 +5,14 @@
 #define GET_DATA_POS_Y(hist,yi) (((double) yi / (hist->h-1)) * (hist->dataRange.y1 - hist->dataRange.y0) + hist->dataRange.y0)
 
 
-uint64_t y_of_x (Histogram *hist, CinterGraph *graph, char plotType)
+uint64_t y_of_x (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
     int *bins  = hist->bins;
     uint32_t w = hist->w;
     uint32_t h = hist->h;
     uint32_t nBins = w * h;
 
-    Area *dr = & hist->dataRange;
+    CipArea *dr = & hist->dataRange;
 
     for (uint32_t i=0; i<nBins; i++)
         bins[i] = 0;
@@ -42,7 +42,7 @@ uint64_t y_of_x (Histogram *hist, CinterGraph *graph, char plotType)
     return 0;
 }
 
-uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
+uint64_t count_of_xy (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
     int *bins  = hist->bins;
     uint32_t w = hist->w;
@@ -71,28 +71,28 @@ uint64_t count_of_xy (Histogram *hist, CinterGraph *graph, char plotType)
     return 0;
 }
 
-int user_main (int argc, char **argv, CinterState *cs)
+int user_main (int argc, char **argv, CipState *cs)
 {
     const uint32_t nRows = 2;
     const uint32_t nCols = 4;
     uint32_t bordered = 1;
     uint32_t margin = 4;
 
-    if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
+    if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
-    CinterGraph *nullGraph = graph_new (0);
+    CipGraph *nullGraph = cip_graph_new (0);
 
     uint32_t windowIndex = 0;
-    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '1', "black white", 1024);
-    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '2', "black white", 1024);
-    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '3', "black white", 1024);
-    graph_attach (cs, nullGraph, windowIndex++, y_of_x, '4', "black white", 1024);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '1', "red black blue", 1024);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '2', "red black blue", 1024);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '3', "1/10 2/10 3/10 4/10 5/10 6/10 7/10 8/10 9/10 10/10 black", 1024);
-    graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '4', "red black blue", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, y_of_x, '1', "black white", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, y_of_x, '2', "black white", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, y_of_x, '3', "black white", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, y_of_x, '4', "black white", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '1', "red black blue", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '2', "red black blue", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '3', "1/10 2/10 3/10 4/10 5/10 6/10 7/10 8/10 9/10 10/10 black", 1024);
+    cip_graph_attach (cs, nullGraph, windowIndex++, count_of_xy, '4', "red black blue", 1024);
 
-    cinterplot_redraw_async (cs);
+    cip_redraw_async (cs);
     return 0;
 }

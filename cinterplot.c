@@ -17,7 +17,7 @@
 #define LOGFUN log101
 #define EXPFUN exp101
 
-typedef struct CinterState
+typedef struct CipState
 {
     uint32_t crosshairEnabled : 1;
     uint32_t trackingMode : 2;
@@ -34,13 +34,13 @@ typedef struct CinterState
     uint32_t showHelp : 1;
     uint32_t stopped : 1;
 
-    int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat);
-    int (*app_on_mouse_motion) (CinterState *cs, int windowIndex, double x, double y);
+    int (*app_on_keyboard) (CipState *cs, int key, int mod, int pressed, int repeat);
+    int (*app_on_mouse_motion) (CipState *cs, int windowIndex, double x, double y);
 
     int mouseState;
-    Position mouseWindowPos;
+    CipPosition mouseWindowPos;
 
-    Mouse mouse;
+    CipMouse mouse;
 
     float bgShade;
 
@@ -59,14 +59,14 @@ typedef struct CinterState
     int frameCounter;
     int pressedModifiers;
 
-    int  (*on_mouse_pressed)  (struct CinterState *cs, int xi, int yi, int button, int clicks);
-    int  (*on_mouse_released) (struct CinterState *cs, int xi, int yi);
-    int  (*on_mouse_motion)   (struct CinterState *cs, int xi, int yi);
-    int  (*on_mouse_wheel)    (struct CinterState *cs, float xf, float yf);
-    int  (*on_keyboard)       (struct CinterState *cs, int key, int mod, int pressed, int repeat);
-    void (*plot_data)         (struct CinterState *cs, uint32_t *pixels);
+    int  (*on_mouse_pressed)  (struct CipState *cs, int xi, int yi, int button, int clicks);
+    int  (*on_mouse_released) (struct CipState *cs, int xi, int yi);
+    int  (*on_mouse_motion)   (struct CipState *cs, int xi, int yi);
+    int  (*on_mouse_wheel)    (struct CipState *cs, float xf, float yf);
+    int  (*on_keyboard)       (struct CipState *cs, int key, int mod, int pressed, int repeat);
+    void (*plot_data)         (struct CipState *cs, uint32_t *pixels);
 
-} CinterState;
+} CipState;
 
 
 #define STATUSLINE_HEIGHT 20
@@ -103,9 +103,9 @@ enum
 extern const unsigned int font[256][8];
 static int interrupted = 0;
 static int paused = 0;
-static Area storedDataRanges[10] = {0};
+static CipArea storedDataRanges[10] = {0};
 
-static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType);
+static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
 
 void wait_for_access (atomic_flag* accessFlag)
 {
@@ -213,7 +213,7 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
     return -1;
 }
 
-void delete_color_scheme (ColorScheme *scheme)
+static void delete_color_scheme (CipColorScheme *scheme)
 {
     if (scheme)
     {
@@ -222,9 +222,9 @@ void delete_color_scheme (ColorScheme *scheme)
     }
 }
 
-static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
+static CipColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 {
-    ColorScheme *scheme = safe_calloc (1, sizeof (*scheme));
+    CipColorScheme *scheme = safe_calloc (1, sizeof (*scheme));
     scheme->colors      = safe_calloc (nLevels, sizeof (scheme->colors[0]));
     scheme->nLevels     = nLevels;
 
@@ -332,9 +332,9 @@ static ColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
     return scheme;
 }
 
-void update_color_scheme (CinterState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels)
+void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels)
 {
-    ColorScheme *oldColorScheme = attacher->colorScheme;
+    CipColorScheme *oldColorScheme = attacher->colorScheme;
     attacher->colorScheme = make_color_scheme (spec, nLevels);
 
     if (oldColorScheme)
@@ -349,13 +349,13 @@ void update_color_scheme (CinterState *cs, GraphAttacher *attacher, char *spec, 
 
 }
 
-void cycle_graph_order (CinterState *cs)
+static void cycle_graph_order (CipState *cs)
 {
     cs->graphOrder++;
     //print_debug ("graph order %u", cs->graphOrder);
 }
 
-int autoscale (SubWindow *sw)
+int cip_autoscale (SubWindow *sw)
 {
     if (!sw)
         return 0;
@@ -368,7 +368,7 @@ int autoscale (SubWindow *sw)
     GraphAttacher **ag = sw->attachedGraphs;
     for (int i=0; i<sw->numAttachedGraphs; i++)
     {
-        CinterGraph *graph = ag[i]->graph;
+        CipGraph *graph = ag[i]->graph;
         wait_for_access (& graph->readAccess);
         wait_for_access (& graph->insertAccess);
 
@@ -411,7 +411,7 @@ int autoscale (SubWindow *sw)
     return 1;
 }
 
-void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault)
+void cip_set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault)
 {
     if (!sw)
         exit_error ("bug");
@@ -422,10 +422,10 @@ void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double yma
     sw->dataRange.y1 = ymin;
 
     if (setAsDefault)
-        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
+        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 }
 
-void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault)
+void cip_set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault)
 {
     if (!sw)
         exit_error ("bug");
@@ -434,10 +434,10 @@ void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault)
     sw->dataRange.x1 = xmax;
 
     if (setAsDefault)
-        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
+        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 }
 
-void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault)
+void cip_set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault)
 {
     if (!sw)
         exit_error ("bug");
@@ -446,10 +446,10 @@ void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault)
     sw->dataRange.y1 = ymin;
 
     if (setAsDefault)
-        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
+        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 }
 
-int continuous_scroll_update (SubWindow *sw)
+int cip_continuous_scroll_update (SubWindow *sw)
 {
     double xmin =  DBL_MAX;
     double xmax = -DBL_MAX;
@@ -457,7 +457,7 @@ int continuous_scroll_update (SubWindow *sw)
     GraphAttacher **ag = sw->attachedGraphs;
     for (int i=0; i<sw->numAttachedGraphs; i++)
     {
-        CinterGraph *graph = ag[i]->graph;
+        CipGraph *graph = ag[i]->graph;
         wait_for_access (& graph->readAccess);
         wait_for_access (& graph->insertAccess);
 
@@ -487,19 +487,28 @@ int continuous_scroll_update (SubWindow *sw)
 }
 
 
-int set_crosshair_enabled (CinterState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
-int set_statusline_enabled (CinterState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
-int set_grid_mode (CinterState *cs, uint32_t mode)             { cs->gridMode          = mode & 3;    return 1; }
-int cycle_selected_graph (SubWindow *sw, uint32_t step)        { sw->selectedGraph = sw->numAttachedGraphs ? (sw->selectedGraph + step) % sw->numAttachedGraphs : 0; return 1; }
+void cip_continuous_scroll_enable (SubWindow *sw)                { sw->continuousScroll=1; }
+void cip_continuous_scroll_disable (SubWindow *sw)               { sw->continuousScroll=0; }
+int  cip_force_refresh (CipState *cs)                            { cs->forceRefresh = 1;        return 1; }
+int  cip_is_running (CipState *cs)                               { return cs->running; }
+void cip_redraw_async(CipState *cs)                              { cs->redraw=1; }
+void cip_set_bg_shade (CipState *cs, float bgShade)              { cs->bgShade = bgShade; }
+int  cip_set_crosshair_enabled (CipState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
+int  cip_set_grid_mode (CipState *cs, uint32_t mode)             { cs->gridMode          = mode & 3;    return 1; }
+int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
+int  cip_set_tracking_mode (CipState *cs, uint32_t mode)         { cs->trackingMode = mode & 3; return 1; }
+int  cip_toggle_paused (CipState *cs)                            { paused ^= 1;                 return 1; }
+int  cip_quit (CipState *cs)                                     { cs->running = 0; paused=0;   return 0; }
 
-int toggle_help (CinterState *cs)                             { cs->showHelp ^= 1;           return 1; }
-int quit (CinterState *cs)                                    { cs->running = 0; paused=0;   return 0; }
-int force_refresh (CinterState *cs)                           { cs->forceRefresh = 1;        return 1; }
-int set_tracking_mode (CinterState *cs, uint32_t mode)        { cs->trackingMode = mode & 3; return 1; }
-int toggle_paused (CinterState *cs)                           { paused ^= 1;                 return 1; }
-void cinterplot_set_bg_shade (CinterState *cs, float bgShade) { cs->bgShade = bgShade; }
+static int toggle_help (CipState *cs)                            { cs->showHelp ^= 1;           return 1; }
 
-void undo_zooming (SubWindow *sw)
+static int cycle_selected_graph (SubWindow *sw, uint32_t step)
+{
+    sw->selectedGraph = sw->numAttachedGraphs ? (sw->selectedGraph + step) % sw->numAttachedGraphs : 0;
+    return 1;
+}
+
+static void undo_zooming (SubWindow *sw)
 {
     if (!sw)
         return;
@@ -508,10 +517,10 @@ void undo_zooming (SubWindow *sw)
     if (sw->defaultDataRange.y0 == sw->defaultDataRange.y1)
         return;
 
-    memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (Area));
+    memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
 }
 
-int set_log_mode (SubWindow *sw, uint32_t mode)
+int cip_set_log_mode (SubWindow *sw, uint32_t mode)
 {
     if (!sw)
         return 0;
@@ -560,7 +569,7 @@ int set_log_mode (SubWindow *sw, uint32_t mode)
     return 1;
 }
 
-static void transform_pos (const Area *srcArea, const Position *srcPos, const Area *dstArea, Position *dstPos)
+static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
 {
     double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
     double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
@@ -568,7 +577,7 @@ static void transform_pos (const Area *srcArea, const Position *srcPos, const Ar
     dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
 }
 
-static void get_active_area (CinterState *cs, Area *src, Area *dst)
+static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
 {
     uint32_t w = cs->windowWidth;
     uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
@@ -585,7 +594,7 @@ static void get_active_area (CinterState *cs, Area *src, Area *dst)
     dst->y1 = src->y1 - yp - epsh;
 }
 
-static void sub_window_change (CinterState *cs, int dir)
+static void sub_window_change (CipState *cs, int dir)
 {
     int index = (int) (cs->activeSw - cs->subWindows);
     index += dir;
@@ -597,21 +606,21 @@ static void sub_window_change (CinterState *cs, int dir)
     {
         SubWindow *sw0 = cs->activeSw;
         SubWindow *sw1 = & cs->subWindows[index];
-        Area activeArea;
-        Area zoomWindowArea = {0,0,1,1};
+        CipArea activeArea;
+        CipArea zoomWindowArea = {0,0,1,1};
         get_active_area (cs, & zoomWindowArea, & activeArea);
-        Position winPos;
+        CipPosition winPos;
         transform_pos (& sw0->dataRange, & sw0->mouseDataPos, & activeArea, & winPos);
         transform_pos (& activeArea, & winPos, & sw1->dataRange, & sw1->mouseDataPos);
     }
     cs->activeSw = & cs->subWindows[index];
 }
 
-int zoom (SubWindow *sw, double xf, double yf)
+int cip_zoom (SubWindow *sw, double xf, double yf)
 {
     if (!sw)
         return 0;
-    Area *dr = & sw->dataRange;
+    CipArea *dr = & sw->dataRange;
     double dx = (dr->x1 - dr->x0) * xf;
     double dy = (dr->y1 - dr->y0) * yf;
     dr->x0 += dx;
@@ -621,11 +630,11 @@ int zoom (SubWindow *sw, double xf, double yf)
     return 1;
 }
 
-int move (SubWindow *sw, double xf, double yf)
+int cip_move (SubWindow *sw, double xf, double yf)
 {
     if (!sw)
         return 0;
-    Area *dr = & sw->dataRange;
+    CipArea *dr = & sw->dataRange;
     double dx = (dr->x1 - dr->x0) * xf;
     double dy = (dr->y1 - dr->y0) * yf;
     dr->x0 -= dx;
@@ -635,7 +644,7 @@ int move (SubWindow *sw, double xf, double yf)
     return 1;
 }
 
-static void reinitialise_sdl_context (CinterState *cs, int reinitWindow)
+static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
 {
     if (cs->texture)
         SDL_DestroyTexture (cs->texture);
@@ -665,7 +674,7 @@ static void reinitialise_sdl_context (CinterState *cs, int reinitWindow)
     SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 }
 
-int set_fullscreen (CinterState *cs, uint32_t fullscreen)
+int cip_set_fullscreen (CipState *cs, uint32_t fullscreen)
 {
     cs->fullscreen = fullscreen & 1;
 
@@ -747,7 +756,7 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
     }
 }
 
-void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1)
+void cip_histogram_line (CipHistogram *hist, int x0, int y0, int x1, int y1)
 {
     int *bins = hist->bins;
 
@@ -837,7 +846,7 @@ static void draw_rect (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, ui
 }
 
 
-static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int clicks)
+static int on_mouse_pressed (CipState *cs, int xi, int yi, int button, int clicks)
 {
     if (cs->activeSw == NULL)
     {
@@ -893,33 +902,33 @@ static int on_mouse_pressed (CinterState *cs, int xi, int yi, int button, int cl
     return 1;
 }
 
-static int on_mouse_released (CinterState *cs, int xi, int yi)
+static int on_mouse_released (CipState *cs, int xi, int yi)
 {
     switch (cs->mouseState)
     {
      case MOUSE_STATE_SELECTING:
          {
-             Area *swa0 = & cs->activeSw->selectedWindowArea0;
-             Area *swa1 = & cs->activeSw->selectedWindowArea1;
+             CipArea *swa0 = & cs->activeSw->selectedWindowArea0;
+             CipArea *swa1 = & cs->activeSw->selectedWindowArea1;
              if (swa1->x0 == swa1->x1 && swa1->y0 == swa1->y1)
                  cs->zoomEnabled ^= 1;
              else
              {
 
                  SubWindow *sw = cs->activeSw;
-                 Area *dr  = & sw->dataRange;
-                 Area *swa = & sw->selectedWindowArea1;
-                 Area activeArea;
-                 Area zoomWindowArea = {0,0,1,1};
+                 CipArea *dr  = & sw->dataRange;
+                 CipArea *swa = & sw->selectedWindowArea1;
+                 CipArea activeArea;
+                 CipArea zoomWindowArea = {0,0,1,1};
                  get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
-                 Position wPos0 = {swa->x0, swa->y0};
-                 Position wPos1 = {swa->x1, swa->y1};
-                 Position dPos0, dPos1;
+                 CipPosition wPos0 = {swa->x0, swa->y0};
+                 CipPosition wPos1 = {swa->x1, swa->y1};
+                 CipPosition dPos0, dPos1;
 
                  transform_pos (& activeArea, & wPos0, & sw->dataRange, & dPos0);
                  transform_pos (& activeArea, & wPos1, & sw->dataRange, & dPos1);
 
-                 memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
+                 memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
                  dr->x0 = dPos0.x;
                  dr->y0 = dPos0.y;
                  dr->x1 = dPos1.x;
@@ -941,7 +950,7 @@ static int on_mouse_released (CinterState *cs, int xi, int yi)
     return 1;
 }
 
-static int on_mouse_wheel (CinterState *cs, float xf, float yf)
+static int on_mouse_wheel (CipState *cs, float xf, float yf)
 {
     SubWindow *sw = cs->activeSw;
     if (sw && cs->mouseState == MOUSE_STATE_NONE)
@@ -949,7 +958,7 @@ static int on_mouse_wheel (CinterState *cs, float xf, float yf)
         if (cs->pressedModifiers == KMOD_GUI)
         {
             // zooming
-            Area *dr = & sw->dataRange;
+            CipArea *dr = & sw->dataRange;
             double a = (sw->mouseDataPos.x - dr->x0) / (dr->x1 - dr->x0);
             double b = (sw->mouseDataPos.y - dr->y0) / (dr->y1 - dr->y0);
 
@@ -965,13 +974,13 @@ static int on_mouse_wheel (CinterState *cs, float xf, float yf)
         {
             // moving
             SubWindow *sw = cs->activeSw;
-            Area *dr = & sw->dataRange;
+            CipArea *dr = & sw->dataRange;
 
             double dx = xf * 0.01;
             double dy = yf * 0.01;
 
-             Area activeArea;
-             Area zoomWindowArea = {0,0,1,1};
+             CipArea activeArea;
+             CipArea zoomWindowArea = {0,0,1,1};
              if (cs->zoomEnabled)
                  get_active_area (cs, & zoomWindowArea, & activeArea);
              else
@@ -997,7 +1006,7 @@ static int on_mouse_wheel (CinterState *cs, float xf, float yf)
     return 0;
 }
 
-static int find_closest_point (Histogram *hist, uint32_t _x0, uint32_t _y0, uint32_t *_x, uint32_t *_y)
+static int find_closest_point (CipHistogram *hist, uint32_t _x0, uint32_t _y0, uint32_t *_x, uint32_t *_y)
 {
     // this algorithm takes a point (x0,y0) and spirals around it with a rectangular
     // spiral until it finds a point in the histogram that is set. When it is found,
@@ -1091,7 +1100,7 @@ static int find_closest_point (Histogram *hist, uint32_t _x0, uint32_t _y0, uint
     return 0;
 }
 
-static int on_mouse_motion (CinterState *cs, int xi, int yi)
+static int on_mouse_motion (CipState *cs, int xi, int yi)
 {
     switch (cs->mouseState)
     {
@@ -1099,7 +1108,7 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
          {
              uint32_t w = cs->windowWidth;
              uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-             Area activeArea;
+             CipArea activeArea;
 
              if (!cs->zoomEnabled)
                  cs->activeSw = NULL;
@@ -1110,7 +1119,7 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
                  if (cs->zoomEnabled)
                  {
                      sw = cs->activeSw;
-                     Area zoomWindowArea = {0,0,1,1};
+                     CipArea zoomWindowArea = {0,0,1,1};
                      get_active_area (cs, & zoomWindowArea, & activeArea);
                  }
                  else
@@ -1137,7 +1146,7 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
                  SubWindow *sw = cs->activeSw;
                  if (cs->zoomEnabled)
                  {
-                     Area zoomWindowArea = {0,0,1,1};
+                     CipArea zoomWindowArea = {0,0,1,1};
                      get_active_area (cs, & zoomWindowArea, & activeArea);
                  }
                  else
@@ -1148,14 +1157,14 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
                  if (sw->selectedGraph > sw->numAttachedGraphs - 1)
                      sw->selectedGraph = sw->numAttachedGraphs - 1;
 
-                 Histogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
+                 CipHistogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
                  uint32_t w = hist->w;
                  uint32_t h = hist->h;
                  int *bins = hist->bins;
                  if (!bins)
                      exit_error ("unexpected null pointer");
-                 Area binArea = {0, 0, w, h};
-                 Position binPos;
+                 CipArea binArea = {0, 0, w, h};
+                 CipPosition binPos;
                  transform_pos (& activeArea, & cs->mouseWindowPos, & binArea, & binPos);
                  uint32_t x0 = (uint32_t) binPos.x;
                  uint32_t y0 = (uint32_t) binPos.y;
@@ -1248,13 +1257,13 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
          }
      case MOUSE_STATE_MOVING:
          {
-             Position oldPos = {cs->mouseWindowPos.x, cs->mouseWindowPos.y};
+             CipPosition oldPos = {cs->mouseWindowPos.x, cs->mouseWindowPos.y};
              uint32_t w = cs->windowWidth;
              uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
              cs->mouseWindowPos.x = (double) xi / w;
              cs->mouseWindowPos.y = (double) yi / h;
              SubWindow *sw = cs->activeSw;
-             Area *dr = & sw->dataRange;
+             CipArea *dr = & sw->dataRange;
              double dx = (cs->mouseWindowPos.x - oldPos.x);
              double dy = (cs->mouseWindowPos.y - oldPos.y);
              if (!cs->zoomEnabled)
@@ -1280,8 +1289,8 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
              uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
              cs->mouseWindowPos.x = (double) xi / w;
              cs->mouseWindowPos.y = (double) yi / h;
-             Area *swa0 = & cs->activeSw->selectedWindowArea0;
-             Area *swa1 = & cs->activeSw->selectedWindowArea1;
+             CipArea *swa0 = & cs->activeSw->selectedWindowArea0;
+             CipArea *swa1 = & cs->activeSw->selectedWindowArea1;
              swa0->x1 = cs->mouseWindowPos.x;
              swa0->y1 = cs->mouseWindowPos.y;
              if (swa0->x0 < swa0->x1)
@@ -1313,8 +1322,8 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
 
              if (dx >= minDiffX || dy >= minDiffY)
              {
-                 Area zoomWindowArea = {0,0,1,1};
-                 Area *wa = cs->zoomEnabled ? & zoomWindowArea : & cs->activeSw->windowArea;
+                 CipArea zoomWindowArea = {0,0,1,1};
+                 CipArea *wa = cs->zoomEnabled ? & zoomWindowArea : & cs->activeSw->windowArea;
                  if (dx < minDiffX)
                  {
                      swa1->x0 = wa->x0;
@@ -1368,7 +1377,7 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
     return 1;
 }
 
-void cycle_line_type (SubWindow *sw, int dir)
+static void cycle_line_type (SubWindow *sw, int dir)
 {
     if (!sw)
         return;
@@ -1407,17 +1416,17 @@ void cycle_line_type (SubWindow *sw, int dir)
     }
 }
 
-void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat))
+void cip_set_app_keyboard_callback (CipState *cs, int (*app_on_keyboard) (CipState *cs, int key, int mod, int pressed, int repeat))
 {
     cs->app_on_keyboard = app_on_keyboard;
 }
 
-void cinterplot_set_app_mouse_motion (CinterState *cs, int (*app_on_mouse_motion) (CinterState *cs, int windowIndex, double x, double y))
+void cip_set_app_mouse_motion (CipState *cs, int (*app_on_mouse_motion) (CipState *cs, int windowIndex, double x, double y))
 {
     cs->app_on_mouse_motion = app_on_mouse_motion;
 }
 
-static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
+static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
 {
     static int userRedirect = 0;
     if (key == 27 && pressed)
@@ -1429,7 +1438,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         }
         else
         {
-            print_debug ("call cinterplot_set_app_keyboard_callback to enable user keyboard callback");
+            print_debug ("call cip_set_app_keyboard_callback to enable user keyboard callback");
         }
     }
 
@@ -1484,23 +1493,23 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
            {
                switch (key)
                {
-                case 'a': autoscale (cs->activeSw); break;
+                case 'a': cip_autoscale (cs->activeSw); break;
                 case 'c': cycle_graph_order (cs); break;
-                case 'f': set_fullscreen (cs, ! cs->fullscreen); break;
-                case 'g': set_grid_mode (cs, cs->gridMode + 1); print_debug ("grid mode %d", cs->gridMode); break;
+                case 'f': cip_set_fullscreen (cs, ! cs->fullscreen); break;
+                case 'g': cip_set_grid_mode (cs, cs->gridMode + 1); print_debug ("grid mode %d", cs->gridMode); break;
                 case 'h': toggle_help (cs); break;
-                case 'i': save_png (cs, ".", cs->frameCounter, 0); break;
-                case 'm': set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
-                case 'o': if (cs->activeSw) {set_log_mode (cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
+                case 'i': cip_save_png (cs, ".", cs->frameCounter, 0); break;
+                case 'm': cip_set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
+                case 'o': if (cs->activeSw) {cip_set_log_mode (cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
                 case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
-                case 's': set_statusline_enabled (cs, !cs->statuslineEnabled); break;
-                case 'q': quit (cs); break;
+                case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); break;
+                case 'q': cip_quit (cs); break;
                 case 'u': undo_zooming (cs->activeSw); break;
-                case 'e': force_refresh (cs); break;
-                case 't': set_tracking_mode (cs, cs->trackingMode + 1); cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);break;
+                case 'e': cip_force_refresh (cs); break;
+                case 't': cip_set_tracking_mode (cs, cs->trackingMode + 1); cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);break;
                 case 'l': cycle_line_type (cs->activeSw, 1); break;
                           //case 'x': exit_zoom (cs); break;
-                case ' ': toggle_paused (cs); break;
+                case ' ': cip_toggle_paused (cs); break;
 
                 //case 'r':
                 //          {
@@ -1524,8 +1533,8 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                               {
                                   int idx = key - '0';
                                   SubWindow *sw = cs->activeSw;
-                                  Area *dstArea = & sw->dataRange;
-                                  Area *srcArea = & storedDataRanges[idx];
+                                  CipArea *dstArea = & sw->dataRange;
+                                  CipArea *srcArea = & storedDataRanges[idx];
                                   if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
                                   {
                                       memcpy (dstArea, srcArea, sizeof (*srcArea));
@@ -1549,8 +1558,8 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                               cs->mouseState = MOUSE_STATE_NONE;
                               if (cs->activeSw)
                               {
-                                  Area *a0 = & cs->activeSw->selectedWindowArea0;
-                                  Area *a1 = & cs->activeSw->selectedWindowArea1;
+                                  CipArea *a0 = & cs->activeSw->selectedWindowArea0;
+                                  CipArea *a1 = & cs->activeSw->selectedWindowArea1;
                                   bzero (a0, sizeof (*a0));
                                   bzero (a1, sizeof (*a1));
                               }
@@ -1578,8 +1587,8 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                         {
                             int idx = key - '0';
                             SubWindow *sw = cs->activeSw;
-                            Area *srcArea = & sw->dataRange;
-                            Area *dstArea = & storedDataRanges[idx];
+                            CipArea *srcArea = & sw->dataRange;
+                            CipArea *dstArea = & storedDataRanges[idx];
                             if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
                             {
                                 memcpy (dstArea, srcArea, sizeof (*srcArea));
@@ -1600,7 +1609,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                           break;
                 case 't':
                     {
-                        set_tracking_mode (cs, cs->trackingMode + 3);
+                        cip_set_tracking_mode (cs, cs->trackingMode + 3);
                         cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);
                         break;
                     }
@@ -1624,16 +1633,16 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 switch (key)
                 {
                  case 'n': sub_window_change (cs,  1); break;
-                 case '+': zoom (cs->activeSw,  zf,  zf); break;
-                 case '-': zoom (cs->activeSw, -zf, -zf); break;
-                 case ',': zoom (cs->activeSw, -zf,  0.00); break;
-                 case '.': zoom (cs->activeSw,  zf,  0.00); break;
-                           //case 'i': zoom (cs->activeSw,  0.00, -zf); break;
-                           //case 'o': zoom (cs->activeSw,  0.00,  zf); break;
-                 case SDLK_UP:    move (cs->activeSw,  0.00, -mf); break;
-                 case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
-                 case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
-                 case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
+                 case '+': cip_zoom (cs->activeSw,  zf,  zf); break;
+                 case '-': cip_zoom (cs->activeSw, -zf, -zf); break;
+                 case ',': cip_zoom (cs->activeSw, -zf,  0.00); break;
+                 case '.': cip_zoom (cs->activeSw,  zf,  0.00); break;
+                           //case 'i': cip_zoom (cs->activeSw,  0.00, -zf); break;
+                           //case 'o': cip_zoom (cs->activeSw,  0.00,  zf); break;
+                 case SDLK_UP:    cip_move (cs->activeSw,  0.00, -mf); break;
+                 case SDLK_DOWN:  cip_move (cs->activeSw,  0.00,  mf); break;
+                 case SDLK_LEFT:  cip_move (cs->activeSw, -mf,  0.00); break;
+                 case SDLK_RIGHT: cip_move (cs->activeSw,  mf,  0.00); break;
                  default: unhandled = 1; break;
                 }
             }
@@ -1654,7 +1663,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
 
     if (cs->pressedModifiers == KMOD_CTRL && key == 'c')
     {
-        quit (cs);
+        cip_quit (cs);
         unhandled = 0;
     }
 
@@ -1668,7 +1677,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
 }
 
 
-GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors)
+GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors)
 {
     if (windowIndex >= cs->numSubWindows)
     {
@@ -1698,19 +1707,19 @@ GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windo
     return attacher;
 }
 
-void cinterplot_wait (CinterState *cs)
+static void cinterplot_wait (CipState *cs)
 {
     cs->stopped = 1;
     while (cs->redrawing)
         usleep (10000);
 }
 
-void cinterplot_continue (CinterState *cs)
+static void cinterplot_continue (CipState *cs)
 {
     cs->stopped = 0;
 }
 
-int graph_deattach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex)
+int cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex)
 {
     int removed = 0;
     cinterplot_wait (cs);
@@ -1740,9 +1749,9 @@ int graph_deattach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex)
     return removed;
 }
 
-CinterGraph *graph_new (uint32_t len)
+CipGraph *cip_graph_new (uint32_t len)
 {
-    CinterGraph *graph = safe_calloc (1, sizeof (*graph));
+    CipGraph *graph = safe_calloc (1, sizeof (*graph));
     graph->len = len;
     atomic_flag_clear (& graph->readAccess);
     atomic_flag_clear (& graph->insertAccess);
@@ -1763,7 +1772,7 @@ CinterGraph *graph_new (uint32_t len)
     return graph;
 }
 
-void graph_delete (CinterGraph *graph)
+void cip_graph_delete (CipGraph *graph)
 {
     if (!graph)
         return;
@@ -1772,7 +1781,7 @@ void graph_delete (CinterGraph *graph)
     free (graph);
 }
 
-void graph_add_point (CinterGraph *graph, double x, double y)
+void cip_graph_add_point (CipGraph *graph, double x, double y)
 {
     while (paused)
         usleep (10000);
@@ -1796,7 +1805,7 @@ void graph_add_point (CinterGraph *graph, double x, double y)
     release_access (& graph->insertAccess);
 }
 
-void graph_remove_points (CinterGraph *graph)
+void cip_graph_remove_points (CipGraph *graph)
 {
     while (paused)
         usleep (10000);
@@ -1809,7 +1818,7 @@ void graph_remove_points (CinterGraph *graph)
     release_access (& graph->readAccess);
 }
 
-static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType)
+static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
     uint64_t counter = 0;
     int *bins  = hist->bins;
@@ -1920,7 +1929,7 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
             int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
             int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-            histogram_line (hist, xi0, yi0, xi1, yi1);
+            cip_histogram_line (hist, xi0, yi0, xi1, yi1);
         }
     }
     else if (plotType == 't')
@@ -1951,11 +1960,11 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
             int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
             int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-            histogram_line (hist, xi0, yi0, xi1, yi1);
-            histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
-            histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
-            histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
-            histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
+            cip_histogram_line (hist, xi0, yi0, xi1, yi1);
+            cip_histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
+            cip_histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
+            cip_histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
+            cip_histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
         }
     }
     else if (plotType == 's')
@@ -1986,8 +1995,8 @@ static uint64_t make_histogram (Histogram *hist, CinterGraph *graph, uint32_t lo
             int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
             int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
             int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-            histogram_line (hist, xi0, yi0, xi1, yi0);
-            histogram_line (hist, xi1, yi0, xi1, yi1);
+            cip_histogram_line (hist, xi0, yi0, xi1, yi0);
+            cip_histogram_line (hist, xi1, yi0, xi1, yi1);
         }
     }
     else
@@ -2005,7 +2014,7 @@ enum {
     ALIGN_BL, ALIGN_BC, ALIGN_BR
 };
 
-void lighten_pixel (uint32_t *pixel, int amount)
+static void lighten_pixel (uint32_t *pixel, int amount)
 {
     int b =  *pixel        & 0xff;
     int g = (*pixel >> 8)  & 0xff;
@@ -2025,7 +2034,7 @@ void lighten_pixel (uint32_t *pixel, int amount)
     *pixel = MAKE_COLOR (r,g,b);
 }
 
-uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint32_t y0, uint32_t color, int transparent, char *text, uint32_t scale, int alignment )
+static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint32_t y0, uint32_t color, int transparent, char *text, uint32_t scale, int alignment )
 {
     if (!pixels)
         return 0;
@@ -2122,13 +2131,13 @@ uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0, uint3
     return y - y0;
 }
 
-void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CinterState *cs, SubWindow *sw, double pos, int vertical, uint32_t color)
+static void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *cs, SubWindow *sw, double pos, int vertical, uint32_t color)
 {
-    Area activeArea;
-    Area zoomWindowArea = {0,0,1,1};
+    CipArea activeArea;
+    CipArea zoomWindowArea = {0,0,1,1};
     get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
 
-    Position dataPos0, dataPos1;
+    CipPosition dataPos0, dataPos1;
     if (vertical)
     {
         dataPos0.x = pos;
@@ -2144,7 +2153,7 @@ void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CinterState *cs, 
         dataPos1.y = pos;
     }
 
-    Position winPos0, winPos1;
+    CipPosition winPos0, winPos1;
     transform_pos (& sw->dataRange, & dataPos0, & activeArea, & winPos0);
     transform_pos (& sw->dataRange, & dataPos1, & activeArea, & winPos1);
 
@@ -2165,13 +2174,13 @@ void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CinterState *cs, 
     }
 }
 
-void draw_grid (CinterState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
+static void draw_grid (CipState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
 {
     uint32_t gridColor0 = make_gray (0.2f);
     uint32_t gridColor1 = make_gray (0.4f);
 
-    Area activeArea;
-    Area zoomWindowArea = {0,0,1,1};
+    CipArea activeArea;
+    CipArea zoomWindowArea = {0,0,1,1};
     get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
 
     double dy, y0, y1;
@@ -2205,11 +2214,11 @@ void draw_grid (CinterState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, ui
             if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
                 continue;
 
-            Position dataPos;
+            CipPosition dataPos;
             dataPos.x = sw->dataRange.x0;
             dataPos.y = y;
 
-            Position winPos;
+            CipPosition winPos;
             transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
 
             uint32_t yi = (uint32_t) (winPos.y * h);
@@ -2251,11 +2260,11 @@ void draw_grid (CinterState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, ui
             if (x < sw->dataRange.x0 || sw->dataRange.x1 < x)
                 continue;
 
-            Position dataPos;
+            CipPosition dataPos;
             dataPos.x = x;
             dataPos.y = sw->dataRange.y1;
 
-            Position winPos;
+            CipPosition winPos;
             transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
 
             uint32_t xi = (uint32_t) (winPos.x * w);
@@ -2285,11 +2294,11 @@ void draw_grid (CinterState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, ui
             if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
                 continue;
 
-            Position dataPos;
+            CipPosition dataPos;
             dataPos.x = sw->dataRange.x0;
             dataPos.y = y;
 
-            Position winPos;
+            CipPosition winPos;
             transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
 
             uint32_t xi = (uint32_t) (winPos.x * w) + 2;
@@ -2317,7 +2326,7 @@ void draw_grid (CinterState *cs, SubWindow *sw, uint32_t *pixels, uint32_t w, ui
 #define HELP_TEXT(text) \
 draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL); y0+=16
 
-static void plot_data (CinterState *cs, uint32_t *pixels)
+static void plot_data (CipState *cs, uint32_t *pixels)
 {
     uint32_t activeColor    = make_gray (1.0f);
     uint32_t inactiveColor  = make_gray (0.4f);
@@ -2378,7 +2387,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
                 pixels[y*w + x] = bgColor;
 
         if (sw->continuousScroll && !paused)
-            continuous_scroll_update (sw);
+            cip_continuous_scroll_update (sw);
 
         if (cs->gridMode)
             draw_grid (cs, sw, pixels, w, h, subWidth, subHeight);
@@ -2386,7 +2395,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
         for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
         {
             GraphAttacher *attacher = sw->attachedGraphs[(gi + cs->graphOrder) % (sw->numAttachedGraphs)];
-            Histogram *hist = & attacher->hist;
+            CipHistogram *hist = & attacher->hist;
 
             int updateHistogram =
                 (forceRefresh) ||
@@ -2580,7 +2589,7 @@ static void plot_data (CinterState *cs, uint32_t *pixels)
     }
 }
 
-int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin)
+int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin)
 {
     if (cs->subWindows)
     {
@@ -2622,7 +2631,7 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
             sw->dataRange.x1 =  1;
             sw->dataRange.y0 =  1;
             sw->dataRange.y1 = -1;
-            memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (Area));
+            memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 
             sw->windowArea.x0 = (ci    ) * dx;
             sw->windowArea.x1 = (ci + 1) * dx;
@@ -2634,12 +2643,12 @@ int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t 
     return 0;
 }
 
-void cinterplot_remove_attached_graphs (CinterState *cs, uint32_t wi)
+void cip_remove_attached_graphs (CipState *cs, uint32_t wi)
 {
     SubWindow *sw = & cs->subWindows[wi];
     while (sw->numAttachedGraphs)
     {
-        CinterGraph *graph = sw->attachedGraphs[0]->graph;
+        CipGraph *graph = sw->attachedGraphs[0]->graph;
 
         int graphExistsInAnotherWindow = 0;
         for (uint32_t wi2=0; wi2<cs->numSubWindows && graphExistsInAnotherWindow == 0; wi2++)
@@ -2658,22 +2667,22 @@ void cinterplot_remove_attached_graphs (CinterState *cs, uint32_t wi)
             }
         }
 
-        graph_deattach (cs, graph, wi);
+        cip_graph_detach (cs, graph, wi);
 
         if (!graphExistsInAnotherWindow)
         {
             //print_debug ("delete %p", graph);
-            graph_delete (graph);
+            cip_graph_delete (graph);
         }
     }
 }
 
-void cinterplot_recursive_free_sub_windows (CinterState *cs)
+void cip_recursive_free_sub_windows (CipState *cs)
 {
     cinterplot_wait (cs);
     for (int wi=0; wi<cs->numSubWindows; wi++)
     {
-        cinterplot_remove_attached_graphs (cs, wi);
+        cip_remove_attached_graphs (cs, wi);
         SubWindow *sw = & cs->subWindows[wi];
         //print_debug ("free %p", sw->attachedGraphs);
         free (sw->attachedGraphs);
@@ -2688,7 +2697,7 @@ void cinterplot_recursive_free_sub_windows (CinterState *cs)
     cinterplot_continue (cs);
 }
 
-void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title)
+void cip_set_sub_window_title (CipState *cs, uint32_t windowIndex, char *title)
 {
     if (windowIndex >= cs->numSubWindows)
         exit_error ("windowIndex %d out of range", windowIndex);
@@ -2696,7 +2705,7 @@ void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title)
     sw->title = strdup (title);
 }
 
-SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex)
+SubWindow *cip_get_sub_window (CipState *cs, uint32_t windowIndex)
 {
     if (windowIndex >= cs->numSubWindows)
         exit_error ("windowIndex %d out of range", windowIndex);
@@ -2708,10 +2717,10 @@ typedef struct
 {
     int argc;
     char **argv;
-    CinterState *cs;
+    CipState *cs;
 } UserData;
 
-int user_main (int argc, char **argv, CinterState *cs);
+int user_main (int argc, char **argv, CipState *cs);
 static int userMainRetVal = 1;
 static void *userMainCaller (void *_data)
 {
@@ -2720,7 +2729,7 @@ static void *userMainCaller (void *_data)
     return NULL;
 }
 
-static void update_image (CinterState *cs, SDL_Texture *texture, int init)
+static void update_image (CipState *cs, SDL_Texture *texture, int init)
 {
     uint32_t* pixels;
     int wb;
@@ -2774,9 +2783,9 @@ static void signal_handler (int sig)
     }
 }
 
-static CinterState *cinterplot_init (void)
+static CipState *cip_init (void)
 {
-    CinterState *cs = safe_calloc (1, sizeof (*cs));
+    CipState *cs = safe_calloc (1, sizeof (*cs));
     cs->on_mouse_pressed  = on_mouse_pressed;
     cs->on_mouse_released = on_mouse_released;
     cs->on_mouse_motion   = on_mouse_motion;
@@ -2827,13 +2836,8 @@ static CinterState *cinterplot_init (void)
     return cs;
 }
 
-int cinterplot_is_running (CinterState *cs) { return cs->running; }
-void cinterplot_quit (CinterState *cs) { cs->running = 0; }
-void cinterplot_redraw_async(CinterState *cs) {cs->redraw=1; }
-void cinterplot_continuous_scroll_enable(SubWindow *sw)  { sw->continuousScroll=1; }
-void cinterplot_continuous_scroll_disable(SubWindow *sw) { sw->continuousScroll=0; }
 
-static int cinterplot_run_until_quit (CinterState *cs)
+static int cinterplot_run_until_quit (CipState *cs)
 {
     double fps = 30;
     double periodTime = 1.0 / fps;
@@ -2922,7 +2926,7 @@ static int cinterplot_run_until_quit (CinterState *cs)
     return 0;
 }
 
-static void cinterplot_cleanup (CinterState *cs)
+static void cinterplot_cleanup (CipState *cs)
 {
     SDL_DestroyRenderer (cs->renderer);
     SDL_DestroyWindow (cs->window);
@@ -2931,7 +2935,7 @@ static void cinterplot_cleanup (CinterState *cs)
     cs->window = NULL;
 }
 
-void save_png (CinterState* cs, char* imageDir, int frameCounter, int format)
+void cip_save_png (CipState* cs, char* imageDir, int frameCounter, int format)
 {
     uint32_t w = cs->windowWidth;
     uint32_t h = cs->windowHeight;
@@ -3016,7 +3020,7 @@ int main (int argc, char **argv)
     // than the main thread
     srand ((unsigned int) time (NULL));
 
-    CinterState *cs = cinterplot_init ();
+    CipState *cs = cip_init ();
     if (!cs)
         return 1;
 

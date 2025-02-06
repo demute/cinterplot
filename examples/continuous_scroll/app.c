@@ -6,7 +6,7 @@
 #define randf() ((double) rand () / ((double) RAND_MAX+1))
 #endif
 
-int user_main (int argc, char **argv, CinterState *cs)
+int user_main (int argc, char **argv, CipState *cs)
 {
     randlib_init (0);
 
@@ -26,16 +26,16 @@ int user_main (int argc, char **argv, CinterState *cs)
         "chocolate brown red yellow"
     };
 
-    if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
+    if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
-    CinterGraph *sineGraph[n];
+    CipGraph *sineGraph[n];
     char plotType[6] = {'p','l','s','p','l','s'};
     for (int i=0; i<n; i++)
     {
-        cinterplot_continuous_scroll_enable (get_sub_window (cs, i));
-        sineGraph[i] = graph_new (1000000);
-        graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
+        cip_continuous_scroll_enable (cip_get_sub_window (cs, i));
+        sineGraph[i] = cip_graph_new (1000000);
+        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
     }
 
     double v = 0;
@@ -43,7 +43,7 @@ int user_main (int argc, char **argv, CinterState *cs)
     double a[n];
     bzero (a, sizeof (a));
 
-    while (cinterplot_is_running (cs))
+    while (cip_is_running (cs))
     {
         usleep (0);
 
@@ -58,10 +58,10 @@ int user_main (int argc, char **argv, CinterState *cs)
             a[i] = f * a[i] + (1-f) * r[i] * 0.1;
             double y = a[i] * sin (2 * M_PI * v * a[i] * (i+1));
             double x = (double) t;
-            graph_add_point (sineGraph[i], x, y);
+            cip_graph_add_point (sineGraph[i], x, y);
         }
         t++;
-        cinterplot_redraw_async (cs);
+        cip_redraw_async (cs);
     }
 
     return 0;

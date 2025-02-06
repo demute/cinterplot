@@ -18,51 +18,51 @@ extern "C" {
 #define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
 
-typedef struct ColorScheme
+typedef struct CipColorScheme
 {
     uint32_t nLevels;
     uint32_t *colors;
-} ColorScheme;
+} CipColorScheme;
 
-typedef struct CinterGraph
+typedef struct CipGraph
 {
     StreamBuffer *sb;
     uint32_t len;
     atomic_flag readAccess;
     atomic_flag insertAccess;
 
-} CinterGraph;
+} CipGraph;
 
-typedef struct Area
+typedef struct CipArea
 {
     double x0;
     double y0;
     double x1;
     double y1;
-} Area;
+} CipArea;
 
-typedef struct Position
+typedef struct CipPosition
 {
     double x;
     double y;
-} Position;
+} CipPosition;
 
-typedef struct Histogram
+typedef struct CipHistogram
 {
-    Area dataRange;
+    CipArea dataRange;
 
     uint32_t w;
     uint32_t h;
     int *bins;
-} Histogram;
+} CipHistogram;
 
-typedef uint64_t (*HistogramFun) (Histogram *hist, CinterGraph *graph, uint32_t logMode, char plotType);
+typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
 
 typedef struct GraphAttacher
 {
-    CinterGraph *graph;
-    ColorScheme *colorScheme;
-    Histogram    hist;
+    CipGraph *graph;
+    CipColorScheme *colorScheme;
+    CipHistogram    hist;
     uint64_t     lastGraphCounter;
     char         plotType;
     char         lastPlotType;
@@ -80,12 +80,12 @@ typedef struct SubWindow
     uint32_t logMode : 2;
     uint32_t selectedGraph;
 
-    Position mouseDataPos;
-    Area dataRange;
-    Area defaultDataRange;
-    Area windowArea;
-    Area selectedWindowArea0;
-    Area selectedWindowArea1;
+    CipPosition mouseDataPos;
+    CipArea dataRange;
+    CipArea defaultDataRange;
+    CipArea windowArea;
+    CipArea selectedWindowArea0;
+    CipArea selectedWindowArea1;
 } SubWindow;
 
 #define KMOD_NONE  0
@@ -94,7 +94,7 @@ typedef struct SubWindow
 #define KMOD_ALT   4
 #define KMOD_CTRL  8
 
-typedef struct Mouse
+typedef struct CipMouse
 {
     int x;
     int y;
@@ -106,54 +106,53 @@ typedef struct Mouse
     int releaseY;
     int clicks;
     int button;
-} Mouse;
+} CipMouse;
 
-typedef struct CinterState CinterState;
+typedef struct CipState CipState;
 
-int autoscale (SubWindow *sw);
-int toggle_mouse (CinterState *cs);
-void update_color_scheme (CinterState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels);
-int set_fullscreen (CinterState *cs, uint32_t fullscreen);
-int quit (CinterState *cs);
-int zoom (SubWindow *sw, double xf, double yf);
-int move (SubWindow *sw, double xf, double yf);
-int set_tracking_mode (CinterState *cs, uint32_t mode);
-int make_sub_windows (CinterState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
-void set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault);
-void set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault);
-void set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
-int set_grid_mode (CinterState *cs, uint32_t mode);
-int set_log_mode (SubWindow *sw, uint32_t mode);
-int set_crosshair_enabled (CinterState *cs, uint32_t enabled);
-int set_statusline_enabled (CinterState *cs, uint32_t enabled);
-void wait_for_access (atomic_flag* accessFlag);
-void release_access (atomic_flag* accessFlag);
-void histogram_line (Histogram *hist, int x0, int y0, int x1, int y1);
-void cinterplot_recursive_free_sub_windows (CinterState *cs);
-void cinterplot_remove_attached_graphs (CinterState *cs, uint32_t wi);
-int force_refresh (CinterState *cs);
+int  cip_autoscale (SubWindow *sw);
+int  cip_set_crosshair_enabled (CipState *cs, uint32_t enabled);
+void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels);
+int  cip_set_fullscreen (CipState *cs, uint32_t fullscreen);
+int  cip_zoom (SubWindow *sw, double xf, double yf);
+int  cip_move (SubWindow *sw, double xf, double yf);
+int  cip_set_tracking_mode (CipState *cs, uint32_t mode);
+int  cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
+void cip_set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault);
+void cip_set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault);
+void cip_set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
+int  cip_set_grid_mode (CipState *cs, uint32_t mode);
+int  cip_set_log_mode (SubWindow *sw, uint32_t mode);
+int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled);
+void cip_histogram_line (CipHistogram *hist, int x0, int y0, int x1, int y1);
+void cip_recursive_free_sub_windows (CipState *cs);
+void cip_remove_attached_graphs (CipState *cs, uint32_t wi);
+int  cip_force_refresh (CipState *cs);
 
-CinterGraph *graph_new (uint32_t len);
-void graph_delete (CinterGraph *graph);
-void graph_add_point (CinterGraph *graph, double x, double y);
-GraphAttacher *graph_attach (CinterState *cs, CinterGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors);
-void graph_remove_points (CinterGraph *graph);
+CipGraph *cip_graph_new (uint32_t len);
+void cip_graph_delete (CipGraph *graph);
+void cip_graph_add_point (CipGraph *graph, double x, double y);
+GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors);
+int  cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex);
+void cip_graph_remove_points (CipGraph *graph);
 
-int  cinterplot_is_running (CinterState *cs);
-void cinterplot_quit (CinterState *cs);
-void cinterplot_redraw_async (CinterState *cs);
-void cinterplot_continuous_scroll_enable (SubWindow *sw);
-void cinterplot_continuous_scroll_disable (SubWindow *sw);
-void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
-SubWindow *get_sub_window (CinterState *cs, uint32_t windowIndex);
-void cinterplot_set_bg_shade (CinterState *cs, float bgShade);
-void set_sub_window_title (CinterState *cs, uint32_t windowIndex, char *title);
-int toggle_paused (CinterState *cs);
-SDL_Surface *createSurfaceFromImage (char *file);
-void save_png (CinterState* cs, char* imageDir, int frameCounter, int format);
+int  cip_is_running (CipState *cs);
+int  cip_quit (CipState *cs);
+void cip_redraw_async (CipState *cs);
+void cip_continuous_scroll_enable (SubWindow *sw);
+void cip_continuous_scroll_disable (SubWindow *sw);
+SubWindow *cip_get_sub_window (CipState *cs, uint32_t windowIndex);
+void cip_set_bg_shade (CipState *cs, float bgShade);
+void cip_set_sub_window_title (CipState *cs, uint32_t windowIndex, char *title);
+int  cip_toggle_paused (CipState *cs);
+void cip_save_png (CipState* cs, char* imageDir, int frameCounter, int format);
 
-void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat));
-void cinterplot_set_app_mouse_motion (CinterState *cs, int (*app_on_mouse_motion) (CinterState *cs, int windowIndex, double x, double y));
+void cip_set_app_keyboard_callback (CipState *cs, int (*app_on_keyboard) (CipState *cs, int key, int mod, int pressed, int repeat));
+void cip_set_app_mouse_motion (CipState *cs, int (*app_on_mouse_motion) (CipState *cs, int windowIndex, double x, double y));
+
+//void wait_for_access (atomic_flag* accessFlag);
+//void release_access (atomic_flag* accessFlag);
+
 #ifdef __cplusplus
 } /* end extern C */
 #endif

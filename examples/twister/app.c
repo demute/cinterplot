@@ -14,8 +14,8 @@ static const uint32_t nCols = 3;
 static const uint32_t n = nRows * nCols;
 static uint32_t bordered = 1;
 static uint32_t margin = 4;
-static CinterGraph **sineGraph;
-static CinterState *cs = NULL;
+static CipGraph **sineGraph;
+static CipState *cs = NULL;
 
 int on_press (void *twisterDev, int encoder, int pressed)
 {
@@ -35,12 +35,12 @@ int on_encoder (void *twisterDev, int encoder, int dir)
     double f = (dir > 0) ? 1.01 : 1.0 / 1.01;
     speed *= f;
 
-    graph_remove_points (sineGraph[0]);
+    cip_graph_remove_points (sineGraph[0]);
     for (int i=0; i<N; i++)
     {
         double x = i * 1e-3;
         double y = sin (x * 2 * M_PI * speed);
-        graph_add_point (sineGraph[0], x, y);
+        cip_graph_add_point (sineGraph[0], x, y);
     }
     print_debug ("en: %d dir: %d", encoder, dir);
     return 1;
@@ -92,7 +92,7 @@ int twister_poll (void *twisterDev)
     return 0;
 }
 
-int user_main (int argc, char **argv, CinterState *_cs)
+int user_main (int argc, char **argv, CipState *_cs)
 {
     cs = _cs;
     randlib_init (0);
@@ -109,22 +109,22 @@ int user_main (int argc, char **argv, CinterState *_cs)
         "white",
     };
 
-    if (make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
+    if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
 
     char plotType[6] = {'p','l','s','p','l','s'};
     sineGraph = safe_calloc (n, sizeof (*sineGraph));
     for (int i=0; i<n; i++)
     {
-        sineGraph[i] = graph_new (N);
-        graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 4);
+        sineGraph[i] = cip_graph_new (N);
+        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 4);
     }
 
-    while (cinterplot_is_running (cs))
+    while (cip_is_running (cs))
     {
         midi_connect (twisterDev);
         if (twister_poll (twisterDev))
-            cinterplot_redraw_async (cs);
+            cip_redraw_async (cs);
         else
             usleep (1000);
     }
