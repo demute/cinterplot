@@ -110,7 +110,8 @@ typedef struct CipMouse
 
 typedef struct CipState CipState;
 
-int  cip_autoscale (SubWindow *sw);
+int  cip_autoscale (CipState *cs, uint32_t windowIndex);
+int  cip_autoscale_sw (SubWindow *sw);
 int  cip_set_crosshair_enabled (CipState *cs, uint32_t enabled);
 void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels);
 int  cip_set_fullscreen (CipState *cs, uint32_t fullscreen);
@@ -119,10 +120,11 @@ int  cip_move (SubWindow *sw, double xf, double yf);
 int  cip_set_tracking_mode (CipState *cs, uint32_t mode);
 int  cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);
 void cip_set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault);
-void cip_set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault);
-void cip_set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault);
+void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xmax, int setAsDefault);
+void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ymax, int setAsDefault);
 int  cip_set_grid_mode (CipState *cs, uint32_t mode);
-int  cip_set_log_mode (SubWindow *sw, uint32_t mode);
+int  cip_set_log_mode_sw (SubWindow *sw, uint32_t mode);
+int  cip_set_log_mode (CipState *cs, uint32_t windowIndex, uint32_t mode);
 int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled);
 void cip_histogram_line (CipHistogram *hist, int x0, int y0, int x1, int y1);
 void cip_recursive_free_sub_windows (CipState *cs);
@@ -139,8 +141,8 @@ void cip_graph_remove_points (CipGraph *graph);
 int  cip_is_running (CipState *cs);
 int  cip_quit (CipState *cs);
 void cip_redraw_async (CipState *cs);
-void cip_continuous_scroll_enable (SubWindow *sw);
-void cip_continuous_scroll_disable (SubWindow *sw);
+void cip_continuous_scroll_enable  (CipState *cs, uint32_t windowIndex);
+void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex);
 SubWindow *cip_get_sub_window (CipState *cs, uint32_t windowIndex);
 void cip_set_bg_shade (CipState *cs, float bgShade);
 void cip_set_sub_window_title (CipState *cs, uint32_t windowIndex, char *title);

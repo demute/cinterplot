@@ -355,7 +355,7 @@ static void cycle_graph_order (CipState *cs)
     //print_debug ("graph order %u", cs->graphOrder);
 }
 
-int cip_autoscale (SubWindow *sw)
+int cip_autoscale_sw (SubWindow *sw)
 {
     if (!sw)
         return 0;
@@ -411,6 +411,11 @@ int cip_autoscale (SubWindow *sw)
     return 1;
 }
 
+int cip_autoscale (CipState *cs, uint32_t windowIndex)
+{
+    return cip_autoscale_sw (cip_get_sub_window (cs, windowIndex));
+}
+
 void cip_set_range (SubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault)
 {
     if (!sw)
@@ -425,8 +430,9 @@ void cip_set_range (SubWindow *sw, double xmin, double ymin, double xmax, double
         memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 }
 
-void cip_set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault)
+void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xmax, int setAsDefault)
 {
+    SubWindow *sw = cip_get_sub_window (cs, windowIndex);
     if (!sw)
         exit_error ("bug");
 
@@ -437,8 +443,9 @@ void cip_set_x_range (SubWindow *sw, double xmin, double xmax, int setAsDefault)
         memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 }
 
-void cip_set_y_range (SubWindow *sw, double ymin, double ymax, int setAsDefault)
+void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ymax, int setAsDefault)
 {
+    SubWindow *sw = cip_get_sub_window (cs, windowIndex);
     if (!sw)
         exit_error ("bug");
 
@@ -487,8 +494,8 @@ int cip_continuous_scroll_update (SubWindow *sw)
 }
 
 
-void cip_continuous_scroll_enable (SubWindow *sw)                { sw->continuousScroll=1; }
-void cip_continuous_scroll_disable (SubWindow *sw)               { sw->continuousScroll=0; }
+void cip_continuous_scroll_enable (CipState *cs, uint32_t windowIndex)  { SubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=1; }
+void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex) { SubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=0; }
 int  cip_force_refresh (CipState *cs)                            { cs->forceRefresh = 1;        return 1; }
 int  cip_is_running (CipState *cs)                               { return cs->running; }
 void cip_redraw_async(CipState *cs)                              { cs->redraw=1; }
@@ -520,7 +527,7 @@ static void undo_zooming (SubWindow *sw)
     memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
 }
 
-int cip_set_log_mode (SubWindow *sw, uint32_t mode)
+int cip_set_log_mode_sw (SubWindow *sw, uint32_t mode)
 {
     if (!sw)
         return 0;
@@ -567,6 +574,11 @@ int cip_set_log_mode (SubWindow *sw, uint32_t mode)
 
     sw->logMode = mode & 3;
     return 1;
+}
+
+int cip_set_log_mode (CipState *cs, uint32_t windowIndex, uint32_t mode)
+{
+    return cip_set_log_mode_sw (cip_get_sub_window (cs, windowIndex), mode);
 }
 
 static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
@@ -1493,14 +1505,14 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
            {
                switch (key)
                {
-                case 'a': cip_autoscale (cs->activeSw); break;
+                case 'a': cip_autoscale_sw (cs->activeSw); break;
                 case 'c': cycle_graph_order (cs); break;
                 case 'f': cip_set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': cip_set_grid_mode (cs, cs->gridMode + 1); print_debug ("grid mode %d", cs->gridMode); break;
                 case 'h': toggle_help (cs); break;
                 case 'i': cip_save_png (cs, ".", cs->frameCounter, 0); break;
                 case 'm': cip_set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
-                case 'o': if (cs->activeSw) {cip_set_log_mode (cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
+                case 'o': if (cs->activeSw) {cip_set_log_mode_sw (cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
                 case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
                 case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); break;
                 case 'q': cip_quit (cs); break;
