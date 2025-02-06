@@ -35,6 +35,7 @@ typedef struct CinterState
     uint32_t stopped : 1;
 
     int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat);
+    int (*app_on_mouse_motion) (CinterState *cs, int windowIndex, double x, double y);
 
     int mouseState;
     Position mouseWindowPos;
@@ -1232,6 +1233,17 @@ static int on_mouse_motion (CinterState *cs, int xi, int yi)
                      exit_error ("bug: %d", cs->trackingMode);
              }
 
+             if (cs->app_on_mouse_motion && cs->activeSw)
+             {
+                 SubWindow *sw = cs->activeSw;
+                 int windowIndex = 0;
+                 for (windowIndex=0; windowIndex<cs->numSubWindows; windowIndex++)
+                     if (& cs->subWindows[windowIndex] == sw)
+                         break;
+
+                 cs->app_on_mouse_motion (cs, windowIndex, sw->mouseDataPos.x, sw->mouseDataPos.y);
+             }
+
              break;
          }
      case MOUSE_STATE_MOVING:
@@ -1398,6 +1410,11 @@ void cycle_line_type (SubWindow *sw, int dir)
 void cinterplot_set_app_keyboard_callback (CinterState *cs, int (*app_on_keyboard) (CinterState *cs, int key, int mod, int pressed, int repeat))
 {
     cs->app_on_keyboard = app_on_keyboard;
+}
+
+void cinterplot_set_app_mouse_motion (CinterState *cs, int (*app_on_mouse_motion) (CinterState *cs, int windowIndex, double x, double y))
+{
+    cs->app_on_mouse_motion = app_on_mouse_motion;
 }
 
 static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repeat)
