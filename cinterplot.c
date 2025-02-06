@@ -1598,7 +1598,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         }
         if (unhandled || repeat)
         {
-            int unhandled2 = 0;
+            unhandled = 0;
             if (mod == KMOD_NONE)
             {
                 double zf = 0.05;
@@ -1616,7 +1616,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                  case SDLK_DOWN:  move (cs->activeSw,  0.00,  mf); break;
                  case SDLK_LEFT:  move (cs->activeSw, -mf,  0.00); break;
                  case SDLK_RIGHT: move (cs->activeSw,  mf,  0.00); break;
-                 default: unhandled2 = 1; break;
+                 default: unhandled = 1; break;
                 }
             }
             else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
@@ -1624,10 +1624,13 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
                 switch (key)
                 {
                  case 'n': sub_window_change (cs, -1); break;
-                 default: unhandled2 = 1; break;
+                 default: unhandled = 1; break;
                 }
             }
-            unhandled = (unhandled && unhandled2);
+            else
+            {
+                unhandled = 1;
+            }
         }
     }
 
@@ -1637,7 +1640,7 @@ static int on_keyboard (CinterState *cs, int key, int mod, int pressed, int repe
         unhandled = 0;
     }
 
-    if (unhandled)
+    if (unhandled && (! cs->app_on_keyboard || ! cs->app_on_keyboard (cs, key, mod, pressed, repeat)))
     {
         print_debug ("key: %c (%d), pressed: %d, repeat: %d", key, key, pressed, repeat);
         return 0;
