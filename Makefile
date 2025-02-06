@@ -29,7 +29,7 @@ $(EXAMPLES):
 
 $(LIBDIR)/libcinterplot.dylib:$(OBJS)
 	mkdir -p $(LIBDIR)
-	$(CC) $(LDFLAGS) -o$@ $^ -shared -undefined suppress -flat_namespace
+	$(CC) $(LDFLAGS) -o$@ $^ -shared -undefined suppress -flat_namespace -lpng
 
 $(LIBDIR)/libcinterplot.so:$(OBJS)
 	mkdir -p $(LIBDIR)
