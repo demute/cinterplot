@@ -2399,13 +2399,14 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
 
     double dy, y0, y1;
     int yTens, ySubs;
+    int cntGuard = 4000;
 
     if (sw->gridMode & 1)
     {
         // keep in mind y1 < y0 because plot window has positive y-data direction upwards
         dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
-        y0 = ceil (sw->dataRange.y0 / dy) * dy + dy;
-        y1 = floor (sw->dataRange.y1 / dy) * dy - dy;
+        y0 = ceil (sw->dataRange.y0 / dy) * dy;
+        y1 = floor (sw->dataRange.y1 / dy) * dy;
         yTens = (int) ((sw->dataRange.y0 - sw->dataRange.y1) / dy);
         if (yTens < 1)
             yTens = 1;
@@ -2414,7 +2415,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
             ySubs *= 2;
 
         int cnt = 0;
-        for (double y=y1; y<y0 && cnt<100 && subHeight > 200; y+=dy/(ySubs*5))
+        for (double y=y1; y<y0 && cnt<cntGuard && subHeight > 200; y+=dy/(ySubs*5))
         {
             cnt++;
             if (y1 <= y && y <= y0)
@@ -2422,7 +2423,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
         }
         cnt = 0;
         uint32_t lastYi = 0;
-        for (double y=y1; y<y0 && cnt<100; y+=dy/ySubs)
+        for (double y=y1; y<y0 && cnt<cntGuard; y+=dy/ySubs)
         {
             cnt++;
             if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
@@ -2450,8 +2451,8 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     if (sw->gridMode & 2)
     {
         double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
-        double x0 = floor (sw->dataRange.x0 / dx) * dx - dx;
-        double x1 = ceil (sw->dataRange.x1 / dx) * dx + dx;
+        double x0 = floor (sw->dataRange.x0 / dx) * dx;
+        double x1 = ceil (sw->dataRange.x1 / dx) * dx;
         int xTens = (int) ((sw->dataRange.x1 - sw->dataRange.x0) / dx);
         if (xTens < 1)
             xTens = 1;
@@ -2460,7 +2461,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
             xSubs *= 2;
 
         int cnt = 0;
-        for (double x=x0; x<x1 && cnt<100 && subHeight > 200; x+=dx/(xSubs*5))
+        for (double x=x0; x<x1 && cnt<cntGuard && subHeight > 200; x+=dx/(xSubs*5))
         {
             cnt++;
             if (x0 <= x && x <= x1)
@@ -2468,7 +2469,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
         }
         cnt = 0;
         uint32_t lastXi = 0;
-        for (double x=x0; x<x1 && cnt<100; x+=dx/xSubs)
+        for (double x=x0; x<x1 && cnt<cntGuard; x+=dx/xSubs)
         {
             cnt++;
             if (x < sw->dataRange.x0 || sw->dataRange.x1 < x)
@@ -2502,7 +2503,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     {
         int cnt = 0;
         uint32_t lastYi = 0;
-        for (double y=y1; y<y0 && cnt<100; y+=dy/ySubs)
+        for (double y=y1; y<y0 && cnt<cntGuard; y+=dy/ySubs)
         {
             cnt++;
             if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
