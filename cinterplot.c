@@ -2490,7 +2490,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 uint32_t textColor = make_gray (0.9f);
                 int transparent = 1;
                 char text[256];
-                snprintf (text, sizeof (text), "%g", x);
+                snprintf (text, sizeof (text), "%g", (fabs (x) < dx * 1e-4) ? 0 : x);
 
                 draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor1);
                 draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BC);
@@ -2525,7 +2525,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 uint32_t textColor = make_gray (0.9f);
                 int transparent = 1;
                 char text[256];
-                snprintf (text, sizeof (text), "%g", y);
+                snprintf (text, sizeof (text), "%g", (fabs (y) < dy * 1e-4) ? 0 : y);
 
                 // draw text only if it will not collide with text on x-axis
                 if (! ((sw->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
