@@ -1042,6 +1042,109 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
     return 1;
 }
 
+double rotMatrix[3][3] =
+{
+    {1,0,0},
+    {0,1,0},
+    {0,0,1},
+};
+
+void matMul(double A[3][3], double B[3][3], double C[3][3])
+{
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            C[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
+}
+
+void rotate_x (double mtx[3][3], double theta, int order)
+{
+    double rot[3][3] =
+    {
+        {1, 0, 0},
+        {0, cos(theta), -sin(theta)},
+        {0, sin(theta),  cos(theta)}
+    };
+
+    double tmp[3][3];
+    if (order)
+        matMul (rot, mtx, tmp);
+    else
+        matMul (mtx, rot, tmp);
+
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            mtx[i][j] = tmp[i][j];
+}
+
+void rotate_y (double mtx[3][3], double theta, int order)
+{
+    double rot[3][3] =
+    {
+        {cos(theta), 0, -sin(theta)},
+        {0, 1, 0},
+        {sin(theta), 0, cos(theta)}
+    };
+
+    double tmp[3][3];
+    if (order)
+        matMul (rot, mtx, tmp);
+    else
+        matMul (mtx, rot, tmp);
+
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            mtx[i][j] = tmp[i][j];
+}
+
+void rotate_z (double mtx[3][3], double theta, int order)
+{
+    double rot[3][3] =
+    {
+        {cos(theta), -sin(theta), 0},
+        {sin(theta),  cos(theta), 0},
+        {0, 0, 1}
+    };
+
+    double tmp[3][3];
+    if (order)
+        matMul (rot, mtx, tmp);
+    else
+        matMul (mtx, rot, tmp);
+
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            mtx[i][j] = tmp[i][j];
+}
+
+void normalise_matrix (double mtx[3][3])
+{
+    double norm;
+
+    // Normalize first column
+    norm = sqrt(mtx[0][0] * mtx[0][0] + mtx[1][0] * mtx[1][0] + mtx[2][0] * mtx[2][0]);
+    mtx[0][0] /= norm;
+    mtx[1][0] /= norm;
+    mtx[2][0] /= norm;
+
+    // Make second column orthogonal to first and normalize
+    double dot = mtx[0][0] * mtx[0][1] + mtx[1][0] * mtx[1][1] + mtx[2][0] * mtx[2][1];
+    mtx[0][1] -= dot * mtx[0][0];
+    mtx[1][1] -= dot * mtx[1][0];
+    mtx[2][1] -= dot * mtx[2][0];
+
+    norm = sqrt(mtx[0][1] * mtx[0][1] + mtx[1][1] * mtx[1][1] + mtx[2][1] * mtx[2][1]);
+    mtx[0][1] /= norm;
+    mtx[1][1] /= norm;
+    mtx[2][1] /= norm;
+
+    // Compute third column as cross product of first two
+    mtx[0][2] = mtx[1][0] * mtx[2][1] - mtx[2][0] * mtx[1][1];
+    mtx[1][2] = mtx[2][0] * mtx[0][1] - mtx[0][0] * mtx[2][1];
+    mtx[2][2] = mtx[0][0] * mtx[1][1] - mtx[1][0] * mtx[0][1];
+}
+
+
+
 static int on_mouse_wheel (CipState *cs, float xf, float yf)
 {
     CipSubWindow *sw = cs->activeSw;
@@ -1060,6 +1163,22 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             dr->x1 -= dx * (1-a);
             dr->y0 += dy * b;
             dr->y1 -= dy * (1-b);
+            return 1;
+        }
+        else if (cs->pressedModifiers == KMOD_SHIFT)
+        {
+            rotate_x (rotMatrix, -yf * 0.1, 1);
+            rotate_y (rotMatrix, xf * 0.1, 1);
+            normalise_matrix (rotMatrix);
+            cs->forceRefresh = 1;
+            return 1;
+        }
+        else if (cs->pressedModifiers == (KMOD_ALT))
+        {
+            rotate_x (rotMatrix, -xf * 0.1, 0);
+            rotate_y (rotMatrix, yf * 0.1, 0);
+            normalise_matrix (rotMatrix);
+            cs->forceRefresh = 1;
             return 1;
         }
         else
@@ -1944,8 +2063,15 @@ void cip_graph_remove_points (CipGraph *graph)
     release_access (& graph->readAccess);
 }
 
-static double phi   = 0.0;
-static double theta = 0.0;
+
+static void matrix_vector_multiply (double mtx[3][3], double src[3], double dst[3])
+{
+    dst[0] = mtx[0][0] * src[0] + mtx[0][1] * src[1] + mtx[0][2] * src[2];
+    dst[1] = mtx[1][0] * src[0] + mtx[1][1] * src[1] + mtx[1][2] * src[2];
+    dst[2] = mtx[2][0] * src[0] + mtx[2][1] * src[1] + mtx[2][2] * src[2];
+}
+
+
 static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
     uint64_t counter = 0;
@@ -1988,22 +2114,12 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
     {
         for (uint32_t i=0; i<len; i++)
         {
-            double x = xyzs[i][0];
-            double y = xyzs[i][1];
-            double z = xyzs[i][2];
+            double xyz[3];
+            matrix_vector_multiply (rotMatrix, xyzs[i], xyz);
 
-            double cosPhi   = cos (phi);
-            double sinPhi   = sin (phi);
-            double cosTheta = cos (theta);
-            double sinTheta = sin (theta);
-
-            double x1 = cosTheta * x - sinTheta * y;
-            double y1 = sinTheta * x + cosTheta * y;
-            double z1 = z;
-
-            double x2 = cosPhi * x1 - sinPhi * z1;
-            double y2 = y1;
-            double z2 = sinPhi * x1 + cosPhi * z1;
+            double x2 = xyz[0];
+            double y2 = xyz[1];
+            double z2 = xyz[2];
 
             double scale = z2 + 3;
 
@@ -3129,8 +3245,10 @@ static int cinterplot_run_until_quit (CipState *cs)
             // FIXME: This is just some example rotation code, to be removed
             if (!paused)
             {
-                theta += 0.01;
-                phi   += 0.0165;
+                rotate_x (rotMatrix, 0.050, 0);
+                rotate_y (rotMatrix, 0.02, 1);
+                rotate_z (rotMatrix, 0.014, 1);
+                normalise_matrix (rotMatrix);
             }
 
             cs->redraw = 0;
