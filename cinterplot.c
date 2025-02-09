@@ -18,6 +18,10 @@
 #define LOGFUN log101
 #define EXPFUN exp101
 
+double cx = 0;
+double cy = 0;
+double cz = 0;
+
 typedef struct CipState
 {
     uint32_t crosshairEnabled : 1;
@@ -419,6 +423,17 @@ void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec,
 
 }
 
+static void matrix_vector_multiply (double mtx[3][3], double src[3], double dst[3])
+{
+    dst[0] = mtx[0][0] * src[0] + mtx[0][1] * src[1] + mtx[0][2] * src[2];
+    dst[1] = mtx[1][0] * src[0] + mtx[1][1] * src[1] + mtx[1][2] * src[2];
+    dst[2] = mtx[2][0] * src[0] + mtx[2][1] * src[1] + mtx[2][2] * src[2];
+}
+
+double (*rotMatrix)[3][3]; // FIXME: should not be needed
+double perspectiveFactor = 0.15;
+
+
 static void cycle_graph_order (CipState *cs)
 {
     cs->graphOrder++;
@@ -442,29 +457,77 @@ int cip_autoscale_sw (CipSubWindow *sw)
         wait_for_access (& graph->readAccess);
         wait_for_access (& graph->insertAccess);
 
-        double (*xys)[2];
-        uint32_t len;
-        stream_buffer_get (graph->sb, & xys, & len);
+        int is3d = graph->sb->itemSize == sizeof (double) * 3;
 
-        int firstIdx = (int) len - (int) graph->len;
-        if (firstIdx < 0)
-            firstIdx = 0;
-
-        for (uint32_t i=firstIdx; i<len; i++)
+        if (is3d)
         {
-            double x = xys[i][0];
-            double y = xys[i][1];
+            double (*xyzs)[3];
+            uint32_t len;
+            stream_buffer_get (graph->sb, & xyzs, & len);
 
-            if (sw->logMode & 1) x = LOGFUN (x);
-            if (sw->logMode & 2) y = LOGFUN (y);
-            if (isnan (x) || isnan (y)) continue;
-            if (isinf (x) || isinf (y)) continue;
+            int firstIdx = (int) len - (int) graph->len;
+            if (firstIdx < 0 || graph->len == 0)
+                firstIdx = 0;
 
-            if (xmin > x) xmin = x;
-            if (xmax < x) xmax = x;
-            if (ymin > y) ymin = y;
-            if (ymax < y) ymax = y;
+            for (uint32_t i=firstIdx; i<len; i++)
+            {
+                double xyz[3];
+                matrix_vector_multiply (*rotMatrix, xyzs[i], xyz);
+
+                double x2 = xyz[0];
+                double y2 = xyz[1];
+                double z2 = xyz[2];
+
+                double scale = z2 * perspectiveFactor + 1;
+
+                if (scale < 0)
+                    continue;
+
+                x2 /= scale;
+                y2 /= scale;
+
+
+                if (isnan (x2) || isnan (y2) || isnan (z2) || isinf (x2) || isinf (y2) || isinf (z2))
+                    continue;
+
+                if (sw->logMode & 1) x2 = LOGFUN (x2);
+                if (sw->logMode & 2) y2 = LOGFUN (y2);
+                if (isnan (x2) || isnan (y2)) continue;
+                if (isinf (x2) || isinf (y2)) continue;
+
+                if (xmin > x2) xmin = x2;
+                if (xmax < x2) xmax = x2;
+                if (ymin > y2) ymin = y2;
+                if (ymax < y2) ymax = y2;
+            }
         }
+        else
+        {
+            double (*xys)[2];
+            uint32_t len;
+            stream_buffer_get (graph->sb, & xys, & len);
+
+            int firstIdx = (int) len - (int) graph->len;
+            if (firstIdx < 0 || graph->len == 0)
+                firstIdx = 0;
+
+            for (uint32_t i=firstIdx; i<len; i++)
+            {
+                double x = xys[i][0];
+                double y = xys[i][1];
+
+                if (sw->logMode & 1) x = LOGFUN (x);
+                if (sw->logMode & 2) y = LOGFUN (y);
+                if (isnan (x) || isnan (y)) continue;
+                if (isinf (x) || isinf (y)) continue;
+
+                if (xmin > x) xmin = x;
+                if (xmax < x) xmax = x;
+                if (ymin > y) ymin = y;
+                if (ymax < y) ymax = y;
+            }
+        }
+
 
         release_access (& graph->insertAccess);
         release_access (& graph->readAccess);
@@ -1109,8 +1172,6 @@ void rotate_z (double mtx[3][3], double theta, int order)
             mtx[i][j] = tmp[i][j];
 }
 
-double perspectiveFactor = 1;
-
 static void normalise_matrix (double mtx[3][3])
 {
     double norm;
@@ -1163,13 +1224,43 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             perspectiveFactor -= 0.01 * xf;
             if (perspectiveFactor < 0)
                 perspectiveFactor = 0;
-            print_debug ("perspectiveFactor: %f", perspectiveFactor);
+
+            rotate_z (sw->rotMatrix, -yf * 0.08, 1);
+            //print_debug ("perspectiveFactor: %f", perspectiveFactor);
         }
         else if (cs->pressedModifiers == KMOD_SHIFT)
         {
+            double center0[3] = {cx,cy,cz};
+            double centerRotated0[3];
+            matrix_vector_multiply (sw->rotMatrix, center0, centerRotated0);
+            double scale0 = centerRotated0[2] * perspectiveFactor + 1;
+            centerRotated0[0] /= scale0;
+            centerRotated0[1] /= scale0;
+
             rotate_x (sw->rotMatrix, -yf * 0.08, 1);
             rotate_y (sw->rotMatrix, -xf * 0.08, 1);
             normalise_matrix (sw->rotMatrix);
+
+            double center1[3] = {cx,cy,cz};
+            double centerRotated1[3];
+            matrix_vector_multiply (sw->rotMatrix, center1, centerRotated1);
+
+            double scale1 = centerRotated1[2] * perspectiveFactor + 1;
+            centerRotated1[0] /= scale1;
+            centerRotated1[1] /= scale1;
+
+            double dx = centerRotated1[0] - centerRotated0[0];
+            double dy = centerRotated1[1] - centerRotated0[1];
+            double dz = centerRotated1[2] - centerRotated0[2];
+            (void) dz;
+
+
+            CipArea *dr = & sw->dataRange;
+            dr->x0 += dx;
+            dr->x1 += dx;
+            dr->y0 += dy;
+            dr->y1 += dy;
+
             cs->forceRefresh = 1;
             return 1;
         }
@@ -1364,6 +1455,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  uint32_t w = hist->w;
                  uint32_t h = hist->h;
                  int *bins = hist->bins;
+                 double (*xyzSums)[3] = hist->xyzSums;
                  if (!bins)
                      exit_error ("unexpected null pointer");
                  CipArea binArea = {0, 0, w, h};
@@ -1432,11 +1524,22 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  }
                  else if (cs->trackingMode == 3)
                  {
-                     uint32_t x, y;
-                     if (find_closest_point (hist, x0, y0, & x, & y) >= 0)
+                     uint32_t xi, yi;
+                     if (find_closest_point (hist, x0, y0, & xi, & yi) >= 0)
                      {
-                         binPos.x = x;
-                         binPos.y = y;
+                         binPos.x = xi;
+                         binPos.y = yi;
+                         if (xyzSums)
+                         {
+                             int cnt  = bins   [yi * w + xi];
+                             double x = xyzSums[yi * w + xi][0] / cnt;
+                             double y = xyzSums[yi * w + xi][1] / cnt;
+                             double z = xyzSums[yi * w + xi][2] / cnt;
+                             print_debug ("xyz=[%f,%f,%f]", x,y,z);
+                             cx = x;
+                             cy = y;
+                             cz = z;
+                         }
                          transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
                          transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
                      }
@@ -1768,6 +1871,20 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                               }
                               break;
                           }
+                case 'x':
+                case 'y':
+                case 'z':
+                          {
+                              int s = key - 'x';
+                              if (cs->activeSw)
+                              {
+                                  double (*mtx)[3] = cs->activeSw->rotMatrix;
+                                  for (int i=0; i<3; i++)
+                                      for (int j=0; j<3; j++)
+                                          mtx[i][j] = (i == ((j + s) % 3));
+                              }
+                              break;
+                          }
                 default: unhandled = 1;
                }
            }
@@ -1902,6 +2019,7 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
+    attacher->hist.xyzSums = NULL;
     attacher->histogramFun = histogramFun ? histogramFun : is3d ? make_histogram_3d : make_histogram_2d;
     attacher->colorScheme = make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
@@ -2056,19 +2174,11 @@ void cip_graph_remove_points (CipGraph *graph)
 }
 
 
-static void matrix_vector_multiply (double mtx[3][3], double src[3], double dst[3])
-{
-    dst[0] = mtx[0][0] * src[0] + mtx[0][1] * src[1] + mtx[0][2] * src[2];
-    dst[1] = mtx[1][0] * src[0] + mtx[1][1] * src[1] + mtx[1][2] * src[2];
-    dst[2] = mtx[2][0] * src[0] + mtx[2][1] * src[1] + mtx[2][2] * src[2];
-}
-
-double (*rotMatrix)[3][3]; // FIXME: should not be needed
-
 static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
     uint64_t counter = 0;
     int *bins  = hist->bins;
+    double (*xyzSums)[3] = hist->xyzSums;
     uint32_t w = hist->w;
     uint32_t h = hist->h;
 
@@ -2097,9 +2207,15 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
     counter = graph->sb->counter;
     release_access (& graph->insertAccess);
 
+    assert (xyzSums);
     uint32_t nBins = w * h;
     for (uint32_t i=0; i<nBins; i++)
-        bins[i] = 0;
+    {
+        bins[i]       = 0;
+        xyzSums[i][0] = 0;
+        xyzSums[i][1] = 0;
+        xyzSums[i][2] = 0;
+    }
 
     double invXRange = 1.0 / (xmax - xmin);
     double invYRange = 1.0 / (ymax - ymin);
@@ -2129,7 +2245,12 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
             int xi = (int) ((w-1) * (x2 - xmin) * invXRange);
             int yi = (int) ((h-1) * (y2 - ymin) * invYRange);
             if (xi >= 0 && xi < w && yi >= 0 && yi < h)
-                bins[(uint32_t) yi*w + (uint32_t) xi]++;
+            {
+                bins   [(uint32_t) yi*w + (uint32_t) xi]++;
+                xyzSums[(uint32_t) yi*w + (uint32_t) xi][0] += xyzs[i][0];
+                xyzSums[(uint32_t) yi*w + (uint32_t) xi][1] += xyzs[i][1];
+                xyzSums[(uint32_t) yi*w + (uint32_t) xi][2] += xyzs[i][2];
+            }
         }
     }
     else
@@ -2735,6 +2856,11 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->w = subWidth;
                 hist->h = subHeight;
                 hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+
+                int is3d = (attacher->graph->sb->itemSize == sizeof (double) * 3);
+                if (is3d)
+                    hist->xyzSums = safe_calloc (hist->w * hist->h, sizeof (hist->xyzSums[0]));
+
                 updateHistogram = 1;
             }
             else if (hist->w != subWidth || hist->h != subHeight)
@@ -2743,6 +2869,13 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->w = subWidth;
                 hist->h = subHeight;
                 hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+
+                if (hist->xyzSums)
+                {
+                    free (hist->xyzSums);
+                    hist->xyzSums = safe_calloc (hist->w * hist->h, sizeof (hist->xyzSums[0]));
+                }
+
                 updateHistogram = 1;
             }
 

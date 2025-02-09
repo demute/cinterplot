@@ -54,6 +54,7 @@ typedef struct CipHistogram
     uint32_t w;
     uint32_t h;
     int *bins;
+    double (*xyzSums)[3];
 } CipHistogram;
 
 typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
