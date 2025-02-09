@@ -1042,14 +1042,7 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
     return 1;
 }
 
-double rotMatrix[3][3] =
-{
-    {1,0,0},
-    {0,1,0},
-    {0,0,1},
-};
-
-void matMul(double A[3][3], double B[3][3], double C[3][3])
+static void matMul(double A[3][3], double B[3][3], double C[3][3])
 {
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
@@ -1116,7 +1109,9 @@ void rotate_z (double mtx[3][3], double theta, int order)
             mtx[i][j] = tmp[i][j];
 }
 
-void normalise_matrix (double mtx[3][3])
+double perspectiveFactor = 1;
+
+static void normalise_matrix (double mtx[3][3])
 {
     double norm;
 
@@ -1143,8 +1138,6 @@ void normalise_matrix (double mtx[3][3])
     mtx[2][2] = mtx[0][0] * mtx[1][1] - mtx[1][0] * mtx[0][1];
 }
 
-
-
 static int on_mouse_wheel (CipState *cs, float xf, float yf)
 {
     CipSubWindow *sw = cs->activeSw;
@@ -1165,19 +1158,18 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             dr->y1 -= dy * (1-b);
             return 1;
         }
+        else if (cs->pressedModifiers == KMOD_ALT)
+        {
+            perspectiveFactor -= 0.01 * xf;
+            if (perspectiveFactor < 0)
+                perspectiveFactor = 0;
+            print_debug ("perspectiveFactor: %f", perspectiveFactor);
+        }
         else if (cs->pressedModifiers == KMOD_SHIFT)
         {
-            rotate_x (rotMatrix, -yf * 0.1, 1);
-            rotate_y (rotMatrix, xf * 0.1, 1);
-            normalise_matrix (rotMatrix);
-            cs->forceRefresh = 1;
-            return 1;
-        }
-        else if (cs->pressedModifiers == (KMOD_ALT))
-        {
-            rotate_x (rotMatrix, -xf * 0.1, 0);
-            rotate_y (rotMatrix, yf * 0.1, 0);
-            normalise_matrix (rotMatrix);
+            rotate_x (sw->rotMatrix, -yf * 0.08, 1);
+            rotate_y (sw->rotMatrix, -xf * 0.08, 1);
+            normalise_matrix (sw->rotMatrix);
             cs->forceRefresh = 1;
             return 1;
         }
@@ -2071,6 +2063,7 @@ static void matrix_vector_multiply (double mtx[3][3], double src[3], double dst[
     dst[2] = mtx[2][0] * src[0] + mtx[2][1] * src[1] + mtx[2][2] * src[2];
 }
 
+double (*rotMatrix)[3][3]; // FIXME: should not be needed
 
 static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
 {
@@ -2115,13 +2108,13 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
         for (uint32_t i=0; i<len; i++)
         {
             double xyz[3];
-            matrix_vector_multiply (rotMatrix, xyzs[i], xyz);
+            matrix_vector_multiply (*rotMatrix, xyzs[i], xyz);
 
             double x2 = xyz[0];
             double y2 = xyz[1];
             double z2 = xyz[2];
 
-            double scale = z2 + 3;
+            double scale = z2 * perspectiveFactor + 1;
 
             if (scale < 0)
                 continue;
@@ -2759,6 +2752,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->dataRange.x1 = sw->dataRange.x1;
                 hist->dataRange.y0 = sw->dataRange.y0;
                 hist->dataRange.y1 = sw->dataRange.y1;
+                rotMatrix = & sw->rotMatrix; // FIXME: implement correctly
                 attacher->lastGraphCounter = attacher->histogramFun (hist, attacher->graph, sw->logMode, attacher->plotType);
                 attacher->lastPlotType = attacher->plotType;
             }
@@ -2969,6 +2963,10 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
             sw->windowArea.x1 = (ci + 1) * dx;
             sw->windowArea.y0 = (ri    ) * dy;
             sw->windowArea.y1 = (ri + 1) * dy;
+
+            for (int i=0; i<3; i++)
+                for (int j=0; j<3; j++)
+                    sw->rotMatrix[i][j] = (i==j);
         }
     }
 
@@ -3242,15 +3240,6 @@ static int cinterplot_run_until_quit (CipState *cs)
         }
         if (cs->redraw && tsp - lastFrameTsp > periodTime)
         {
-            // FIXME: This is just some example rotation code, to be removed
-            if (!paused)
-            {
-                rotate_x (rotMatrix, 0.050, 0);
-                rotate_y (rotMatrix, 0.02, 1);
-                rotate_z (rotMatrix, 0.014, 1);
-                normalise_matrix (rotMatrix);
-            }
-
             cs->redraw = 0;
             cs->redrawing = 1;
             lastFrameTsp = tsp;

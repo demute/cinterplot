@@ -87,6 +87,7 @@ typedef struct CipSubWindow
     CipArea windowArea;
     CipArea selectedWindowArea0;
     CipArea selectedWindowArea1;
+    double rotMatrix[3][3];
 } CipSubWindow;
 
 #define KMOD_NONE  0
