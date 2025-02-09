@@ -3288,9 +3288,15 @@ void cip_save_png (CipState* cs, char* imageDir, int frameCounter, int format)
         surface = SDL_CreateRGBSurface(0, (int) w, (int) h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
     }
 
+    uint32_t *pixels = (uint32_t *) surface->pixels;
+    cs->plot_data (cs, pixels);
+
+    for (int i=0; i<w*h; i++)
+        pixels[i] |= 0xff000000;
+
     char file[256];
     char *dumpPrefix = "foo";
-    sprintf(file, "%s/%s-%06d-%dx%d", imageDir, dumpPrefix, frameCounter, cs->windowWidth, cs->windowHeight);
+    sprintf(file, "%s/%s-%06d-%dx%d", imageDir, dumpPrefix, frameCounter, w, h);
     char* suffix = & file[strlen (file)];
     static int j=0;
     sprintf (suffix, "%d.png", j++);
@@ -3299,6 +3305,8 @@ void cip_save_png (CipState* cs, char* imageDir, int frameCounter, int format)
 
     if (SDL_SavePNG (surface, file))
         printf("Unable to save png -- %s\n", SDL_GetError());
+    else 
+        print_debug ("saved image %s", file);
 }
 
 SDL_Surface *createSurfaceFromImage (char *file)
