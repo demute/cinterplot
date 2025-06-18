@@ -13,8 +13,8 @@ extern "C" {
 #define MAX_VARIABLE_LENGTH     16777216
 #define MAX_NUM_ATTACHED_GRAPHS 4096
 #define MAX_NUM_VERTICES        16
-#define CINTERPLOT_INIT_WIDTH   1100
-#define CINTERPLOT_INIT_HEIGHT  600
+#define CINTERPLOT_INIT_WIDTH   1320
+#define CINTERPLOT_INIT_HEIGHT  720
 #define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
 
