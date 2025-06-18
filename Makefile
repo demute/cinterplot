@@ -3,9 +3,12 @@ include $(TOPDIR)/Makefile.common
 
 .PHONY: all
 
- 
-CFLAGS  += $(shell $(PKGCONFIG) --cflags sdl2)
-LDFLAGS += $(shell $(PKGCONFIG) --libs sdl2)
+
+PKGS = sdl2 libpng
+PKGS_CFLAGS = $(foreach pkg,$(PKGS),--cflags $(pkg))
+PKGS_LIBS   = $(foreach pkg,$(PKGS),--libs $(pkg))
+CFLAGS     += $(shell $(PKGCONFIG) $(PKGS_CFLAGS))
+LDFLAGS    += $(shell $(PKGCONFIG) $(PKGS_LIBS))
 
 OBJS += cinterplot.o
 OBJS += stream_buffer.o
@@ -28,7 +31,7 @@ $(EXAMPLES):
 
 $(LIBDIR)/libcinterplot.dylib:$(OBJS)
 	mkdir -p $(LIBDIR)
-	$(CC) $(LDFLAGS) -o$@ $^ -shared -undefined suppress -flat_namespace -lpng
+	$(CC) $(LDFLAGS) -o$@ $^ -shared -undefined suppress -flat_namespace
 
 $(LIBDIR)/libcinterplot.so:$(OBJS)
 	mkdir -p $(LIBDIR)
