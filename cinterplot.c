@@ -465,10 +465,7 @@ int cip_autoscale_sw (CipSubWindow *sw)
             uint32_t len;
             stream_buffer_get (graph->sb, & xyzs, & len);
 
-            int firstIdx = (int) len - (int) graph->len;
-            if (firstIdx < 0 || graph->len == 0)
-                firstIdx = 0;
-
+            int firstIdx = (int) (graph->len && len > graph->len) ? len - graph->len : 0;
             for (uint32_t i=firstIdx; i<len; i++)
             {
                 double xyz[3];
@@ -2369,6 +2366,7 @@ static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t
                 isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
                 continue;
 
+            // NOTE: A straight line between two points is moving through different points depending on log mode
             int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
             int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
             int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
@@ -3157,6 +3155,7 @@ void cip_recursive_free_sub_windows (CipState *cs)
     cs->subWindows = NULL;
     cs->zoomEnabled = 0;
     cs->activeSw = NULL;
+    cs->mouseState = MOUSE_STATE_NONE;
     cinterplot_continue (cs);
 }
 
