@@ -3240,7 +3240,7 @@ static void signal_handler (int sig)
     }
     else
     {
-        printf ("Ctrl+C received, stopping program\n");
+        fprintf (stderr, "Ctrl+C received, stopping program\n");
         interrupted = 1;
     }
 }
