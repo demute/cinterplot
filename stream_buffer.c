@@ -133,12 +133,17 @@ int stream_buffer_get (StreamBuffer *sb, void *_buf, uint32_t *len)
 
 int stream_buffer_counter_to_index (StreamBuffer* sb, uint64_t counter)
 {
-    uint32_t len = (uint32_t) MIN (sb->counter, sb->len);
-    if (counter > sb->counter || (sb->counter - counter) >= len)
+    if (counter == 0)
         return -1;
 
+    if (counter > sb->counter || (sb->counter - counter) > sb->len)
+        return -1;
+
+    if (sb->counter < sb->len)
+        return (int) (counter - 1);
+
     uint32_t diff = (uint32_t) (sb->counter - counter);
-    return (int) (len - diff - 1);
+    return (int) (sb->len - diff - 1);
 }
 
 uint64_t stream_buffer_index_to_counter (StreamBuffer* sb, uint32_t index)
@@ -147,7 +152,7 @@ uint64_t stream_buffer_index_to_counter (StreamBuffer* sb, uint32_t index)
     int currentIndex = len - 1;
     int diff = currentIndex - (int) index;
     if (diff > len || diff < 0)
-        exit_error ("index %d out of range [0,%d)", index, len);
+        print_error ("index %d out of range [0,%d)", index, len);
 
     return sb->counter - (uint64_t) diff;
 }
