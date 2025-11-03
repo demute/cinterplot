@@ -5,7 +5,7 @@
 #define GET_DATA_POS_Y(hist,yi) (((double) yi / (hist->h-1)) * (hist->dataRange.y1 - hist->dataRange.y0) + hist->dataRange.y0)
 
 
-uint64_t y_of_x (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
+uint64_t y_of_x (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     int *bins  = hist->bins;
     uint32_t w = hist->w;
@@ -42,7 +42,7 @@ uint64_t y_of_x (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plo
     return 0;
 }
 
-uint64_t count_of_xy (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
+uint64_t count_of_xy (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     int *bins  = hist->bins;
     uint32_t w = hist->w;

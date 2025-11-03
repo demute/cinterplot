@@ -109,8 +109,8 @@ static int interrupted = 0;
 static int paused = 0;
 static CipArea storedDataRanges[10] = {0};
 
-static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
-static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
+static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
+static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 
 //static void *safe_malloc (size_t size)
 //{
@@ -1696,7 +1696,8 @@ static void cycle_line_type (CipSubWindow *sw, int dir)
              case '+': attacher->plotType = 'l'; break;
              case 'l': attacher->plotType = 't'; break;
              case 't': attacher->plotType = 's'; break;
-             case 's': attacher->plotType = 'p'; break;
+             case 's': attacher->plotType = 'w'; break;
+             case 'w': attacher->plotType = 'p'; break;
              default: print_error ("unknown line type '%c'", attacher->plotType); break;
             }
         }
@@ -1708,7 +1709,8 @@ static void cycle_line_type (CipSubWindow *sw, int dir)
             GraphAttacher *attacher = sw->attachedGraphs[i];
             switch (attacher->plotType)
             {
-             case 'p': attacher->plotType = 's'; break;
+             case 'w': attacher->plotType = 's'; break;
+             case 'p': attacher->plotType = 'w'; break;
              case '+': attacher->plotType = 'p'; break;
              case 'l': attacher->plotType = '+'; break;
              case 't': attacher->plotType = 'l'; break;
@@ -2171,7 +2173,7 @@ void cip_graph_remove_points (CipGraph *graph)
 }
 
 
-static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
+static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     uint64_t counter = 0;
     int *bins  = hist->bins;
@@ -2259,8 +2261,106 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
     return counter;
 }
 
-static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
+static uint64_t make_histogram_2d_waterfall (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
+    int    *bins   = hist->bins;
+    double *sums   = hist->sums;
+    double *counts = hist->counts;
+
+    uint32_t w = hist->w;
+    uint32_t h = hist->h;
+
+    double (*xys)[2];
+    uint32_t len;
+    uint64_t retCounter = 0;
+    int i0 = 0;
+
+    wait_for_access (& graph->insertAccess);
+    stream_buffer_get (graph->sb, & xys, & len);
+    if (lastGraphCounter)
+        i0 = stream_buffer_counter_to_index (graph->sb, lastGraphCounter + 1);
+    if (len)
+        retCounter = stream_buffer_index_to_counter (graph->sb, len - 1);
+    release_access (& graph->insertAccess);
+
+    if (lastGraphCounter && graph->sb->counter - lastGraphCounter > graph->sb->len)
+    {
+        lastGraphCounter = 0;
+        print_warning ("lastGraphCounter is behind, truncating");
+    }
+
+    if (i0 < 0)
+        return lastGraphCounter;
+
+    if (lastGraphCounter == 0)
+    {
+        i0 = len - 1;
+        int nRows = 0;
+        while (i0 > 0 && nRows <= h)
+        {
+            if (isnan (xys[i0][0]) || isnan (xys[i0][1]))
+                nRows++;
+            i0--;
+        }
+        memset (bins, 0x00, w*h*sizeof (bins[0]));
+    }
+
+    for (int i=i0; i<len; i++)
+    {
+        double *xy = xys[i];
+
+        if (isnan (xy[0]) || isnan (xy[1]))
+        {
+            // flush row
+            for (uint32_t yi=h-1; yi>0; yi--)
+                for (uint32_t xi=0; xi<w; xi++)
+                    bins[yi*w + xi] = bins[(yi-1) * w + xi];
+
+            // construct new row
+            for (uint32_t xi=0; xi<w; xi++)
+            {
+                if (hist->counts[xi] < 1e-5)
+                    bins[xi] = 0;
+                else
+                {
+                    double avg = sums[xi] / counts[xi];
+                    double yMin = hist->dataRange.y1;
+                    double yMax = hist->dataRange.y0;
+                    double w = (avg - yMin) / (yMax - yMin);
+                    bins[xi] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
+                    //print_debug ("sums[xi]: %f counts[xi]: %f yMin: %f, yMax: %f avg: %f => w: %f => bins[%d]: %d",
+                    //sums[xi], counts[xi], yMin, yMax, avg, w, xi, bins[xi]);
+                    sums[xi]   = 0.0;
+                    counts[xi] = 0.0;
+                }
+            }
+        }
+        else
+        {
+            double x = xy[0];
+            double y = xy[1];
+            if (logMode & 1) x = LOGFUN (x);
+            if (logMode & 2) y = LOGFUN (y);
+
+#define GET_XI(hist, xf) ((int) ((xf - hist->dataRange.x0) / (hist->dataRange.x1 - hist->dataRange.x0) * (hist->w-1)))
+            int xi = GET_XI (hist, x);
+
+            if (xi >= 0 && xi < w)
+            {
+                sums[xi]   += y;
+                counts[xi] += 1.0;
+            }
+        }
+    }
+
+    return retCounter;
+}
+
+static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
+{
+    if (plotType == 'w')
+        return make_histogram_2d_waterfall (hist, graph, logMode, plotType, lastGraphCounter);
+
     uint64_t counter = 0;
     int *bins  = hist->bins;
     uint32_t w = hist->w;
@@ -2842,31 +2942,42 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
             int updateHistogram =
                 (forceRefresh) ||
-                (attacher->lastGraphCounter != attacher->graph->sb->counter) ||
                 (attacher->lastPlotType != attacher->plotType) ||
                 (hist->dataRange.x0 != sw->dataRange.x0) ||
                 (hist->dataRange.x1 != sw->dataRange.x1) ||
                 (hist->dataRange.y0 != sw->dataRange.y0) ||
                 (hist->dataRange.y1 != sw->dataRange.y1);
 
+            if (updateHistogram)
+                attacher->lastGraphCounter = 0;
+
+            updateHistogram |= (attacher->lastGraphCounter != attacher->graph->sb->counter);
+
             if (hist->bins == NULL)
             {
                 hist->w = subWidth;
                 hist->h = subHeight;
-                hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                hist->bins   = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
+                hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
 
                 int is3d = (attacher->graph->sb->itemSize == sizeof (double) * 3);
                 if (is3d)
                     hist->xyzSums = safe_calloc (hist->w * hist->h, sizeof (hist->xyzSums[0]));
 
+                attacher->lastGraphCounter = 0;
                 updateHistogram = 1;
             }
             else if (hist->w != subWidth || hist->h != subHeight)
             {
                 free (hist->bins);
+                free (hist->sums);
+                free (hist->counts);
                 hist->w = subWidth;
                 hist->h = subHeight;
-                hist->bins = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                hist->bins   = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
+                hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
+                hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
 
                 if (hist->xyzSums)
                 {
@@ -2874,6 +2985,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                     hist->xyzSums = safe_calloc (hist->w * hist->h, sizeof (hist->xyzSums[0]));
                 }
 
+                attacher->lastGraphCounter = 0;
                 updateHistogram = 1;
             }
 
@@ -2884,7 +2996,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->dataRange.y0 = sw->dataRange.y0;
                 hist->dataRange.y1 = sw->dataRange.y1;
                 rotMatrix = & sw->rotMatrix; // FIXME: implement correctly
-                attacher->lastGraphCounter = attacher->histogramFun (hist, attacher->graph, sw->logMode, attacher->plotType);
+                attacher->lastGraphCounter = attacher->histogramFun (hist, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
                 attacher->lastPlotType = attacher->plotType;
             }
             else

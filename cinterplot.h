@@ -13,8 +13,8 @@ extern "C" {
 #define MAX_VARIABLE_LENGTH     16777216
 #define MAX_NUM_ATTACHED_GRAPHS 4096
 #define MAX_NUM_VERTICES        16
-#define CINTERPLOT_INIT_WIDTH   1320
-#define CINTERPLOT_INIT_HEIGHT  720
+#define CINTERPLOT_INIT_WIDTH   1000
+#define CINTERPLOT_INIT_HEIGHT  1000
 #define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
 
@@ -55,9 +55,11 @@ typedef struct CipHistogram
     uint32_t h;
     int *bins;
     double (*xyzSums)[3];
+    double *counts;
+    double *sums;
 } CipHistogram;
 
-typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType);
+typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 
 typedef struct GraphAttacher
 {

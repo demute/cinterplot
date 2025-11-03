@@ -6,7 +6,7 @@
 
 
 
-uint64_t count_of_xy (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType)
+uint64_t count_of_xy (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     int *bins  = hist->bins;
     uint32_t w = hist->w;
