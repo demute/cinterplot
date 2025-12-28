@@ -2317,21 +2317,26 @@ static uint64_t make_histogram_2d_waterfall (CipHistogram *hist, CipGraph *graph
                     bins[yi*w + xi] = bins[(yi-1) * w + xi];
 
             // construct new row
+            int lastNonZeroXi = -1;
             for (uint32_t xi=0; xi<w; xi++)
             {
-                if (hist->counts[xi] < 1e-5)
-                    bins[xi] = 0;
-                else
+                if (hist->counts[xi] > 1e-5)
                 {
                     double avg = sums[xi] / counts[xi];
                     double yMin = hist->dataRange.y1;
                     double yMax = hist->dataRange.y0;
                     double w = (avg - yMin) / (yMax - yMin);
-                    bins[xi] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
+
+                    if (lastNonZeroXi < 0)
+                        lastNonZeroXi = xi-1;
+                    for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
+                        bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
+
                     //print_debug ("sums[xi]: %f counts[xi]: %f yMin: %f, yMax: %f avg: %f => w: %f => bins[%d]: %d",
                     //sums[xi], counts[xi], yMin, yMax, avg, w, xi, bins[xi]);
                     sums[xi]   = 0.0;
                     counts[xi] = 0.0;
+                    lastNonZeroXi = xi;
                 }
             }
         }
