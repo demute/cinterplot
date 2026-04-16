@@ -14,6 +14,7 @@ OBJS += cinterplot.o
 OBJS += stream_buffer.o
 OBJS += oklab.o
 OBJS += savepng.o
+OBJS += macos_icon.o
 
 EXAMPLES = $(wildcard examples/*/.)
 .PHONY: run $(EXAMPLES)

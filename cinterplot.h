@@ -16,7 +16,7 @@ extern "C" {
 #define CINTERPLOT_INIT_WIDTH   1000
 #define CINTERPLOT_INIT_HEIGHT  1000
 #define CINTERPLOT_TITLE "Cinterplot"
-#define MAKE_COLOR(r,g,b) ((uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
+#define MAKE_COLOR(r,g,b) (0xff000000 | (uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
 
 typedef struct CipColorScheme
 {

@@ -9,6 +9,7 @@
 #include "font.c"
 #include "oklab.h"
 #include "savepng.h"
+#include "macos_icon.h"
 
 #define LOG101_VALUE 0.0099503308531681
 #define LOG101_VALUE_INV (1.0 / LOG101_VALUE)
@@ -108,6 +109,12 @@ extern const unsigned int font[256][8];
 static int interrupted = 0;
 static int paused = 0;
 static CipArea storedDataRanges[10] = {0};
+
+static volatile int processIconData = 0;
+static uint32_t *iconData = NULL;
+static volatile int iconWidth = 0;
+static volatile int iconHeight = 0;
+static volatile int iconWb = 0;
 
 static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
@@ -796,8 +803,53 @@ int cip_move (CipSubWindow *sw, double xf, double yf)
     return 1;
 }
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
+static char *make_title(char *buf, size_t size)
+{
+#ifdef __APPLE__
+    char path[4096];
+    uint32_t n = sizeof(path);
+
+    if (!buf || size == 0)
+        return NULL;
+
+    if (_NSGetExecutablePath(path, &n) != 0) {
+        buf[0] = '\0';
+        return buf;
+    }
+
+    char *name = strrchr(path, '/');
+    if (!name) {
+        snprintf(buf, size, "%s", path);
+        return buf;
+    }
+
+    *name++ = '\0';
+
+    char *dir = strrchr(path, '/');
+    dir = dir ? dir + 1 : path;
+
+    snprintf(buf, size, "%s:%s", dir, name);
+    return buf;
+#else
+    if (buf && size)
+        snprintf (buf, size, "%s", CINTERPLOT_TITLE);
+    return buf;
+#endif
+}
+
 static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
 {
+    if (iconData)
+    {
+        void *ptr = iconData;
+        iconData = NULL;
+        free (ptr);
+    }
+
     if (cs->texture)
         SDL_DestroyTexture (cs->texture);
     if (cs->renderer)
@@ -808,7 +860,10 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
         if (cs->window)
             SDL_DestroyWindow (cs->window);
 
-        cs->window = SDL_CreateWindow (CINTERPLOT_TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+        char title[256];
+        make_title (title, sizeof (title));
+
+        cs->window = SDL_CreateWindow (title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
                                        (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
         if (!cs->window)
             exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
@@ -824,6 +879,10 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
         exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
     SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+
+    iconData = malloc (sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
+    if (!iconData)
+        print_error ("failed to allocate iconData buffer");
 }
 
 int cip_set_fullscreen (CipState *cs, uint32_t fullscreen)
@@ -3320,6 +3379,16 @@ static void update_image (CipState *cs, SDL_Texture *texture, int init)
         memset (pixels, 0x11, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
     else
         cs->plot_data (cs, pixels);
+
+    if (iconData && processIconData == 0)
+    {
+        memcpy (iconData, pixels, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
+        iconWidth = cs->windowWidth;
+        iconHeight = cs->windowHeight;
+        iconWb     = wb;
+        processIconData = 1;
+    }
+
     SDL_UnlockTexture (texture);
 }
 
@@ -3599,6 +3668,23 @@ SDL_Surface *createSurfaceFromImage (char *file)
 }
 
 
+static void *iconUpdater (void *_data)
+{
+    UserData *data = _data;
+    CipState *cs = data->cs;
+
+    while (cs->running)
+    {
+        if (iconData && processIconData)
+        {
+            update_macos_icon (iconData, iconWidth, iconHeight, iconWb);
+            processIconData = 0;
+        }
+        else
+            usleep (1000);
+    }
+    return NULL;
+}
 
 int main (int argc, char **argv)
 {
@@ -3613,6 +3699,10 @@ int main (int argc, char **argv)
     UserData data = {argc, argv, cs};
     pthread_t userThread;
     if (pthread_create (& userThread, NULL, userMainCaller, & data))
+        exit_error ("could not create thread\n");
+
+    pthread_t iconUpdaterThread;
+    if (pthread_create (& iconUpdaterThread, NULL, iconUpdater, & data))
         exit_error ("could not create thread\n");
 
     int ret = cinterplot_run_until_quit (cs);
