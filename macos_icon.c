@@ -6,6 +6,7 @@
 #include <objc/objc.h>
 #include <objc/runtime.h>
 #include <objc/message.h>
+#include <objc/NSObjCRuntime.h>
 #include <stdlib.h>
 
 #define MAKE_COLOR(r,g,b) (0xff000000 | (uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
@@ -160,6 +161,8 @@ void update_macos_icon (const uint32_t *srcPixels, int srcWidth, int srcHeight, 
     CGColorSpaceRef   cs       = 0;
     CGDataProviderRef provider = 0;
     CGImageRef        cgimg    = 0;
+    id                img      = 0;
+    id                pool     = 0;
 
     int dstWidth  = 512;
     int dstHeight = 512;
@@ -196,6 +199,18 @@ void update_macos_icon (const uint32_t *srcPixels, int srcWidth, int srcHeight, 
     if (!cgimg)
         goto done;
 
+    Class NSAutoreleasePoolClass = (Class)objc_getClass("NSAutoreleasePool");
+    if (NSAutoreleasePoolClass)
+    {
+        id poolAlloc = ((id (*)(id, SEL))objc_msgSend)(
+          (id)NSAutoreleasePoolClass, sel_registerName("alloc"));
+        if (poolAlloc)
+        {
+            pool = ((id (*)(id, SEL))objc_msgSend)(
+              poolAlloc, sel_registerName("init"));
+        }
+    }
+
     Class NSAppClass = (Class)objc_getClass("NSApplication");
     Class NSImageClass = (Class)objc_getClass("NSImage");
     if (!NSAppClass || !NSImageClass)
@@ -206,8 +221,8 @@ void update_macos_icon (const uint32_t *srcPixels, int srcWidth, int srcHeight, 
     if (!app)
         goto done;
 
-    id img = ((id (*)(id, SEL))objc_msgSend)(
-        (id)NSImageClass, sel_registerName("alloc"));
+    img = ((id (*)(id, SEL))objc_msgSend)(
+      (id)NSImageClass, sel_registerName("alloc"));
     if (!img)
         goto done;
 
@@ -217,26 +232,40 @@ void update_macos_icon (const uint32_t *srcPixels, int srcWidth, int srcHeight, 
         .height = (double)dstHeight
     };
 
-    img = ((id (*)(id, SEL, CGImageRef, struct CGSizeC))objc_msgSend)(
-        img,
-        sel_registerName("initWithCGImage:size:"),
-        cgimg,
-        sz
-    );
-    if (!img)
-        goto done;
+    {
+        id tmp = ((id (*)(id, SEL, CGImageRef, struct CGSizeC))objc_msgSend)(
+          img,
+          sel_registerName("initWithCGImage:size:"),
+          cgimg,
+          sz
+          );
+        if (!tmp)
+        {
+            ((void (*)(id, SEL))objc_msgSend)(img, sel_registerName("release"));
+            img = 0;
+            goto done;
+        }
+        img = tmp;
+    }
 
     ((void (*)(id, SEL, id))objc_msgSend)(
-        app,
-        sel_registerName("setApplicationIconImage:"),
-        img
-    );
+      app,
+      sel_registerName("setApplicationIconImage:"),
+      img
+      );
+
+    ((void (*)(id, SEL))objc_msgSend)(img, sel_registerName("release"));
+    img = 0;
 
 done:
+    if (img)
+        ((void (*)(id, SEL))objc_msgSend)(img, sel_registerName("release"));
     if (cgimg) CGImageRelease(cgimg);
     if (provider) CGDataProviderRelease(provider);
     if (cs) CGColorSpaceRelease(cs);
     if (!provider && dstPixels) free(dstPixels);
+    if (pool)
+        ((void (*)(id, SEL))objc_msgSend)(pool, sel_registerName("drain"));
 }
 
 #else
