@@ -136,7 +136,7 @@ void cip_histogram_line (CipHistogram *hist, int x0, int y0, int x1, int y1);
 void cip_recursive_free_sub_windows (CipState *cs);
 void cip_remove_attached_graphs (CipState *cs, uint32_t wi);
 int  cip_force_refresh (CipState *cs);
-void cip_set_graph_name (CipGraph *graph, char *name);
+void cip_graph_set_name (CipGraph *graph, char *name);
 
 CipGraph *cip_graph_new (int dim, uint32_t len);
 void cip_graph_delete (CipGraph *graph);

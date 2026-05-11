@@ -3351,7 +3351,7 @@ void cip_recursive_free_sub_windows (CipState *cs)
     cinterplot_continue (cs);
 }
 
-void cip_set_graph_name (CipGraph *graph, char *name)
+void cip_graph_set_name (CipGraph *graph, char *name)
 {
     graph->name = strdup (name);
 }
