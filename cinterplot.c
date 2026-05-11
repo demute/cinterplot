@@ -2161,6 +2161,8 @@ void cip_graph_delete (CipGraph *graph)
         return;
 
     stream_buffer_destroy (graph->sb);
+    if (graph->name)
+        free (graph->name);
     free (graph);
 }
 
@@ -3128,21 +3130,35 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
         if (cs->activeSw)
         {
-            double mx = cs->activeSw->mouseDataPos.x;
-            double my = cs->activeSw->mouseDataPos.y;
+            CipSubWindow *sw = cs->activeSw;
+            double mx = sw->mouseDataPos.x;
+            double my = sw->mouseDataPos.y;
             char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
             char *trackingModeStr = tm[cs->trackingMode];
-            char *logModeStr      = lm[cs->activeSw->logMode];
+            char *logModeStr      = lm[sw->logMode];
             snprintf (text, sizeof (text), "(x,y) = (%0.8g, %0.8g) tracking:%s logMode:%s", mx, my, trackingModeStr, logModeStr);
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
 
-            char *title = cs->activeSw->title;
+            char *title = sw->title;
             if (title)
             {
                 snprintf (text, sizeof (text), "<%s>", title);
                 x0 = cs->windowWidth - 10;
                 draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, 0, text, 2, ALIGN_MR);
+            }
+
+            if (sw->selectedGraph < sw->numAttachedGraphs && sw->numAttachedGraphs > 1)
+            {
+                CipGraph *graph = sw->attachedGraphs[sw->selectedGraph]->graph;
+                if (graph->name)
+                {
+                    snprintf (text, sizeof (text), "<%s>", graph->name);
+                    x0 = cs->windowWidth - 10;
+                    int scale = 2;
+                    int fh = 8 * scale;
+                    draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0 - fh - 4, textColor, 0, text, scale, ALIGN_MR);
+                }
             }
         }
         else
@@ -3333,6 +3349,11 @@ void cip_recursive_free_sub_windows (CipState *cs)
     cs->activeSw = NULL;
     cs->mouseState = MOUSE_STATE_NONE;
     cinterplot_continue (cs);
+}
+
+void cip_set_graph_name (CipGraph *graph, char *name)
+{
+    graph->name = strdup (name);
 }
 
 void cip_set_sub_window_title (CipState *cs, uint32_t windowIndex, char *title)
