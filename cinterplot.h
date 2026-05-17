@@ -129,7 +129,7 @@ void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xm
 void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ymax, int setAsDefault);
 int  cip_set_grid_mode (CipState *cs, uint32_t windowIndex, uint32_t mode);
 int  cip_set_grid_mode_sw (CipSubWindow *sw, uint32_t mode);
-int  cip_set_log_mode_sw (CipSubWindow *sw, uint32_t mode);
+int  cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode);
 int  cip_set_log_mode (CipState *cs, uint32_t windowIndex, uint32_t mode);
 int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled);
 void cip_histogram_line (CipHistogram *hist, int x0, int y0, int x1, int y1);

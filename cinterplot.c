@@ -674,7 +674,32 @@ static void undo_zooming (CipSubWindow *sw)
     memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
 }
 
-int cip_set_log_mode_sw (CipSubWindow *sw, uint32_t mode)
+static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
+{
+    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
+    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
+    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
+    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
+}
+
+static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
+{
+    uint32_t w = cs->windowWidth;
+    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+
+    double xp = (double) (cs->bordered + cs->margin) / w;
+    double yp = (double) (cs->bordered + cs->margin) / h;
+
+    double epsw = 1.0 / cs->windowWidth;
+    double epsh = 1.0 / cs->windowHeight;
+
+    dst->x0 = src->x0 + xp;
+    dst->y0 = src->y0 + yp;
+    dst->x1 = src->x1 - xp - epsw;
+    dst->y1 = src->y1 - yp - epsh;
+}
+
+int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
 {
     if (!sw)
         return 0;
@@ -687,13 +712,19 @@ int cip_set_log_mode_sw (CipSubWindow *sw, uint32_t mode)
     int xWantsLog = mode & 1;
     int yWantsLog = mode & 2;
 
+    CipArea activeArea;
+    CipArea zoomWindowArea = {0,0,1,1};
+    get_active_area (cs, & zoomWindowArea, & activeArea);
+    CipPosition winPos;
+    transform_pos (& sw->dataRange, & sw->mouseDataPos, & activeArea, & winPos);
+
     if (xIsLog != xWantsLog)
     {
         if (xWantsLog)
         {
+            sw->mouseDataPos.x = LOGFUN (sw->mouseDataPos.x);
             sw->dataRange.x0   = LOGFUN (sw->dataRange.x0);
             sw->dataRange.x1   = LOGFUN (sw->dataRange.x1);
-            sw->mouseDataPos.x = LOGFUN (sw->mouseDataPos.x);
         }
         else
         {
@@ -720,37 +751,21 @@ int cip_set_log_mode_sw (CipSubWindow *sw, uint32_t mode)
     }
 
     sw->logMode = mode & 3;
+
+    if (isnan (sw->dataRange.x0) || isnan (sw->dataRange.x1) ||
+        isnan (sw->dataRange.y0) || isnan (sw->dataRange.y1))
+    {
+        cip_autoscale_sw (sw);
+    }
+
+    transform_pos (& activeArea, & winPos, & sw->dataRange, & sw->mouseDataPos);
+
     return 1;
 }
 
 int cip_set_log_mode (CipState *cs, uint32_t windowIndex, uint32_t mode)
 {
-    return cip_set_log_mode_sw (cip_get_sub_window (cs, windowIndex), mode);
-}
-
-static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
-{
-    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
-    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
-    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
-    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
-}
-
-static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
-{
-    uint32_t w = cs->windowWidth;
-    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-
-    double xp = (double) (cs->bordered + cs->margin) / w;
-    double yp = (double) (cs->bordered + cs->margin) / h;
-
-    double epsw = 1.0 / cs->windowWidth;
-    double epsh = 1.0 / cs->windowHeight;
-
-    dst->x0 = src->x0 + xp;
-    dst->y0 = src->y0 + yp;
-    dst->x1 = src->x1 - xp - epsw;
-    dst->y1 = src->y1 - yp - epsh;
+    return cip_set_log_mode_sw (cs, cip_get_sub_window (cs, windowIndex), mode);
 }
 
 static void sub_window_change (CipState *cs, int dir)
@@ -1864,7 +1879,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case 'h': toggle_help (cs); break;
                 case 'i': cip_save_png (cs, ".", cs->frameCounter, 0); break;
                 case 'm': cip_set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
-                case 'o': if (cs->activeSw) {cip_set_log_mode_sw (cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
+                case 'o': if (cs->activeSw) {cip_set_log_mode_sw (cs, cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
                 case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
                 case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); break;
                 case 'q': cip_quit (cs); break;
