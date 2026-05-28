@@ -2637,14 +2637,34 @@ enum {
     ALIGN_BL, ALIGN_BC, ALIGN_BR
 };
 
-static void lighten_pixel (uint32_t *pixel, int amount)
+static void lighten_pixel (uint32_t *pixel, double amount)
+{
+    int b =  *pixel        & 0xff;
+    int g = ((*pixel) >> 8)  & 0xff;
+    int r = ((*pixel) >> 16) & 0xff;
+    r = (int) (255 - (255 - r) * (1.0 - amount));
+    g = (int) (255 - (255 - g) * (1.0 - amount));
+    b = (int) (255 - (255 - b) * (1.0 - amount));
+
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+
+    *pixel = MAKE_COLOR (r,g,b);
+}
+
+static void darken_pixel (uint32_t *pixel, double amount)
 {
     int b =  *pixel        & 0xff;
     int g = (*pixel >> 8)  & 0xff;
     int r = (*pixel >> 16) & 0xff;
-    r = (int) (r + amount);
-    g = (int) (g + amount);
-    b = (int) (b + amount);
+    r = (int) (r * (1.0 - amount));
+    g = (int) (g * (1.0 - amount));
+    b = (int) (b * (1.0 - amount));
 
     if (r > 255) r = 255;
     if (g > 255) g = 255;
@@ -2744,7 +2764,7 @@ static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0
                         else if (!transparent)
                         {
                             uint32_t *pixel = & pixels[(y+yi)*w + (x+xi)];
-                            lighten_pixel (pixel, -100);
+                            darken_pixel (pixel, 0.5);
                         }
             }
             x += fw + spacing;
@@ -3100,25 +3120,6 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                     uint32_t x = x0 + xi;
                     uint32_t y = y0 + yi;
 
-                    int regionSelected;
-                    if (isnan (sw->selectedWindowArea1.x0) || isnan (sw->selectedWindowArea1.x1) ||
-                        isnan (sw->selectedWindowArea1.y0) || isnan (sw->selectedWindowArea1.y1))
-                    {
-                        regionSelected = 0;
-                    }
-                    else
-                    {
-
-                        uint32_t x0 = (uint32_t) (sw->selectedWindowArea1.x0 * w);
-                        uint32_t y0 = (uint32_t) (sw->selectedWindowArea1.y0 * h);
-                        uint32_t x1 = (uint32_t) (sw->selectedWindowArea1.x1 * w);
-                        uint32_t y1 = (uint32_t) (sw->selectedWindowArea1.y1 * h);
-                        if (x0 <= x && x <= x1 && y0 <= y && y <= y1)
-                            regionSelected = 1;
-                        else
-                            regionSelected = 0;
-                    }
-
                     uint32_t *pixel = & pixels[y*w + x];
                     int cnt = bins[yi * subWidth + xi];
                     if (cs->crosshairEnabled && sw == cs->activeSw && (x == mousePosX || y == mousePosY))
@@ -3128,9 +3129,32 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                         uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
                         *pixel = color;
                     }
+                }
+            }
+        }
 
-                    if (regionSelected)
-                        lighten_pixel (pixel, 50);
+        if (isfinite (sw->selectedWindowArea1.x0) &&
+            isfinite (sw->selectedWindowArea1.x1) &&
+            isfinite (sw->selectedWindowArea1.y0) &&
+            isfinite (sw->selectedWindowArea1.y1))
+        {
+            int sx0 = (int) (sw->selectedWindowArea1.x0 * w - cs->margin);
+            int sy0 = (int) (sw->selectedWindowArea1.y0 * h - cs->margin);
+            int sx1 = (int) (sw->selectedWindowArea1.x1 * w - cs->margin);
+            int sy1 = (int) (sw->selectedWindowArea1.y1 * h - cs->margin);
+
+            for (int yi=sy0; yi<=sy1; yi++)
+            {
+                for (int xi=sx0; xi<=sx1;  xi++)
+                {
+                    int x = x0 + xi;
+                    int y = y0 + yi;
+
+                    if (x < 0 || x >= w || y < 0 || y >= h)
+                        continue;
+
+                    uint32_t *pixel = & pixels[y*w + x];
+                    lighten_pixel (pixel, 0.2);
                 }
             }
         }
