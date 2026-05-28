@@ -303,7 +303,7 @@ static void delete_color_scheme (CipColorScheme *scheme)
     }
 }
 
-static CipColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
+CipColorScheme *cip_make_color_scheme (char *spec, uint32_t nLevels)
 {
     CipColorScheme *scheme = safe_calloc (1, sizeof (*scheme));
     scheme->colors      = safe_calloc (nLevels, sizeof (scheme->colors[0]));
@@ -416,7 +416,7 @@ static CipColorScheme *make_color_scheme (char *spec, uint32_t nLevels)
 void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels)
 {
     CipColorScheme *oldColorScheme = attacher->colorScheme;
-    attacher->colorScheme = make_color_scheme (spec, nLevels);
+    attacher->colorScheme = cip_make_color_scheme (spec, nLevels);
 
     if (oldColorScheme)
     {
@@ -2094,7 +2094,7 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
     attacher->hist.bins = NULL;
     attacher->hist.xyzSums = NULL;
     attacher->histogramFun = histogramFun ? histogramFun : is3d ? make_histogram_3d : make_histogram_2d;
-    attacher->colorScheme = make_color_scheme (colorSpec, numColors);
+    attacher->colorScheme = cip_make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
     sw->attachedGraphs[sw->numAttachedGraphs] = attacher;
