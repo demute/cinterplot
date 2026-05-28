@@ -146,6 +146,7 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
 int  cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex);
 void cip_graph_remove_points (CipGraph *graph);
 CipColorScheme *cip_make_color_scheme (char *spec, uint32_t nLevels);
+void cip_delete_color_scheme (CipColorScheme *scheme);
 
 int  cip_is_running (CipState *cs);
 int  cip_quit (CipState *cs);

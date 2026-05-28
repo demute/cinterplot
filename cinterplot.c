@@ -294,7 +294,7 @@ static int get_color_by_name (char *str, int *r, int *g, int *b)
     return -1;
 }
 
-static void delete_color_scheme (CipColorScheme *scheme)
+void cip_delete_color_scheme (CipColorScheme *scheme)
 {
     if (scheme)
     {
@@ -2129,7 +2129,7 @@ int cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex)
             // delete this attacher
             //print_debug ("freeing attacher %p", attacher);
             attacher->graph = NULL;
-            delete_color_scheme (attacher->colorScheme);
+            cip_delete_color_scheme (attacher->colorScheme);
             free (attacher);
             removed = 1;
         }
