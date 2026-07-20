@@ -3301,6 +3301,43 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
         uint32_t x0, y0, x1, y1;
 
+        // fading for fun
+        //if (0)
+        //{
+        //    uint32_t *p2 = cs->pixelCache2;
+        //    memcpy (p2, pixels, w * h * sizeof (pixels[0]));
+
+        //    double a = 0.707;
+        //    double cw = 0.3;
+        //    double nw = (a - cw) / 4;
+
+        //    for (uint32_t y=y0+1; y<y1-1; y++)
+        //        for (uint32_t x=x0+1; x<x1-1;  x++)
+        //        {
+        //            uint8_t *c = (uint8_t *) & p2[(y    )*w + (x    )];
+        //            uint8_t *l = (uint8_t *) & p2[(y    )*w + (x - 1)];
+        //            uint8_t *r = (uint8_t *) & p2[(y    )*w + (x + 1)];
+        //            uint8_t *u = (uint8_t *) & p2[(y - 1)*w + (x    )];
+        //            uint8_t *d = (uint8_t *) & p2[(y + 1)*w + (x    )];
+        //            uint8_t *p = (uint8_t *) & pixels[y*w + x];
+
+
+        //            for (int i=0; i<4; i++)
+        //                p[i] = cw * c[i] + nw * ((uint32_t) l[i] + (uint32_t) r[i] + (uint32_t) u[i] + (uint32_t) d[i]);
+        //        }
+
+        //    //for (uint32_t y=y0; y<y1; y++)
+        //    //    for (uint32_t x=x0; x<x1;  x++)
+        //    //    {
+        //    //        double a = 0.97;
+        //    //        uint8_t *p = (uint8_t *) & pixels[y*w + x];
+        //    //        p[0] *= a;
+        //    //        p[1] *= a;
+        //    //        p[2] *= a;
+        //    //        p[3] *= a;
+        //    //    }
+        //}
+
         if (cs->zoomEnabled)
         {
             if (cs->activeSw != sw)
