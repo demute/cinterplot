@@ -39,6 +39,8 @@ typedef struct CipArea
     double y0;
     double x1;
     double y1;
+    double z0;
+    double z1;
 } CipArea;
 
 typedef struct CipPosition
@@ -50,13 +52,14 @@ typedef struct CipPosition
 typedef struct CipHistogram
 {
     CipArea dataRange;
+    double rotMatrix[3][3];
 
     uint32_t w;
     uint32_t h;
     int *bins;
-    double (*xyzSums)[3];
     double *counts;
     double *sums;
+    double (*origXYZ)[3];
 } CipHistogram;
 
 typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
@@ -120,7 +123,7 @@ int  cip_autoscale_sw (CipSubWindow *sw);
 int  cip_set_crosshair_enabled (CipState *cs, uint32_t enabled);
 void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels);
 int  cip_set_fullscreen (CipState *cs, uint32_t fullscreen);
-int  cip_zoom (CipSubWindow *sw, double xf, double yf);
+int  cip_zoom (CipSubWindow *sw, double xf, double yf, double zf);
 int  cip_move (CipSubWindow *sw, double xf, double yf);
 int  cip_set_tracking_mode (CipState *cs, uint32_t mode);
 int  cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin);

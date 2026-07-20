@@ -19,9 +19,10 @@
 #define LOGFUN log101
 #define EXPFUN exp101
 
-double cx = 0;
-double cy = 0;
-double cz = 0;
+static double mmx = 0;
+static double mmy = 0;
+static double mmz = 0;
+static double perspectiveFactor = 0.5;
 
 typedef struct CipState
 {
@@ -56,6 +57,7 @@ typedef struct CipState
     SDL_Window   *window;
     SDL_Renderer *renderer;
     SDL_Texture  *texture;
+    uint32_t     *pixelCache;
 
     uint32_t windowWidth;
     uint32_t windowHeight;
@@ -437,8 +439,13 @@ static void matrix_vector_multiply (double mtx[3][3], double src[3], double dst[
     dst[2] = mtx[2][0] * src[0] + mtx[2][1] * src[1] + mtx[2][2] * src[2];
 }
 
-double (*rotMatrix)[3][3]; // FIXME: should not be needed
-double perspectiveFactor = 0.15;
+static void matrix_transpose_vector_multiply (double mtx[3][3], double src[3], double dst[3])
+{
+    dst[0] = mtx[0][0] * src[0] + mtx[1][0] * src[1] + mtx[2][0] * src[2];
+    dst[1] = mtx[0][1] * src[0] + mtx[1][1] * src[1] + mtx[2][1] * src[2];
+    dst[2] = mtx[0][2] * src[0] + mtx[1][2] * src[1] + mtx[2][2] * src[2];
+}
+
 
 
 static void cycle_graph_order (CipState *cs)
@@ -456,6 +463,8 @@ int cip_autoscale_sw (CipSubWindow *sw)
     double xmax = -DBL_MAX;
     double ymin =  DBL_MAX;
     double ymax = -DBL_MAX;
+    double zmin =  DBL_MAX;
+    double zmax = -DBL_MAX;
 
     GraphAttacher **ag = sw->attachedGraphs;
     for (int i=0; i<sw->numAttachedGraphs; i++)
@@ -475,34 +484,25 @@ int cip_autoscale_sw (CipSubWindow *sw)
             int firstIdx = (int) (graph->len && len > graph->len) ? len - graph->len : 0;
             for (uint32_t i=firstIdx; i<len; i++)
             {
-                double xyz[3];
-                matrix_vector_multiply (*rotMatrix, xyzs[i], xyz);
+                double x = xyzs[i][0];
+                double y = xyzs[i][1];
+                double z = xyzs[i][2];
 
-                double x2 = xyz[0];
-                double y2 = xyz[1];
-                double z2 = xyz[2];
+                if (sw->logMode & 1) x = LOGFUN (x);
+                if (sw->logMode & 2) y = LOGFUN (y);
+                if (sw->logMode & 4) z = LOGFUN (z);
+                if (isnan (x) || isinf (x)) continue;
+                if (isnan (y) || isinf (y)) continue;
+                if (isnan (z) || isinf (z)) continue;
 
-                double scale = z2 * perspectiveFactor + 1;
+                if (xmin > x) xmin = x;
+                if (xmax < x) xmax = x;
 
-                if (scale < 0)
-                    continue;
+                if (ymin > y) ymin = y;
+                if (ymax < y) ymax = y;
 
-                x2 /= scale;
-                y2 /= scale;
-
-
-                if (isnan (x2) || isnan (y2) || isnan (z2) || isinf (x2) || isinf (y2) || isinf (z2))
-                    continue;
-
-                if (sw->logMode & 1) x2 = LOGFUN (x2);
-                if (sw->logMode & 2) y2 = LOGFUN (y2);
-                if (isnan (x2) || isnan (y2)) continue;
-                if (isinf (x2) || isinf (y2)) continue;
-
-                if (xmin > x2) xmin = x2;
-                if (xmax < x2) xmax = x2;
-                if (ymin > y2) ymin = y2;
-                if (ymax < y2) ymax = y2;
+                if (zmin > z) zmin = z;
+                if (zmax < z) zmax = z;
             }
         }
         else
@@ -542,13 +542,17 @@ int cip_autoscale_sw (CipSubWindow *sw)
 
     double dx = xmax - xmin;
     double dy = ymax - ymin;
-    double mx = dx * 0.0;
-    double my = dy * 0.05;
+    double dz = zmax - zmin;
+    double mx = dx * 0.025;
+    double my = dy * 0.025;
+    double mz = dz * 0.025;
 
     sw->dataRange.x0 = xmin - mx;
-    sw->dataRange.y0 = ymax + my;
     sw->dataRange.x1 = xmax + mx;
+    sw->dataRange.y0 = ymax + my;
     sw->dataRange.y1 = ymin - my;
+    sw->dataRange.z0 = zmin - mz;
+    sw->dataRange.z1 = zmax + mz;
 
     return 1;
 }
@@ -704,13 +708,15 @@ int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
     if (!sw)
         return 0;
 
-    mode &= 3;
+    mode &= 7;
 
     int xIsLog = sw->logMode & 1;
     int yIsLog = sw->logMode & 2;
+    int zIsLog = sw->logMode & 4;
 
     int xWantsLog = mode & 1;
     int yWantsLog = mode & 2;
+    int zWantsLog = mode & 4;
 
     CipArea activeArea;
     CipArea zoomWindowArea = {0,0,1,1};
@@ -750,16 +756,32 @@ int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
         }
     }
 
-    sw->logMode = mode & 3;
+    if (zIsLog != zWantsLog)
+    {
+        if (zWantsLog)
+        {
+            sw->dataRange.z0   = LOGFUN (sw->dataRange.z0);
+            sw->dataRange.z1   = LOGFUN (sw->dataRange.z1);
+            //sw->mouseDataPos.z = LOGFUN (sw->mouseDataPos.z);
+        }
+        else
+        {
+            sw->dataRange.z0   = EXPFUN (sw->dataRange.z0);
+            sw->dataRange.z1   = EXPFUN (sw->dataRange.z1);
+            //sw->mouseDataPos.z = EXPFUN (sw->mouseDataPos.z);
+        }
+    }
+
+    sw->logMode = mode & 7;
 
     if (isnan (sw->dataRange.x0) || isnan (sw->dataRange.x1) ||
-        isnan (sw->dataRange.y0) || isnan (sw->dataRange.y1))
+        isnan (sw->dataRange.y0) || isnan (sw->dataRange.y1) ||
+        isnan (sw->dataRange.z0) || isnan (sw->dataRange.z1))
     {
         cip_autoscale_sw (sw);
     }
 
     transform_pos (& activeArea, & winPos, & sw->dataRange, & sw->mouseDataPos);
-
     return 1;
 }
 
@@ -790,17 +812,20 @@ static void sub_window_change (CipState *cs, int dir)
     cs->activeSw = & cs->subWindows[index];
 }
 
-int cip_zoom (CipSubWindow *sw, double xf, double yf)
+int cip_zoom (CipSubWindow *sw, double xf, double yf, double zf)
 {
     if (!sw)
         return 0;
     CipArea *dr = & sw->dataRange;
     double dx = (dr->x1 - dr->x0) * xf;
     double dy = (dr->y1 - dr->y0) * yf;
+    double dz = (dr->z1 - dr->z0) * zf;
     dr->x0 += dx;
     dr->x1 -= dx;
     dr->y0 += dy;
     dr->y1 -= dy;
+    dr->z0 += dz;
+    dr->z1 -= dz;
     return 1;
 }
 
@@ -809,12 +834,18 @@ int cip_move (CipSubWindow *sw, double xf, double yf)
     if (!sw)
         return 0;
     CipArea *dr = & sw->dataRange;
-    double dx = (dr->x1 - dr->x0) * xf;
-    double dy = (dr->y1 - dr->y0) * yf;
-    dr->x0 -= dx;
-    dr->x1 -= dx;
-    dr->y0 -= dy;
-    dr->y1 -= dy;
+    double pdx = (dr->x1 - dr->x0) * xf;
+    double pdy = (dr->y1 - dr->y0) * yf;
+    double pdxyz[3] = {pdx, pdy, 0};
+    double xyz[3];
+    matrix_transpose_vector_multiply (sw->rotMatrix, pdxyz, xyz);
+
+    dr->x0 -= xyz[0];
+    dr->x1 -= xyz[0];
+    dr->y0 -= xyz[1];
+    dr->y1 -= xyz[1];
+    dr->z0 -= xyz[2];
+    dr->z1 -= xyz[2];
     return 1;
 }
 
@@ -867,6 +898,8 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
 
     if (cs->texture)
         SDL_DestroyTexture (cs->texture);
+    if (cs->pixelCache)
+        free (cs->pixelCache);
     if (cs->renderer)
         SDL_DestroyRenderer (cs->renderer);
 
@@ -893,12 +926,17 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
     if (!cs->texture)
         exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
+    cs->pixelCache = calloc (cs->windowWidth * cs->windowHeight, sizeof (cs->pixelCache[0]));
+    if (!cs->pixelCache)
+        exit_error ("pixelCache could not be created");
+
     SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 
     iconData = malloc (sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
     if (!iconData)
         print_error ("failed to allocate iconData buffer");
 }
+
 
 int cip_set_fullscreen (CipState *cs, uint32_t fullscreen)
 {
@@ -1278,16 +1316,144 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         if (cs->pressedModifiers == KMOD_GUI)
         {
             // zooming
-            CipArea *dr = & sw->dataRange;
-            double a = (sw->mouseDataPos.x - dr->x0) / (dr->x1 - dr->x0);
-            double b = (sw->mouseDataPos.y - dr->y0) / (dr->y1 - dr->y0);
+            //CipArea *dr = & sw->dataRange;
+            //double a = (sw->mouseDataPos.x - dr->x0) / (dr->x1 - dr->x0);
+            //double b = (sw->mouseDataPos.y - dr->y0) / (dr->y1 - dr->y0);
 
-            double dx = -0.05 * (dr->x1 - dr->x0) * xf;
-            double dy = -0.05 * (dr->y1 - dr->y0) * yf;
-            dr->x0 += dx * a;
-            dr->x1 -= dx * (1-a);
-            dr->y0 += dy * b;
-            dr->y1 -= dy * (1-b);
+            //double dx = -0.05 * (dr->x1 - dr->x0) * xf;
+            //double dy = -0.05 * (dr->y1 - dr->y0) * yf;
+            //dr->x0 += dx * a;
+            //dr->x1 -= dx * (1-a);
+            //dr->y0 += dy * b;
+            //dr->y1 -= dy * (1-b);
+            //return 1;
+
+            CipSubWindow *sw = cs->activeSw;
+            CipArea *dr = & sw->dataRange;
+
+            double mouseProjected0[3];
+            {
+                double xmin = dr->x0;
+                double xmax = dr->x1;
+                double ymin = dr->y0;
+                double ymax = dr->y1;
+                double zmin = dr->z0;
+                double zmax = dr->z1;
+                double cx = 0.5 * (xmax + xmin);
+                double cy = 0.5 * (ymax + ymin);
+                double cz = 0.5 * (zmax + zmin);
+
+                double sx = 1.0 / (xmax - xmin);
+                double sy = 1.0 / (ymax - ymin);
+                double sz = 1.0 / (zmax - zmin);
+
+                double mouseRelxyz[3] =
+                {
+                    sx * (mmx - cx),
+                    sy * (mmy - cy),
+                    sz * (mmz - cz),
+                };
+
+                print_debug ("%f %f %f", mouseRelxyz[0],mouseRelxyz[1],mouseRelxyz[2]);
+                print_debug ("%f %f %f", cx, cy, cz);
+                print_debug ("%f %f %f", sx, sy, sz);
+
+                matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected0);
+                double scale0 = mouseProjected0[2] * perspectiveFactor + 1;
+                mouseProjected0[0] /= scale0;
+                mouseProjected0[1] /= scale0;
+
+                print_debug ("%f %f %f", mouseProjected0[0],mouseProjected0[1],mouseProjected0[2]);
+            }
+
+            double xy[2] = {xf, yf};
+            double ss[3] = {0};
+            for (int i=0; i<2; i++)
+            {
+                double dxyz[3];
+                double pxyz[3] = {0};
+                pxyz[i] = -0.025 * xy[i];
+
+                print_debug ("%f %f %f", pxyz[0], pxyz[1], pxyz[2]);
+
+                matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, dxyz);
+
+                print_debug ("%f %f %f", dxyz[0], dxyz[1], dxyz[2]);
+
+                dxyz[0] *= (dr->x1 - dr->x0);
+                dxyz[1] *= (dr->y1 - dr->y0);
+                dxyz[2] *= (dr->z1 - dr->z0);
+
+                print_debug ("%f %f %f", dxyz[0], dxyz[1], dxyz[2]);
+
+                ss[0] += fabs (dxyz[0]) * SIGN (pxyz[i]);
+                ss[1] += fabs (dxyz[1]) * SIGN (pxyz[i]);
+                ss[2] += fabs (dxyz[2]) * SIGN (pxyz[i]);
+            }
+
+            dr->x0 += ss[0];
+            dr->x1 -= ss[0];
+            dr->y0 -= ss[1];
+            dr->y1 += ss[1];
+            dr->z0 += ss[2];
+            dr->z1 -= ss[2];
+
+            double xmin = dr->x0;
+            double xmax = dr->x1;
+            double ymin = dr->y0;
+            double ymax = dr->y1;
+            double zmin = dr->z0;
+            double zmax = dr->z1;
+            double cx = 0.5 * (xmax + xmin);
+            double cy = 0.5 * (ymax + ymin);
+            double cz = 0.5 * (zmax + zmin);
+
+            double sx = 1.0 / (xmax - xmin);
+            double sy = 1.0 / (ymax - ymin);
+            double sz = 1.0 / (zmax - zmin);
+
+            double mouseProjected1[3];
+            double scale1;
+            {
+
+                double mouseRelxyz[3] =
+                {
+                    sx * (mmx - cx),
+                    sy * (mmy - cy),
+                    sz * (mmz - cz),
+                };
+
+                print_debug ("%f %f %f", mouseRelxyz[0],mouseRelxyz[1],mouseRelxyz[2]);
+
+                matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected1);
+                scale1 = mouseProjected1[2] * perspectiveFactor + 1;
+                mouseProjected1[0] /= scale1;
+                mouseProjected1[1] /= scale1;
+            }
+            double pdx = mouseProjected1[0] - mouseProjected0[0];
+            double pdy = mouseProjected1[1] - mouseProjected0[1];
+
+            pdx *= scale1;
+            pdy *= scale1;
+
+            double pxyz[3] = {pdx, pdy, 0};
+            double xyz[3];
+            matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, xyz);
+
+            dr->x0 += xyz[0] / sx;
+            dr->x1 += xyz[0] / sx;
+            dr->y0 += xyz[1] / sy;
+            dr->y1 += xyz[1] / sy;
+            dr->z0 += xyz[2] / sz;
+            dr->z1 += xyz[2] / sz;
+
+            print_debug ("[%f,%f] [%f,%f] [%f,%f]",
+                         dr->x0,
+                         dr->x1,
+                         dr->y0,
+                         dr->y1,
+                         dr->z0,
+                         dr->z1);
             return 1;
         }
         else if (cs->pressedModifiers == KMOD_ALT)
@@ -1295,42 +1461,106 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             perspectiveFactor -= 0.01 * xf;
             if (perspectiveFactor < 0)
                 perspectiveFactor = 0;
+            cs->forceRefresh = 1; // FIXME: put perspectiveFactor on the right place
 
-            rotate_z (sw->rotMatrix, -yf * 0.08, 1);
-            //print_debug ("perspectiveFactor: %f", perspectiveFactor);
+            print_debug ("perspectiveFactor: %f", perspectiveFactor);
+
+            if (1)
+            {
+                // moving
+                CipSubWindow *sw = cs->activeSw;
+                CipArea *dr = & sw->dataRange;
+
+                double pdz = yf * 0.01;
+
+                CipArea activeArea;
+                CipArea zoomWindowArea = {0,0,1,1};
+                if (cs->zoomEnabled)
+                    get_active_area (cs, & zoomWindowArea, & activeArea);
+                else
+                    get_active_area (cs, & sw->windowArea, & activeArea);
+
+                double pxyz[3] = {0,0,pdz};
+                double xyz[3];
+                matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, xyz);
+
+                xyz[0] *= (dr->x1 - dr->x0);
+                xyz[1] *= (dr->y1 - dr->y0);
+                xyz[2] *= (dr->z1 - dr->z0);
+
+                dr->x0 += xyz[0];
+                dr->x1 += xyz[0];
+                dr->y0 += xyz[1];
+                dr->y1 += xyz[1];
+                dr->z0 += xyz[2];
+                dr->z1 += xyz[2];
+            }
+            return 1;
+        }
+        else if (cs->pressedModifiers == (KMOD_ALT | KMOD_SHIFT))
+        {
+            rotate_z (sw->rotMatrix, -yf * 0.02, 1);
+            return 1;
         }
         else if (cs->pressedModifiers == KMOD_SHIFT)
         {
-            double center0[3] = {cx,cy,cz};
-            double centerRotated0[3];
-            matrix_vector_multiply (sw->rotMatrix, center0, centerRotated0);
-            double scale0 = centerRotated0[2] * perspectiveFactor + 1;
-            centerRotated0[0] /= scale0;
-            centerRotated0[1] /= scale0;
+            CipArea *dr = & sw->dataRange;
 
-            rotate_x (sw->rotMatrix, -yf * 0.08, 1);
+            double xmin = dr->x0;
+            double xmax = dr->x1;
+            double ymin = dr->y0;
+            double ymax = dr->y1;
+            double zmin = dr->z0;
+            double zmax = dr->z1;
+            double cx = 0.5 * (xmax + xmin);
+            double cy = 0.5 * (ymax + ymin);
+            double cz = 0.5 * (zmax + zmin);
+
+            double sx = 1.0 / (xmax - xmin);
+            double sy = 1.0 / (ymax - ymin);
+            double sz = 1.0 / (zmax - zmin);
+
+            double mouseRelxyz[3] =
+            {
+                sx * (mmx - cx),
+                sy * (mmy - cy),
+                sz * (mmz - cz),
+            };
+
+            //print_debug ("%f %f %f", mouseRelxyz[0],mouseRelxyz[1],mouseRelxyz[2]);
+
+            double mouseProjected0[3], mouseProjected1[3];
+
+            matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected0);
+
+            rotate_x (sw->rotMatrix,  yf * 0.08, 1);
             rotate_y (sw->rotMatrix, -xf * 0.08, 1);
             normalise_matrix (sw->rotMatrix);
 
-            double center1[3] = {cx,cy,cz};
-            double centerRotated1[3];
-            matrix_vector_multiply (sw->rotMatrix, center1, centerRotated1);
+            matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected1);
 
-            double scale1 = centerRotated1[2] * perspectiveFactor + 1;
-            centerRotated1[0] /= scale1;
-            centerRotated1[1] /= scale1;
+            double pdxyz[3], xyz[3];
+            for (int i=0; i<3; i++)
+                pdxyz[i] = mouseProjected1[i] - mouseProjected0[i];
 
-            double dx = centerRotated1[0] - centerRotated0[0];
-            double dy = centerRotated1[1] - centerRotated0[1];
-            double dz = centerRotated1[2] - centerRotated0[2];
-            (void) dz;
+            matrix_transpose_vector_multiply (sw->rotMatrix, pdxyz, xyz);
 
+            double (*mtx)[3] = sw->rotMatrix;
+            for (int i=0; i<3; i++)
+            {
+                for (int j=0; j<3; j++)
+                    printf ("%f ", mtx[i][j]);
+                printf ("\n");
+            }
 
-            CipArea *dr = & sw->dataRange;
-            dr->x0 += dx;
-            dr->x1 += dx;
-            dr->y0 += dy;
-            dr->y1 += dy;
+            dr->x0 += xyz[0] / sx;
+            dr->x1 += xyz[0] / sx;
+            dr->y0 += xyz[1] / sy;
+            dr->y1 += xyz[1] / sy;
+            dr->z0 += xyz[2] / sz;
+            dr->z1 += xyz[2] / sz;
+
+            //print_debug ("%f %f %f", xyz[0], xyz[1], xyz[2]);
 
             cs->forceRefresh = 1;
             return 1;
@@ -1341,29 +1571,41 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             CipSubWindow *sw = cs->activeSw;
             CipArea *dr = & sw->dataRange;
 
-            double dx = xf * 0.01;
-            double dy = yf * 0.01;
+            double pdx = xf * 0.01;
+            double pdy = yf * 0.01;
 
-             CipArea activeArea;
-             CipArea zoomWindowArea = {0,0,1,1};
-             if (cs->zoomEnabled)
-                 get_active_area (cs, & zoomWindowArea, & activeArea);
-             else
-                 get_active_area (cs, & sw->windowArea, & activeArea);
+            CipArea activeArea;
+            CipArea zoomWindowArea = {0,0,1,1};
+            if (cs->zoomEnabled)
+                get_active_area (cs, & zoomWindowArea, & activeArea);
+            else
+                get_active_area (cs, & sw->windowArea, & activeArea);
 
-             dx /= activeArea.x1 - activeArea.x0;
-             dy /= activeArea.y1 - activeArea.y0;
+            pdx /= activeArea.x1 - activeArea.x0;
+            pdy /= activeArea.y1 - activeArea.y0;
 
-             dx *= dr->x1 - dr->x0;
-             dy *= dr->y1 - dr->y0;
+            double pxyz[3] = {pdx, -pdy, 0};
+            double xyz[3];
+            matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, xyz);
 
-            //printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
-            dr->x0 += dx;
-            dr->x1 += dx;
-            dr->y0 -= dy;
-            dr->y1 -= dy;
-            sw->mouseDataPos.x += dx;
-            sw->mouseDataPos.y -= dy;
+            xyz[0] *= (dr->x1 - dr->x0);
+            xyz[1] *= (dr->y1 - dr->y0);
+            xyz[2] *= (dr->z1 - dr->z0);
+
+            dr->x0 += xyz[0];
+            dr->x1 += xyz[0];
+            dr->y0 += xyz[1];
+            dr->y1 += xyz[1];
+            dr->z0 += xyz[2];
+            dr->z1 += xyz[2];
+
+            //print_debug ("pxyzs: [%f,%f,%f] => rotated to data coordinates: [%f,%f,%f]",
+            //             pxyz[0], pxyz[1], pxyz[2], xyz[0], xyz[1], xyz[2]);
+
+
+            ////printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+            //sw->mouseDataPos.x += dx;
+            //sw->mouseDataPos.y -= dy;
             //print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
             return 1;
         }
@@ -1494,8 +1736,8 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  }
 
 
-                 cs->mouseWindowPos.x = (double) xi / w;
-                 cs->mouseWindowPos.y = (double) yi / h;
+                 cs->mouseWindowPos.x = (double) (xi) / w;
+                 cs->mouseWindowPos.y = (double) (yi) / h;
                  transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
 
                  if (activeArea.x0 <= cs->mouseWindowPos.x && cs->mouseWindowPos.x <= activeArea.x1 &&
@@ -1526,9 +1768,13 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  uint32_t w = hist->w;
                  uint32_t h = hist->h;
                  int *bins = hist->bins;
-                 double (*xyzSums)[3] = hist->xyzSums;
+                 double (*origXYZ)[3] = hist->origXYZ;
                  if (!bins)
-                     exit_error ("unexpected null pointer");
+                 {
+                     // if we move the mouse before bins has been initialised, this may happen
+                     //exit_error ("unexpected null pointer");
+                     return 0;
+                 }
                  CipArea binArea = {0, 0, w, h};
                  CipPosition binPos;
                  transform_pos (& activeArea, & cs->mouseWindowPos, & binArea, & binPos);
@@ -1600,19 +1846,24 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      {
                          binPos.x = xi;
                          binPos.y = yi;
-                         if (xyzSums)
+                         if (origXYZ)
                          {
-                             int cnt  = bins   [yi * w + xi];
-                             double x = xyzSums[yi * w + xi][0] / cnt;
-                             double y = xyzSums[yi * w + xi][1] / cnt;
-                             double z = xyzSums[yi * w + xi][2] / cnt;
+                             double x = origXYZ[yi * w + xi][0];
+                             double y = origXYZ[yi * w + xi][1];
+                             double z = origXYZ[yi * w + xi][2];
                              print_debug ("xyz=[%f,%f,%f]", x,y,z);
-                             cx = x;
-                             cy = y;
-                             cz = z;
+                             mmx = x;
+                             mmy = y;
+                             mmz = z;
                          }
                          transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
                          transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                     }
+                     else
+                     {
+                         mmx = 0;
+                         mmy = 0;
+                         mmz = 0;
                      }
                  }
                  else
@@ -1945,19 +2196,46 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                               break;
                           }
                 case 'x':
-                case 'y':
-                case 'z':
+                          if (cs->activeSw)
                           {
-                              int s = key - 'x';
-                              if (cs->activeSw)
-                              {
-                                  double (*mtx)[3] = cs->activeSw->rotMatrix;
-                                  for (int i=0; i<3; i++)
-                                      for (int j=0; j<3; j++)
-                                          mtx[i][j] = (i == ((j + s) % 3));
-                              }
-                              break;
+                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              mtx[0][0] =  0; mtx[0][1] = -1; mtx[0][2] =  0;
+                              mtx[1][0] =  0; mtx[1][1] =  0; mtx[1][2] =  1;
+                              mtx[2][0] = -1; mtx[2][1] =  0; mtx[2][2] =  0;
                           }
+                          break;
+
+                case 'y':
+                          if (cs->activeSw)
+                          {
+                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              mtx[0][0] =  0; mtx[0][1] =  0; mtx[0][2] = -1;
+                              mtx[1][0] = -1; mtx[1][1] =  0; mtx[1][2] =  0;
+                              mtx[2][0] =  0; mtx[2][1] =  1; mtx[2][2] =  0;
+                          }
+                          break;
+
+                case 'z':
+                          if (cs->activeSw)
+                          {
+                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              mtx[0][0] =  1; mtx[0][1] =  0; mtx[0][2] =  0;
+                              mtx[1][0] =  0; mtx[1][1] =  1; mtx[1][2] =  0;
+                              mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
+                          }
+                          break;
+
+                case 'w':
+                          if (cs->activeSw)
+                          {
+                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              double a = 1.0 / sqrt(2);
+                              mtx[0][0] =  a; mtx[0][1] = -a; mtx[0][2] =  0;
+                              mtx[1][0] =  a; mtx[1][1] =  a; mtx[1][2] =  0;
+                              mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
+                          }
+                          break;
+
                 default: unhandled = 1;
                }
            }
@@ -2026,10 +2304,10 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 switch (key)
                 {
                  case 'n': sub_window_change (cs,  1); break;
-                 case '+': cip_zoom (cs->activeSw,  zf,  zf); break;
-                 case '-': cip_zoom (cs->activeSw, -zf, -zf); break;
-                 case ',': cip_zoom (cs->activeSw, -zf,  0.00); break;
-                 case '.': cip_zoom (cs->activeSw,  zf,  0.00); break;
+                 case '+': cip_zoom (cs->activeSw,  zf,  zf, zf); break;
+                 case '-': cip_zoom (cs->activeSw, -zf, -zf, -zf); break;
+                 case ',': cip_zoom (cs->activeSw, -zf,  0.0, 0.0); break;
+                 case '.': cip_zoom (cs->activeSw,  zf,  0.0, 0.0); break;
                            //case 'i': cip_zoom (cs->activeSw,  0.00, -zf); break;
                            //case 'o': cip_zoom (cs->activeSw,  0.00,  zf); break;
                  case SDLK_UP:    cip_move (cs->activeSw,  0.00, -mf); break;
@@ -2092,7 +2370,7 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->hist.xyzSums = NULL;
+    attacher->hist.origXYZ = NULL;
     attacher->histogramFun = histogramFun ? histogramFun : is3d ? make_histogram_3d : make_histogram_2d;
     attacher->colorScheme = cip_make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
@@ -2253,7 +2531,7 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
 {
     uint64_t counter = 0;
     int *bins  = hist->bins;
-    double (*xyzSums)[3] = hist->xyzSums;
+    double (*origXYZ)[3] = hist->origXYZ;
     uint32_t w = hist->w;
     uint32_t h = hist->h;
 
@@ -2263,6 +2541,8 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
     double xmax = (double) hist->dataRange.x1;
     double ymin = (double) hist->dataRange.y0;
     double ymax = (double) hist->dataRange.y1;
+    double zmin = (double) hist->dataRange.z0;
+    double zmax = (double) hist->dataRange.z1;
 
     double (*xyzs)[3];
     uint32_t len;
@@ -2282,55 +2562,82 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
     counter = graph->sb->counter;
     release_access (& graph->insertAccess);
 
-    assert (xyzSums);
+    assert (origXYZ);
     uint32_t nBins = w * h;
     for (uint32_t i=0; i<nBins; i++)
     {
         bins[i]       = 0;
-        xyzSums[i][0] = 0;
-        xyzSums[i][1] = 0;
-        xyzSums[i][2] = 0;
+        origXYZ[i][0] = 0;
+        origXYZ[i][1] = 0;
+        origXYZ[i][2] = 0;
     }
 
-    double invXRange = 1.0 / (xmax - xmin);
-    double invYRange = 1.0 / (ymax - ymin);
+    double cx = 0.5 * (xmax + xmin);
+    double cy = 0.5 * (ymax + ymin);
+    double cz = 0.5 * (zmax + zmin);
+
+    double sx = 1.0 / (xmax - xmin);
+    double sy = 1.0 / (ymax - ymin);
+    double sz = 1.0 / (zmax - zmin);
+
     if (plotType == 'p')
     {
         for (uint32_t i=0; i<len; i++)
         {
-            double xyz[3];
-            matrix_vector_multiply (*rotMatrix, xyzs[i], xyz);
+            double relxyz[3] =
+            {
+                sx * (xyzs[i][0] - cx),
+                sy * (xyzs[i][1] - cy),
+                sz * (-xyzs[i][2] - cz),
+            };
+            double rotxyz[3];
+            matrix_vector_multiply (hist->rotMatrix, relxyz, rotxyz);
 
-            double x2 = xyz[0];
-            double y2 = xyz[1];
-            double z2 = xyz[2];
+            double px = rotxyz[0];
+            double py = rotxyz[1];
+            double pz = rotxyz[2];
 
-            double scale = z2 * perspectiveFactor + 1;
+            double scale = pz * perspectiveFactor + 1;
 
             if (scale < 0)
                 continue;
 
-            x2 /= scale;
-            y2 /= scale;
+            px /= scale;
+            py /= scale;
 
-
-            if (isnan (x2) || isnan (y2) || isnan (z2) || isinf (x2) || isinf (y2) || isinf (z2))
+            if (isnan (px) || isnan (py) || isnan (pz) || isinf (px) || isinf (py) || isinf (pz))
                 continue;
 
-            int xi = (int) ((w-1) * (x2 - xmin) * invXRange);
-            int yi = (int) ((h-1) * (y2 - ymin) * invYRange);
+            int xi = (int) ((w-1) * (px + 0.5));
+            int yi = (int) ((h-1) * (py + 0.5));
+
+            //if (i)
+            //    cip_histogram_line (hist, lastXi, lastYi, xi, yi);
+            //lastXi = xi;
+            //lastYi = yi;
+
             if (xi >= 0 && xi < w && yi >= 0 && yi < h)
             {
-                bins   [(uint32_t) yi*w + (uint32_t) xi]++;
-                xyzSums[(uint32_t) yi*w + (uint32_t) xi][0] += xyzs[i][0];
-                xyzSums[(uint32_t) yi*w + (uint32_t) xi][1] += xyzs[i][1];
-                xyzSums[(uint32_t) yi*w + (uint32_t) xi][2] += xyzs[i][2];
+                int newVal = 40 - 150*(pz);
+                if (newVal < 1)
+                    newVal = 1;
+
+                int oldVal = bins [(uint32_t) yi*w + (uint32_t) xi];
+                if (newVal > oldVal)
+                {
+                    bins [(uint32_t) yi*w + (uint32_t) xi] = newVal;
+                    if (bins [(uint32_t) yi*w + (uint32_t) xi] < 1)
+                        bins [(uint32_t) yi*w + (uint32_t) xi] = 1;
+                    origXYZ[(uint32_t) yi*w + (uint32_t) xi][0] =  xyzs[i][0];
+                    origXYZ[(uint32_t) yi*w + (uint32_t) xi][1] =  xyzs[i][1];
+                    origXYZ[(uint32_t) yi*w + (uint32_t) xi][2] = -xyzs[i][2]; // FIXME: well it's not original if sign is changed
+                }
             }
         }
     }
     else
     {
-        exit_error ("unknown plot type '%c'", plotType);
+        print_error ("unknown plot type '%c'", plotType);
     }
 
     release_access (& graph->readAccess);
@@ -2984,6 +3291,10 @@ static void plot_data (CipState *cs, uint32_t *pixels)
     uint32_t w = cs->windowWidth;
     uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
 
+    for (uint32_t y=0; y<cs->windowWidth; y++)
+        for (uint32_t x=0; x<cs->windowHeight;  x++)
+            pixels[y*w + x] = bgColor;
+
     for (uint32_t wi=0; wi < (cs->numSubWindows); wi++)
     {
         CipSubWindow *sw = & cs->subWindows[wi];
@@ -3026,10 +3337,6 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         if (subWidth > w || subHeight > h)
             exit_error ("bug");
 
-        for (uint32_t y=y0; y<y1; y++)
-            for (uint32_t x=x0; x<x1;  x++)
-                pixels[y*w + x] = bgColor;
-
         if (sw->continuousScroll && !paused)
             cip_continuous_scroll_update (sw);
 
@@ -3044,10 +3351,21 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             int updateHistogram =
                 (forceRefresh) ||
                 (attacher->lastPlotType != attacher->plotType) ||
+                (hist->rotMatrix[0][0] != sw->rotMatrix[0][0]) ||
+                (hist->rotMatrix[0][1] != sw->rotMatrix[0][1]) ||
+                (hist->rotMatrix[0][2] != sw->rotMatrix[0][2]) ||
+                (hist->rotMatrix[1][0] != sw->rotMatrix[1][0]) ||
+                (hist->rotMatrix[1][1] != sw->rotMatrix[1][1]) ||
+                (hist->rotMatrix[1][2] != sw->rotMatrix[1][2]) ||
+                (hist->rotMatrix[2][0] != sw->rotMatrix[2][0]) ||
+                (hist->rotMatrix[2][1] != sw->rotMatrix[2][1]) ||
+                (hist->rotMatrix[2][2] != sw->rotMatrix[2][2]) ||
                 (hist->dataRange.x0 != sw->dataRange.x0) ||
                 (hist->dataRange.x1 != sw->dataRange.x1) ||
                 (hist->dataRange.y0 != sw->dataRange.y0) ||
-                (hist->dataRange.y1 != sw->dataRange.y1);
+                (hist->dataRange.y1 != sw->dataRange.y1) ||
+                (hist->dataRange.z0 != sw->dataRange.z0) ||
+                (hist->dataRange.z1 != sw->dataRange.z1);
 
             if (updateHistogram)
                 attacher->lastGraphCounter = 0;
@@ -3064,7 +3382,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
                 int is3d = (attacher->graph->sb->itemSize == sizeof (double) * 3);
                 if (is3d)
-                    hist->xyzSums = safe_calloc (hist->w * hist->h, sizeof (hist->xyzSums[0]));
+                    hist->origXYZ = safe_calloc (hist->w * hist->h, sizeof (hist->origXYZ[0]));
 
                 attacher->lastGraphCounter = 0;
                 updateHistogram = 1;
@@ -3072,18 +3390,18 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             else if (hist->w != subWidth || hist->h != subHeight)
             {
                 free (hist->bins);
-                free (hist->sums);
-                free (hist->counts);
+                // FIXME: if mouse is moved at this point right after the window has been resized,
+                // we will be using hist->bins after free.
                 hist->w = subWidth;
                 hist->h = subHeight;
                 hist->bins   = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
                 hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
                 hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
 
-                if (hist->xyzSums)
+                if (hist->origXYZ)
                 {
-                    free (hist->xyzSums);
-                    hist->xyzSums = safe_calloc (hist->w * hist->h, sizeof (hist->xyzSums[0]));
+                    free (hist->origXYZ);
+                    hist->origXYZ = safe_calloc (hist->w * hist->h, sizeof (hist->origXYZ[0]));
                 }
 
                 attacher->lastGraphCounter = 0;
@@ -3096,8 +3414,21 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->dataRange.x1 = sw->dataRange.x1;
                 hist->dataRange.y0 = sw->dataRange.y0;
                 hist->dataRange.y1 = sw->dataRange.y1;
-                rotMatrix = & sw->rotMatrix; // FIXME: implement correctly
-                attacher->lastGraphCounter = attacher->histogramFun (hist, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
+                hist->dataRange.z0 = sw->dataRange.z0;
+                hist->dataRange.z1 = sw->dataRange.z1;
+
+                hist->rotMatrix[0][0] = sw->rotMatrix[0][0];
+                hist->rotMatrix[0][1] = sw->rotMatrix[0][1];
+                hist->rotMatrix[0][2] = sw->rotMatrix[0][2];
+                hist->rotMatrix[1][0] = sw->rotMatrix[1][0];
+                hist->rotMatrix[1][1] = sw->rotMatrix[1][1];
+                hist->rotMatrix[1][2] = sw->rotMatrix[1][2];
+                hist->rotMatrix[2][0] = sw->rotMatrix[2][0];
+                hist->rotMatrix[2][1] = sw->rotMatrix[2][1];
+                hist->rotMatrix[2][2] = sw->rotMatrix[2][2];
+
+                attacher->lastGraphCounter = attacher->histogramFun (
+                  hist, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
                 attacher->lastPlotType = attacher->plotType;
             }
             else
@@ -3319,6 +3650,8 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
             sw->dataRange.x1 =  1;
             sw->dataRange.y0 =  1;
             sw->dataRange.y1 = -1;
+            sw->dataRange.z0 = -1;
+            sw->dataRange.z1 =  1;
             memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
 
             sw->windowArea.x0 = (ci    ) * dx;
@@ -3429,16 +3762,21 @@ static void *userMainCaller (void *_data)
 
 static void update_image (CipState *cs, SDL_Texture *texture, int init)
 {
+    uint32_t w = cs->windowWidth;
+    uint32_t h = cs->windowHeight;
+
+    if (init)
+        memset (cs->pixelCache, 0x11, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
+    else
+        cs->plot_data (cs, cs->pixelCache);
+
     uint32_t* pixels;
     int wb;
     int status = SDL_LockTexture (texture, NULL, (void**) & pixels, & wb);
     if (status)
         exit_error ("texture: %p, status: %d: %s\n", (void*) texture, status, SDL_GetError());
 
-    if (init)
-        memset (pixels, 0x11, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
-    else
-        cs->plot_data (cs, pixels);
+    memcpy (pixels, cs->pixelCache, w * h * sizeof (cs->pixelCache[0]));
 
     if (iconData && processIconData == 0)
     {
@@ -3656,7 +3994,7 @@ void cip_save_png (CipState* cs, char* imageDir, int frameCounter, int format)
     }
 
     uint32_t *pixels = (uint32_t *) surface->pixels;
-    cs->plot_data (cs, pixels);
+    memcpy (pixels, cs->pixelCache, w * h * sizeof (pixels[0]));
 
     for (int i=0; i<w*h; i++)
         pixels[i] |= 0xff000000;

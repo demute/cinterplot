@@ -13,7 +13,7 @@ OBJS += randlib.o
 
 .PHONY: run
 
-TARGET=app
+TARGET=app app_calibration_data
 all:$(TARGET)
 
 run: app
@@ -21,6 +21,9 @@ run: app
 	@./app && echo "[process completed successfully]" || echo "[process completed abnormally]"
 
 app: $(OBJS) app.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+app_calibration_data: $(OBJS) app_calibration_data.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 %.o:%.c

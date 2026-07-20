@@ -2,6 +2,9 @@
 #include "randlib.h"
 #include "cinterplot.h"
 
+void rotate_x (double mtx[3][3], double theta, int order);
+void rotate_y (double mtx[3][3], double theta, int order);
+void rotate_z (double mtx[3][3], double theta, int order);
 int user_main (int argc, char **argv, CipState *cs)
 {
     randlib_init (0);
@@ -19,6 +22,7 @@ int user_main (int argc, char **argv, CipState *cs)
     CipGraph *graph2 = cip_graph_new (3, 0);
     CipGraph *graph3 = cip_graph_new (3, 0);
     CipGraph *graph4 = cip_graph_new (3, 0);
+    CipGraph *graph5 = cip_graph_new (3, 40000);
 
     cip_graph_attach (cs, graph1, 0, NULL, 'p', "red yellow white", 32);
     cip_graph_attach (cs, graph2, 0, NULL, 'p', "maroon indigo beige", 32);
@@ -28,10 +32,31 @@ int user_main (int argc, char **argv, CipState *cs)
     cip_graph_attach (cs, graph2, 1, NULL, 'p', "red yellow white", 32);
     cip_graph_attach (cs, graph3, 2, NULL, 'p', "red yellow white", 32);
     cip_graph_attach (cs, graph4, 3, NULL, 'p', "red yellow white", 32);
+    cip_graph_attach (cs, graph5, 5, NULL, 'p', "maroon indigo beige", 8);
 
     CipGraph *graph2d = cip_graph_new (2, 500000);
     cip_continuous_scroll_enable (cs, 4);
     cip_graph_attach (cs, graph2d, 4, NULL, 'p', "red yellow white", 32);
+
+    int addCoordinates = 0;
+    if (addCoordinates)
+    {
+        for (int ui=0; ui<3; ui++)
+        {
+            CipGraph *unitVectorGraph = cip_graph_new (3, 0);
+            double xyz[3] = {0};
+            for (int i=0; i<10000; i++)
+            {
+                xyz[ui] = i * (100.0 / 10000.0);
+                cip_graph_add_3d_point (unitVectorGraph, xyz[0], xyz[1], xyz[2]);
+            }
+
+            char *color[] = {"red", "green", "blue"};
+            for (int wi=0; wi<nRows*nCols; wi++)
+                cip_graph_attach (cs, unitVectorGraph, wi, NULL, 'p', color[ui], 1);
+        }
+    }
+
 
     int nIter = 400000;
     for (int i=0; i<nIter; i++)
@@ -44,17 +69,40 @@ int user_main (int argc, char **argv, CipState *cs)
         {
             double s = (double) i / nIter;
             double x = cos (s * 2 * M_PI);
-            double y = sin (s * 4 * M_PI);
+            double y = sin (s * 4 * M_PI)*100;
             double z = sin (s* 8*2000 * M_PI) * y * x;
             cip_graph_add_3d_point (graph2, x + 2,y,z);
         }
 
         {
-            double s = (double) i / nIter;
-            double x = 0.5*((i % 100) / 50.0 - 1.0);
-            double y = sin (s * 2 * M_PI);
-            double z = cos (s * 1 * M_PI);
-            cip_graph_add_3d_point (graph3, x - 2,y,z);
+         //   double s = (double) i / nIter;
+         //   double x = 0.5*((i % 100) / 50.0 - 1.0);
+         //   double y = sin (s * 2 * M_PI);
+         //   double z = cos (s * 1 * M_PI);
+
+            int side = i % 6;
+            int j = i / 6;
+            int xi = j % 256;
+            int yi = j / 256;
+
+            if (yi < 256)
+            {
+                double sx = xi * (1.0 / 256.0) - 0.5;
+                double sy = yi * (1.0 / 256.0) - 0.5;
+                double xyz[6][3] =
+                {
+                    { 0.5, sx, sy},
+                    {-0.5, sx, sy},
+                    {sy,  0.5, sx},
+                    {sy, -0.5, sx},
+                    {sx, sy,  0.5},
+                    {sx, sy, -0.5},
+                };
+                double x = xyz[side][0];
+                double y = xyz[side][1];
+                double z = xyz[side][2];
+                cip_graph_add_3d_point (graph3, x, y, z);
+            }
         }
 
         {
@@ -79,6 +127,7 @@ int user_main (int argc, char **argv, CipState *cs)
 
     int t = 0;
     double y = 0;
+    int cnt = 0;
     while (cip_is_running (cs))
     {
         int n = 1000;
@@ -89,6 +138,23 @@ int user_main (int argc, char **argv, CipState *cs)
             y = f * y + (1-f) * atan (r[i] * 100);
             double x = (t++) * 1e-6;
             cip_graph_add_2d_point (graph2d, x, y);
+
+            double s = (double) ((5*cnt++) % nIter) / nIter;
+            double x0 = cos (s * 2 * M_PI);
+            double y0 = sin (s * 4 * M_PI);
+            double z0 = sin (s* 8*2000 * M_PI) * y0 * x0;
+            cip_graph_add_3d_point (graph5, x0 + 0.2,y0,z0);
+
+        }
+        int si[] = {2,3,5};
+        int nn = sizeof (si) / sizeof (si[0]);
+        for (int i=0; i<nn; i++)
+        {
+            CipSubWindow *sw = cip_get_sub_window (cs, si[i]);
+            rotate_x (sw->rotMatrix, 0.01011, 0);
+            rotate_y (sw->rotMatrix, 0.01110, 1);
+            rotate_z (sw->rotMatrix, 0.01003, 0);
+            rotate_y (sw->rotMatrix, 0.012,   1);
         }
 
         cip_force_refresh (cs);
