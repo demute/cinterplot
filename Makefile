@@ -15,6 +15,7 @@ OBJS += stream_buffer.o
 OBJS += oklab.o
 OBJS += savepng.o
 OBJS += macos_icon.o
+OBJS += world_transform.o
 
 EXAMPLES = $(wildcard examples/*/.)
 .PHONY: run $(EXAMPLES)

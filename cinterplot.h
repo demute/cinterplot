@@ -8,6 +8,7 @@ extern "C" {
 #include <stdatomic.h>
 #include <SDL2/SDL.h>
 #include "stream_buffer.h"
+#include "world_transform.h"
 
 #define INITIAL_VARIABLE_LENGTH 16384
 #define MAX_VARIABLE_LENGTH     16777216
@@ -39,27 +40,24 @@ typedef struct CipArea
     double y0;
     double x1;
     double y1;
-    double z0;
-    double z1;
 } CipArea;
 
 typedef struct CipPosition
 {
     double x;
     double y;
+    double z;
 } CipPosition;
 
 typedef struct CipHistogram
 {
-    CipArea dataRange;
-    double rotMatrix[3][3];
-
+    WorldTransform world;
     uint32_t w;
     uint32_t h;
     int *bins;
     double *counts;
     double *sums;
-    double (*origXYZ)[3];
+    double *pz;
 } CipHistogram;
 
 typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
@@ -88,12 +86,11 @@ typedef struct CipSubWindow
     uint32_t selectedGraph;
 
     CipPosition mouseDataPos;
-    CipArea dataRange;
-    CipArea defaultDataRange;
+    WorldTransform world;
+
     CipArea windowArea;
     CipArea selectedWindowArea0;
     CipArea selectedWindowArea1;
-    double rotMatrix[3][3];
 } CipSubWindow;
 
 #define KMOD_NONE  0

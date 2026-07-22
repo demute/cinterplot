@@ -10,6 +10,7 @@
 #include "oklab.h"
 #include "savepng.h"
 #include "macos_icon.h"
+#include "world_transform.h"
 
 #define LOG101_VALUE 0.0099503308531681
 #define LOG101_VALUE_INV (1.0 / LOG101_VALUE)
@@ -18,11 +19,6 @@
 
 #define LOGFUN log101
 #define EXPFUN exp101
-
-static double mmx = 0;
-static double mmy = 0;
-static double mmz = 0;
-static double perspectiveFactor = 0.5;
 
 typedef struct CipState
 {
@@ -110,7 +106,7 @@ enum
 extern const unsigned int font[256][8];
 static int interrupted = 0;
 static int paused = 0;
-static CipArea storedDataRanges[10] = {0};
+static WorldTransform storedWorldTransforms[10] = {0};
 
 static volatile int processIconData = 0;
 static uint32_t *iconData = NULL;
@@ -432,22 +428,6 @@ void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec,
 
 }
 
-static void matrix_vector_multiply (double mtx[3][3], double src[3], double dst[3])
-{
-    dst[0] = mtx[0][0] * src[0] + mtx[0][1] * src[1] + mtx[0][2] * src[2];
-    dst[1] = mtx[1][0] * src[0] + mtx[1][1] * src[1] + mtx[1][2] * src[2];
-    dst[2] = mtx[2][0] * src[0] + mtx[2][1] * src[1] + mtx[2][2] * src[2];
-}
-
-static void matrix_transpose_vector_multiply (double mtx[3][3], double src[3], double dst[3])
-{
-    dst[0] = mtx[0][0] * src[0] + mtx[1][0] * src[1] + mtx[2][0] * src[2];
-    dst[1] = mtx[0][1] * src[0] + mtx[1][1] * src[1] + mtx[2][1] * src[2];
-    dst[2] = mtx[0][2] * src[0] + mtx[1][2] * src[1] + mtx[2][2] * src[2];
-}
-
-
-
 static void cycle_graph_order (CipState *cs)
 {
     cs->graphOrder++;
@@ -540,20 +520,14 @@ int cip_autoscale_sw (CipSubWindow *sw)
     if (xmin == DBL_MAX || xmax == -DBL_MAX || ymin == DBL_MAX || ymax == -DBL_MAX)
         return 0;
 
-    double dx = xmax - xmin;
-    double dy = ymax - ymin;
-    double dz = zmax - zmin;
-    double mx = dx * 0.025;
-    double my = dy * 0.025;
-    double mz = dz * 0.025;
+    double ranges[3][2] =
+    {
+        {xmin, xmax},
+        {ymin, ymax},
+        {zmin, zmax},
+    };
 
-    sw->dataRange.x0 = xmin - mx;
-    sw->dataRange.x1 = xmax + mx;
-    sw->dataRange.y0 = ymax + my;
-    sw->dataRange.y1 = ymin - my;
-    sw->dataRange.z0 = zmin - mz;
-    sw->dataRange.z1 = zmax + mz;
-
+    world_transform_set_ranges (& sw->world, ranges, 0.0);
     return 1;
 }
 
@@ -567,13 +541,19 @@ void cip_set_range (CipSubWindow *sw, double xmin, double ymin, double xmax, dou
     if (!sw)
         exit_error ("bug");
 
-    sw->dataRange.x0 = xmin;
-    sw->dataRange.y0 = ymax;
-    sw->dataRange.x1 = xmax;
-    sw->dataRange.y1 = ymin;
+    double zmin = -0.5; // FIXME
+    double zmax =  0.5; // FIXME
 
+    double ranges[3][2] =
+    {
+        {xmin, xmax},
+        {ymin, ymax},
+        {zmin, zmax},
+    };
+
+    world_transform_set_ranges (& sw->world, ranges, 0.0);
     if (setAsDefault)
-        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
+        print_debug ("setAsDefault: tbd");
 }
 
 void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xmax, int setAsDefault)
@@ -582,11 +562,10 @@ void cip_set_x_range (CipState *cs, uint32_t windowIndex, double xmin, double xm
     if (!sw)
         exit_error ("bug");
 
-    sw->dataRange.x0 = xmin;
-    sw->dataRange.x1 = xmax;
-
+    double range[2] = {xmin, xmax};
+    world_transform_set_range (& sw->world, 0, range, 0.0);
     if (setAsDefault)
-        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
+        print_debug ("setAsDefault: tbd");
 }
 
 void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ymax, int setAsDefault)
@@ -595,11 +574,10 @@ void cip_set_y_range (CipState *cs, uint32_t windowIndex, double ymin, double ym
     if (!sw)
         exit_error ("bug");
 
-    sw->dataRange.y0 = ymax;
-    sw->dataRange.y1 = ymin;
-
+    double range[2] = {ymin, ymax};
+    world_transform_set_range (& sw->world, 1, range, 0.0);
     if (setAsDefault)
-        memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
+        print_debug ("setAsDefault: tbd");
 }
 
 int cip_continuous_scroll_update (CipSubWindow *sw)
@@ -636,13 +614,10 @@ int cip_continuous_scroll_update (CipSubWindow *sw)
     if (xmin == DBL_MAX || xmax == -DBL_MAX)
         return 0;
 
-    double width = sw->dataRange.x1 - sw->dataRange.x0;
-    sw->dataRange.x1 = xmax;
-    sw->dataRange.x0 = sw->dataRange.x1 - width;
-
+    sw->world.centerPos[0] = xmax - sw->world.scaleMtx[0][0];
+    // FIXME: If scaleMtx has non-zero non-diagonal elements, this will not work
     return 1;
 }
-
 
 void cip_continuous_scroll_enable (CipState *cs, uint32_t windowIndex)     { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=1; }
 void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex)    { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=0; }
@@ -668,14 +643,15 @@ static int cycle_selected_graph (CipSubWindow *sw, uint32_t step)
 
 static void undo_zooming (CipSubWindow *sw)
 {
-    if (!sw)
-        return;
-    if (sw->defaultDataRange.x0 == sw->defaultDataRange.x1)
-        return;
-    if (sw->defaultDataRange.y0 == sw->defaultDataRange.y1)
-        return;
+    print_debug ("to be repaired");
+    //if (!sw)
+    //    return;
+    //if (sw->defaultDataRange.x0 == sw->defaultDataRange.x1)
+    //    return;
+    //if (sw->defaultDataRange.y0 == sw->defaultDataRange.y1)
+    //    return;
 
-    memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
+    //memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
 }
 
 static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
@@ -684,6 +660,7 @@ static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, co
     double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
     dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
     dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
+    dstPos->z = 0;
 }
 
 static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
@@ -703,6 +680,17 @@ static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
     dst->y1 = src->y1 - yp - epsh;
 }
 
+static inline void datapos_to_winpos (WorldTransform *world, double dataPos[3], CipArea *winArea, CipPosition *winPos)
+{
+    double p[3];
+    CipArea projectedArea = {-1,-1, 1, 1};
+    CipPosition ppos = {p[0], p[1], p[2]};
+
+    world_transform_datapos_to_projected (world, dataPos, p);
+
+    transform_pos (& projectedArea, & ppos, winArea, winPos);
+}
+
 int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
 {
     if (!sw)
@@ -712,76 +700,97 @@ int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
 
     int xIsLog = sw->logMode & 1;
     int yIsLog = sw->logMode & 2;
-    int zIsLog = sw->logMode & 4;
+    //int zIsLog = sw->logMode & 4;
 
     int xWantsLog = mode & 1;
     int yWantsLog = mode & 2;
-    int zWantsLog = mode & 4;
+    //int zWantsLog = mode & 4;
 
     CipArea activeArea;
     CipArea zoomWindowArea = {0,0,1,1};
     get_active_area (cs, & zoomWindowArea, & activeArea);
-    CipPosition winPos;
-    transform_pos (& sw->dataRange, & sw->mouseDataPos, & activeArea, & winPos);
+    CipPosition mouseWinPos;
+    double md[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
+    datapos_to_winpos (& sw->world, md, & activeArea, & mouseWinPos);
+
+    double sx = sw->world.scaleMtx[0][0];
+    double sy = sw->world.scaleMtx[1][1];
+
+    double x0 = sw->world.centerPos[0] - sx;
+    double x1 = sw->world.centerPos[0] + sx;
+    double y0 = sw->world.centerPos[0] - sy;
+    double y1 = sw->world.centerPos[0] + sy;
 
     if (xIsLog != xWantsLog)
     {
         if (xWantsLog)
         {
+            x0 = LOGFUN (x0);
+            x1 = LOGFUN (x1);
             sw->mouseDataPos.x = LOGFUN (sw->mouseDataPos.x);
-            sw->dataRange.x0   = LOGFUN (sw->dataRange.x0);
-            sw->dataRange.x1   = LOGFUN (sw->dataRange.x1);
         }
         else
         {
-            sw->dataRange.x0   = EXPFUN (sw->dataRange.x0);
-            sw->dataRange.x1   = EXPFUN (sw->dataRange.x1);
+            x0 = EXPFUN (x0);
+            x1 = EXPFUN (x1);
             sw->mouseDataPos.x = EXPFUN (sw->mouseDataPos.x);
         }
+
+        sw->world.centerPos[0] = 0.5 * (x0 + x1);
+        sw->world.scaleMtx[0][0] = 0.5 * (x1 - x0);
     }
 
     if (yIsLog != yWantsLog)
     {
         if (yWantsLog)
         {
-            sw->dataRange.y0   = LOGFUN (sw->dataRange.y0);
-            sw->dataRange.y1   = LOGFUN (sw->dataRange.y1);
+            y0 = LOGFUN (y0);
+            y1 = LOGFUN (y1);
             sw->mouseDataPos.y = LOGFUN (sw->mouseDataPos.y);
         }
         else
         {
-            sw->dataRange.y0   = EXPFUN (sw->dataRange.y0);
-            sw->dataRange.y1   = EXPFUN (sw->dataRange.y1);
+            y0 = EXPFUN (y0);
+            y1 = EXPFUN (y1);
             sw->mouseDataPos.y = EXPFUN (sw->mouseDataPos.y);
         }
+
+        sw->world.centerPos[1] = 0.5 * (y0 + y1);
+        sw->world.scaleMtx[1][1] = 0.5 * (y1 - y0);
     }
 
-    if (zIsLog != zWantsLog)
-    {
-        if (zWantsLog)
-        {
-            sw->dataRange.z0   = LOGFUN (sw->dataRange.z0);
-            sw->dataRange.z1   = LOGFUN (sw->dataRange.z1);
-            //sw->mouseDataPos.z = LOGFUN (sw->mouseDataPos.z);
-        }
-        else
-        {
-            sw->dataRange.z0   = EXPFUN (sw->dataRange.z0);
-            sw->dataRange.z1   = EXPFUN (sw->dataRange.z1);
-            //sw->mouseDataPos.z = EXPFUN (sw->mouseDataPos.z);
-        }
-    }
+    //if (zIsLog != zWantsLog)
+    //{
+    //    if (zWantsLog)
+    //    {
+    //        sw->dataRange.z0   = LOGFUN (sw->dataRange.z0);
+    //        sw->dataRange.z1   = LOGFUN (sw->dataRange.z1);
+    //        //sw->mouseDataPos.z = LOGFUN (sw->mouseDataPos.z);
+    //    }
+    //    else
+    //    {
+    //        sw->dataRange.z0   = EXPFUN (sw->dataRange.z0);
+    //        sw->dataRange.z1   = EXPFUN (sw->dataRange.z1);
+    //        //sw->mouseDataPos.z = EXPFUN (sw->mouseDataPos.z);
+    //    }
+    //}
 
     sw->logMode = mode & 7;
 
-    if (isnan (sw->dataRange.x0) || isnan (sw->dataRange.x1) ||
-        isnan (sw->dataRange.y0) || isnan (sw->dataRange.y1) ||
-        isnan (sw->dataRange.z0) || isnan (sw->dataRange.z1))
+    if (isnan (x0) || isnan (x1) || isnan (y0) || isnan (y1))
+        //isnan (z0) || isnan (z1))
     {
         cip_autoscale_sw (sw);
     }
 
-    transform_pos (& activeArea, & winPos, & sw->dataRange, & sw->mouseDataPos);
+    CipArea projectedArea = {-1,-1, 1, 1};
+    CipPosition mPos;
+    transform_pos (& activeArea, & mouseWinPos, & projectedArea, & mPos);
+    double mp[3] = {mPos.x, mPos.y, mPos.z};
+    world_transform_projected_to_datapos (& sw->world, mp, md);
+    sw->mouseDataPos.x = md[0];
+    sw->mouseDataPos.y = md[1];
+    sw->mouseDataPos.z = md[2];
     return 1;
 }
 
@@ -798,16 +807,19 @@ static void sub_window_change (CipState *cs, int dir)
         index = 0;
     if (index > (int) cs->numSubWindows - 1)
         index = (int) cs->numSubWindows - 1;
+
     if (cs->zoomEnabled)
     {
         CipSubWindow *sw0 = cs->activeSw;
         CipSubWindow *sw1 = & cs->subWindows[index];
-        CipArea activeArea;
-        CipArea zoomWindowArea = {0,0,1,1};
-        get_active_area (cs, & zoomWindowArea, & activeArea);
-        CipPosition winPos;
-        transform_pos (& sw0->dataRange, & sw0->mouseDataPos, & activeArea, & winPos);
-        transform_pos (& activeArea, & winPos, & sw1->dataRange, & sw1->mouseDataPos);
+
+        double dataPos[3] = { sw0->mouseDataPos.x, sw0->mouseDataPos.y, sw0->mouseDataPos.z};
+        double worldPos[3];
+        world_transform_datapos_to_worldpos (& sw0->world, dataPos, worldPos);
+        world_transform_worldpos_to_datapos (& sw1->world, worldPos, dataPos);
+        sw1->mouseDataPos.x = dataPos[0];
+        sw1->mouseDataPos.y = dataPos[1];
+        sw1->mouseDataPos.z = dataPos[2];
     }
     cs->activeSw = & cs->subWindows[index];
 }
@@ -816,16 +828,8 @@ int cip_zoom (CipSubWindow *sw, double xf, double yf, double zf)
 {
     if (!sw)
         return 0;
-    CipArea *dr = & sw->dataRange;
-    double dx = (dr->x1 - dr->x0) * xf;
-    double dy = (dr->y1 - dr->y0) * yf;
-    double dz = (dr->z1 - dr->z0) * zf;
-    dr->x0 += dx;
-    dr->x1 -= dx;
-    dr->y0 += dy;
-    dr->y1 -= dy;
-    dr->z0 += dz;
-    dr->z1 -= dz;
+    double scaling[3] = {xf,yf,zf};
+    world_transform_scale_world (& sw->world, sw->world.centerPos, scaling);
     return 1;
 }
 
@@ -833,19 +837,8 @@ int cip_move (CipSubWindow *sw, double xf, double yf)
 {
     if (!sw)
         return 0;
-    CipArea *dr = & sw->dataRange;
-    double pdx = (dr->x1 - dr->x0) * xf;
-    double pdy = (dr->y1 - dr->y0) * yf;
-    double pdxyz[3] = {pdx, pdy, 0};
-    double xyz[3];
-    matrix_transpose_vector_multiply (sw->rotMatrix, pdxyz, xyz);
-
-    dr->x0 -= xyz[0];
-    dr->x1 -= xyz[0];
-    dr->y0 -= xyz[1];
-    dr->y1 -= xyz[1];
-    dr->z0 -= xyz[2];
-    dr->z1 -= xyz[2];
+    double wd[3] = {xf, yf, 0};
+    world_transform_adjust_centerpos_using_world_diff (& sw->world, wd);
     return 1;
 }
 
@@ -1180,24 +1173,31 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
              {
 
                  CipSubWindow *sw = cs->activeSw;
-                 CipArea *dr  = & sw->dataRange;
                  CipArea *swa = & sw->selectedWindowArea1;
                  CipArea activeArea;
                  CipArea zoomWindowArea = {0,0,1,1};
                  get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
-                 CipPosition wPos0 = {swa->x0, swa->y0};
-                 CipPosition wPos1 = {swa->x1, swa->y1};
-                 CipPosition dPos0, dPos1;
 
-                 transform_pos (& activeArea, & wPos0, & sw->dataRange, & dPos0);
-                 transform_pos (& activeArea, & wPos1, & sw->dataRange, & dPos1);
+                 double wx0 = swa->x0 / (activeArea.x1 - activeArea.x0);
+                 double wx1 = swa->x1 / (activeArea.x1 - activeArea.x0);
+                 double wy0 = swa->y0 / (activeArea.y1 - activeArea.y0);
+                 double wy1 = swa->y1 / (activeArea.y1 - activeArea.y0);
 
-                 memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
-                 dr->x0 = dPos0.x;
-                 dr->y0 = dPos0.y;
-                 dr->x1 = dPos1.x;
-                 dr->y1 = dPos1.y;
-                 print ("zoom to new area [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+                 double w0[3] = {wx0, wy0, 0};
+                 double w1[3] = {wx1, wy1, 0};
+                 double x0[3], x1[3];
+
+                 world_transform_worldpos_to_datapos (& sw->world, w0, x0);
+                 world_transform_worldpos_to_datapos (& sw->world, w1, x1);
+
+                 double ranges[3][2] =
+                 {
+                     {x0[0], x1[0]},
+                     {x0[1], x1[1]},
+                     {x0[2], x1[2]},
+                 };
+
+                 world_transform_set_ranges (& sw->world, ranges, 0.0);
              }
              swa0->x0 = swa0->x1 = swa0->y0 = swa0->y1 = NaN;
              swa1->x0 = swa1->x1 = swa1->y0 = swa1->y1 = NaN;
@@ -1214,100 +1214,6 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
     return 1;
 }
 
-static void matMul(double A[3][3], double B[3][3], double C[3][3])
-{
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-            C[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
-}
-
-void rotate_x (double mtx[3][3], double theta, int order)
-{
-    double rot[3][3] =
-    {
-        {1, 0, 0},
-        {0, cos(theta), -sin(theta)},
-        {0, sin(theta),  cos(theta)}
-    };
-
-    double tmp[3][3];
-    if (order)
-        matMul (rot, mtx, tmp);
-    else
-        matMul (mtx, rot, tmp);
-
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-            mtx[i][j] = tmp[i][j];
-}
-
-void rotate_y (double mtx[3][3], double theta, int order)
-{
-    double rot[3][3] =
-    {
-        {cos(theta), 0, -sin(theta)},
-        {0, 1, 0},
-        {sin(theta), 0, cos(theta)}
-    };
-
-    double tmp[3][3];
-    if (order)
-        matMul (rot, mtx, tmp);
-    else
-        matMul (mtx, rot, tmp);
-
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-            mtx[i][j] = tmp[i][j];
-}
-
-void rotate_z (double mtx[3][3], double theta, int order)
-{
-    double rot[3][3] =
-    {
-        {cos(theta), -sin(theta), 0},
-        {sin(theta),  cos(theta), 0},
-        {0, 0, 1}
-    };
-
-    double tmp[3][3];
-    if (order)
-        matMul (rot, mtx, tmp);
-    else
-        matMul (mtx, rot, tmp);
-
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-            mtx[i][j] = tmp[i][j];
-}
-
-static void normalise_matrix (double mtx[3][3])
-{
-    double norm;
-
-    // Normalize first column
-    norm = sqrt(mtx[0][0] * mtx[0][0] + mtx[1][0] * mtx[1][0] + mtx[2][0] * mtx[2][0]);
-    mtx[0][0] /= norm;
-    mtx[1][0] /= norm;
-    mtx[2][0] /= norm;
-
-    // Make second column orthogonal to first and normalize
-    double dot = mtx[0][0] * mtx[0][1] + mtx[1][0] * mtx[1][1] + mtx[2][0] * mtx[2][1];
-    mtx[0][1] -= dot * mtx[0][0];
-    mtx[1][1] -= dot * mtx[1][0];
-    mtx[2][1] -= dot * mtx[2][0];
-
-    norm = sqrt(mtx[0][1] * mtx[0][1] + mtx[1][1] * mtx[1][1] + mtx[2][1] * mtx[2][1]);
-    mtx[0][1] /= norm;
-    mtx[1][1] /= norm;
-    mtx[2][1] /= norm;
-
-    // Compute third column as cross product of first two
-    mtx[0][2] = mtx[1][0] * mtx[2][1] - mtx[2][0] * mtx[1][1];
-    mtx[1][2] = mtx[2][0] * mtx[0][1] - mtx[0][0] * mtx[2][1];
-    mtx[2][2] = mtx[0][0] * mtx[1][1] - mtx[1][0] * mtx[0][1];
-}
-
 static int on_mouse_wheel (CipState *cs, float xf, float yf)
 {
     CipSubWindow *sw = cs->activeSw;
@@ -1316,297 +1222,52 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         if (cs->pressedModifiers == KMOD_GUI)
         {
             // zooming
-            //CipArea *dr = & sw->dataRange;
-            //double a = (sw->mouseDataPos.x - dr->x0) / (dr->x1 - dr->x0);
-            //double b = (sw->mouseDataPos.y - dr->y0) / (dr->y1 - dr->y0);
-
-            //double dx = -0.05 * (dr->x1 - dr->x0) * xf;
-            //double dy = -0.05 * (dr->y1 - dr->y0) * yf;
-            //dr->x0 += dx * a;
-            //dr->x1 -= dx * (1-a);
-            //dr->y0 += dy * b;
-            //dr->y1 -= dy * (1-b);
-            //return 1;
-
             CipSubWindow *sw = cs->activeSw;
-            CipArea *dr = & sw->dataRange;
 
-            double mouseProjected0[3];
+            double scales[3] =
             {
-                double xmin = dr->x0;
-                double xmax = dr->x1;
-                double ymin = dr->y0;
-                double ymax = dr->y1;
-                double zmin = dr->z0;
-                double zmax = dr->z1;
-                double cx = 0.5 * (xmax + xmin);
-                double cy = 0.5 * (ymax + ymin);
-                double cz = 0.5 * (zmax + zmin);
-
-                double sx = 1.0 / (xmax - xmin);
-                double sy = 1.0 / (ymax - ymin);
-                double sz = 1.0 / (zmax - zmin);
-
-                double mouseRelxyz[3] =
-                {
-                    sx * (mmx - cx),
-                    sy * (mmy - cy),
-                    sz * (mmz - cz),
-                };
-
-                print_debug ("%f %f %f", mouseRelxyz[0],mouseRelxyz[1],mouseRelxyz[2]);
-                print_debug ("%f %f %f", cx, cy, cz);
-                print_debug ("%f %f %f", sx, sy, sz);
-
-                matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected0);
-                double scale0 = mouseProjected0[2] * perspectiveFactor + 1;
-                mouseProjected0[0] /= scale0;
-                mouseProjected0[1] /= scale0;
-
-                print_debug ("%f %f %f", mouseProjected0[0],mouseProjected0[1],mouseProjected0[2]);
-            }
-
-            double xy[2] = {xf, yf};
-            double ss[3] = {0};
-            for (int i=0; i<2; i++)
-            {
-                double dxyz[3];
-                double pxyz[3] = {0};
-                pxyz[i] = -0.025 * xy[i];
-
-                print_debug ("%f %f %f", pxyz[0], pxyz[1], pxyz[2]);
-
-                matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, dxyz);
-
-                print_debug ("%f %f %f", dxyz[0], dxyz[1], dxyz[2]);
-
-                dxyz[0] *= (dr->x1 - dr->x0);
-                dxyz[1] *= (dr->y1 - dr->y0);
-                dxyz[2] *= (dr->z1 - dr->z0);
-
-                print_debug ("%f %f %f", dxyz[0], dxyz[1], dxyz[2]);
-
-                ss[0] += fabs (dxyz[0]) * SIGN (pxyz[i]);
-                ss[1] += fabs (dxyz[1]) * SIGN (pxyz[i]);
-                ss[2] += fabs (dxyz[2]) * SIGN (pxyz[i]);
-            }
-
-            dr->x0 += ss[0];
-            dr->x1 -= ss[0];
-            dr->y0 -= ss[1];
-            dr->y1 += ss[1];
-            dr->z0 += ss[2];
-            dr->z1 -= ss[2];
-
-            double xmin = dr->x0;
-            double xmax = dr->x1;
-            double ymin = dr->y0;
-            double ymax = dr->y1;
-            double zmin = dr->z0;
-            double zmax = dr->z1;
-            double cx = 0.5 * (xmax + xmin);
-            double cy = 0.5 * (ymax + ymin);
-            double cz = 0.5 * (zmax + zmin);
-
-            double sx = 1.0 / (xmax - xmin);
-            double sy = 1.0 / (ymax - ymin);
-            double sz = 1.0 / (zmax - zmin);
-
-            double mouseProjected1[3];
-            double scale1;
-            {
-
-                double mouseRelxyz[3] =
-                {
-                    sx * (mmx - cx),
-                    sy * (mmy - cy),
-                    sz * (mmz - cz),
-                };
-
-                print_debug ("%f %f %f", mouseRelxyz[0],mouseRelxyz[1],mouseRelxyz[2]);
-
-                matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected1);
-                scale1 = mouseProjected1[2] * perspectiveFactor + 1;
-                mouseProjected1[0] /= scale1;
-                mouseProjected1[1] /= scale1;
-            }
-            double pdx = mouseProjected1[0] - mouseProjected0[0];
-            double pdy = mouseProjected1[1] - mouseProjected0[1];
-
-            pdx *= scale1;
-            pdy *= scale1;
-
-            double pxyz[3] = {pdx, pdy, 0};
-            double xyz[3];
-            matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, xyz);
-
-            dr->x0 += xyz[0] / sx;
-            dr->x1 += xyz[0] / sx;
-            dr->y0 += xyz[1] / sy;
-            dr->y1 += xyz[1] / sy;
-            dr->z0 += xyz[2] / sz;
-            dr->z1 += xyz[2] / sz;
-
-            print_debug ("[%f,%f] [%f,%f] [%f,%f]",
-                         dr->x0,
-                         dr->x1,
-                         dr->y0,
-                         dr->y1,
-                         dr->z0,
-                         dr->z1);
+                1 + 0.05*xf,
+                1 + 0.05*yf,
+                1
+            };
+            double fixedPos[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
+            world_transform_scale_world (& sw->world, fixedPos, scales);
             return 1;
         }
         else if (cs->pressedModifiers == KMOD_ALT)
         {
-            perspectiveFactor -= 0.01 * xf;
-            if (perspectiveFactor < 0)
-                perspectiveFactor = 0;
-            cs->forceRefresh = 1; // FIXME: put perspectiveFactor on the right place
+            sw->world.perspectiveFactor -= 0.01 * xf;
+            if (sw->world.perspectiveFactor < 0)
+                sw->world.perspectiveFactor = 0;
 
-            print_debug ("perspectiveFactor: %f", perspectiveFactor);
-
-            if (1)
-            {
-                // moving
-                CipSubWindow *sw = cs->activeSw;
-                CipArea *dr = & sw->dataRange;
-
-                double pdz = yf * 0.01;
-
-                CipArea activeArea;
-                CipArea zoomWindowArea = {0,0,1,1};
-                if (cs->zoomEnabled)
-                    get_active_area (cs, & zoomWindowArea, & activeArea);
-                else
-                    get_active_area (cs, & sw->windowArea, & activeArea);
-
-                double pxyz[3] = {0,0,pdz};
-                double xyz[3];
-                matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, xyz);
-
-                xyz[0] *= (dr->x1 - dr->x0);
-                xyz[1] *= (dr->y1 - dr->y0);
-                xyz[2] *= (dr->z1 - dr->z0);
-
-                dr->x0 += xyz[0];
-                dr->x1 += xyz[0];
-                dr->y0 += xyz[1];
-                dr->y1 += xyz[1];
-                dr->z0 += xyz[2];
-                dr->z1 += xyz[2];
-            }
+            print_debug ("perspectiveFactor: %f", sw->world.perspectiveFactor);
             return 1;
         }
         else if (cs->pressedModifiers == (KMOD_ALT | KMOD_SHIFT))
         {
-            rotate_z (sw->rotMatrix, -yf * 0.02, 1);
+            // rotating z
+            double fixedPos[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
+            world_transform_rotate_world (& sw->world, fixedPos, 2, -yf * 0.02);
             return 1;
         }
         else if (cs->pressedModifiers == KMOD_SHIFT)
         {
-            CipArea *dr = & sw->dataRange;
-
-            double xmin = dr->x0;
-            double xmax = dr->x1;
-            double ymin = dr->y0;
-            double ymax = dr->y1;
-            double zmin = dr->z0;
-            double zmax = dr->z1;
-            double cx = 0.5 * (xmax + xmin);
-            double cy = 0.5 * (ymax + ymin);
-            double cz = 0.5 * (zmax + zmin);
-
-            double sx = 1.0 / (xmax - xmin);
-            double sy = 1.0 / (ymax - ymin);
-            double sz = 1.0 / (zmax - zmin);
-
-            double mouseRelxyz[3] =
-            {
-                sx * (mmx - cx),
-                sy * (mmy - cy),
-                sz * (mmz - cz),
-            };
-
-            //print_debug ("%f %f %f", mouseRelxyz[0],mouseRelxyz[1],mouseRelxyz[2]);
-
-            double mouseProjected0[3], mouseProjected1[3];
-
-            matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected0);
-
-            rotate_x (sw->rotMatrix,  yf * 0.08, 1);
-            rotate_y (sw->rotMatrix, -xf * 0.08, 1);
-            normalise_matrix (sw->rotMatrix);
-
-            matrix_vector_multiply (sw->rotMatrix, mouseRelxyz, mouseProjected1);
-
-            double pdxyz[3], xyz[3];
-            for (int i=0; i<3; i++)
-                pdxyz[i] = mouseProjected1[i] - mouseProjected0[i];
-
-            matrix_transpose_vector_multiply (sw->rotMatrix, pdxyz, xyz);
-
-            double (*mtx)[3] = sw->rotMatrix;
-            for (int i=0; i<3; i++)
-            {
-                for (int j=0; j<3; j++)
-                    printf ("%f ", mtx[i][j]);
-                printf ("\n");
-            }
-
-            dr->x0 += xyz[0] / sx;
-            dr->x1 += xyz[0] / sx;
-            dr->y0 += xyz[1] / sy;
-            dr->y1 += xyz[1] / sy;
-            dr->z0 += xyz[2] / sz;
-            dr->z1 += xyz[2] / sz;
-
-            //print_debug ("%f %f %f", xyz[0], xyz[1], xyz[2]);
-
-            cs->forceRefresh = 1;
+            // rotating
+            double fixedPos[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
+            world_transform_rotate_world (& sw->world, fixedPos, 2,  yf * 0.02);
+            world_transform_rotate_world (& sw->world, fixedPos, 2, -xf * 0.02);
             return 1;
         }
         else
         {
             // moving
             CipSubWindow *sw = cs->activeSw;
-            CipArea *dr = & sw->dataRange;
 
             double pdx = xf * 0.01;
             double pdy = yf * 0.01;
 
-            CipArea activeArea;
-            CipArea zoomWindowArea = {0,0,1,1};
-            if (cs->zoomEnabled)
-                get_active_area (cs, & zoomWindowArea, & activeArea);
-            else
-                get_active_area (cs, & sw->windowArea, & activeArea);
-
-            pdx /= activeArea.x1 - activeArea.x0;
-            pdy /= activeArea.y1 - activeArea.y0;
-
-            double pxyz[3] = {pdx, -pdy, 0};
-            double xyz[3];
-            matrix_transpose_vector_multiply (sw->rotMatrix, pxyz, xyz);
-
-            xyz[0] *= (dr->x1 - dr->x0);
-            xyz[1] *= (dr->y1 - dr->y0);
-            xyz[2] *= (dr->z1 - dr->z0);
-
-            dr->x0 += xyz[0];
-            dr->x1 += xyz[0];
-            dr->y0 += xyz[1];
-            dr->y1 += xyz[1];
-            dr->z0 += xyz[2];
-            dr->z1 += xyz[2];
-
-            //print_debug ("pxyzs: [%f,%f,%f] => rotated to data coordinates: [%f,%f,%f]",
-            //             pxyz[0], pxyz[1], pxyz[2], xyz[0], xyz[1], xyz[2]);
-
-
-            ////printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
-            //sw->mouseDataPos.x += dx;
-            //sw->mouseDataPos.y -= dy;
-            //print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+            double wd[3] = {pdx, pdy, 0};
+            world_transform_adjust_centerpos_using_world_diff (& sw->world, wd);
             return 1;
         }
     }
@@ -1738,7 +1399,15 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
 
                  cs->mouseWindowPos.x = (double) (xi) / w;
                  cs->mouseWindowPos.y = (double) (yi) / h;
-                 transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                 CipArea worldArea = {-1,-1, 1, 1};
+                 CipPosition mouseWorldPos;
+                 transform_pos (& activeArea, & cs->mouseWindowPos, & worldArea, & mouseWorldPos);
+                 double mw[3] = {mouseWorldPos.x, mouseWorldPos.y, mouseWorldPos.z};
+                 double md[3];
+                 world_transform_worldpos_to_datapos (& sw->world, mw, md);
+                 sw->mouseDataPos.x = md[0];
+                 sw->mouseDataPos.y = md[1];
+                 sw->mouseDataPos.z = md[2];
 
                  if (activeArea.x0 <= cs->mouseWindowPos.x && cs->mouseWindowPos.x <= activeArea.x1 &&
                      activeArea.y0 <= cs->mouseWindowPos.y && cs->mouseWindowPos.y <= activeArea.y1)
@@ -1768,11 +1437,10 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  uint32_t w = hist->w;
                  uint32_t h = hist->h;
                  int *bins = hist->bins;
-                 double (*origXYZ)[3] = hist->origXYZ;
+                 double *pz = hist->pz;
                  if (!bins)
                  {
-                     // if we move the mouse before bins has been initialised, this may happen
-                     //exit_error ("unexpected null pointer");
+                     // if mouse is moved before bins has been alloc'd, this may happen
                      return 0;
                  }
                  CipArea binArea = {0, 0, w, h};
@@ -1804,9 +1472,21 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          }
                          if (bestY >= 0)
                          {
-                             binPos.y = bestY;
-                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
-                             transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                             int xi = x0;
+                             int yi = bestY;
+
+                             double p[3] =
+                             {
+                                 xi * (2.0 / (w-1)) - 1,
+                                 yi * (2.0 / (h-1)) - 1,
+                                 pz ? pz[w * yi + xi] : 0
+                             };
+
+                             double d[3];
+                             world_transform_projected_to_datapos (& sw->world, p, d);
+                             sw->mouseDataPos.x = d[0];
+                             sw->mouseDataPos.y = d[1];
+                             sw->mouseDataPos.z = d[2];
                          }
                      }
                  }
@@ -1833,9 +1513,21 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          }
                          if (bestX >= 0)
                          {
-                             binPos.x = bestX;
-                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
-                             transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
+                             int xi = bestX;
+                             int yi = y0;
+
+                             double p[3] =
+                             {
+                                 xi * (2.0 / (w-1)) - 1,
+                                 yi * (2.0 / (h-1)) - 1,
+                                 pz ? pz[w * yi + xi] : 0
+                             };
+
+                             double d[3];
+                             world_transform_projected_to_datapos (& sw->world, p, d);
+                             sw->mouseDataPos.x = d[0];
+                             sw->mouseDataPos.y = d[1];
+                             sw->mouseDataPos.z = d[2];
                          }
                      }
                  }
@@ -1844,26 +1536,18 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      uint32_t xi, yi;
                      if (find_closest_point (hist, x0, y0, & xi, & yi) >= 0)
                      {
-                         binPos.x = xi;
-                         binPos.y = yi;
-                         if (origXYZ)
+                         double p[3] =
                          {
-                             double x = origXYZ[yi * w + xi][0];
-                             double y = origXYZ[yi * w + xi][1];
-                             double z = origXYZ[yi * w + xi][2];
-                             print_debug ("xyz=[%f,%f,%f]", x,y,z);
-                             mmx = x;
-                             mmy = y;
-                             mmz = z;
-                         }
-                         transform_pos (& binArea, & binPos, & activeArea, & cs->mouseWindowPos);
-                         transform_pos (& activeArea, & cs->mouseWindowPos, & sw->dataRange, & sw->mouseDataPos);
-                     }
-                     else
-                     {
-                         mmx = 0;
-                         mmy = 0;
-                         mmz = 0;
+                             xi * (2.0 / (w-1)) - 1,
+                             yi * (2.0 / (h-1)) - 1,
+                             pz ? pz[w * yi + xi] : 0
+                         };
+
+                         double d[3];
+                         world_transform_projected_to_datapos (& sw->world, p, d);
+                         sw->mouseDataPos.x = d[0];
+                         sw->mouseDataPos.y = d[1];
+                         sw->mouseDataPos.z = d[2];
                      }
                  }
                  else
@@ -1885,29 +1569,32 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
          }
      case MOUSE_STATE_MOVING:
          {
-             CipPosition oldPos = {cs->mouseWindowPos.x, cs->mouseWindowPos.y};
-             uint32_t w = cs->windowWidth;
-             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-             cs->mouseWindowPos.x = (double) xi / w;
-             cs->mouseWindowPos.y = (double) yi / h;
-             CipSubWindow *sw = cs->activeSw;
-             CipArea *dr = & sw->dataRange;
-             double dx = (cs->mouseWindowPos.x - oldPos.x);
-             double dy = (cs->mouseWindowPos.y - oldPos.y);
-             if (!cs->zoomEnabled)
-             {
-                 dx /= (sw->windowArea.x1 - sw->windowArea.x0);
-                 dy /= (sw->windowArea.y1 - sw->windowArea.y0);
-             }
-             dx *= dr->x1 - dr->x0;
-             dy *= dr->y1 - dr->y0;
+             print_debug ("redundant, no?");
+             // FIXME: I don't think we need this code?
+             // If I'm wrong, port it using world_transform
+             //CipPosition oldPos = {cs->mouseWindowPos.x, cs->mouseWindowPos.y};
+             //uint32_t w = cs->windowWidth;
+             //uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+             //cs->mouseWindowPos.x = (double) xi / w;
+             //cs->mouseWindowPos.y = (double) yi / h;
+             //CipSubWindow *sw = cs->activeSw;
+             //CipArea *dr = & sw->dataRange;
+             //double dx = (cs->mouseWindowPos.x - oldPos.x);
+             //double dy = (cs->mouseWindowPos.y - oldPos.y);
+             //if (!cs->zoomEnabled)
+             //{
+             //    dx /= (sw->windowArea.x1 - sw->windowArea.x0);
+             //    dy /= (sw->windowArea.y1 - sw->windowArea.y0);
+             //}
+             //dx *= dr->x1 - dr->x0;
+             //dy *= dr->y1 - dr->y0;
 
-             //printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
-             dr->x0 -= dx;
-             dr->x1 -= dx;
-             dr->y0 -= dy;
-             dr->y1 -= dy;
-             //print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+             ////printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
+             //dr->x0 -= dx;
+             //dr->x1 -= dx;
+             //dr->y0 -= dy;
+             //dr->y1 -= dy;
+             ////print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
 
              break;
          }
@@ -2163,15 +1850,10 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                               {
                                   int idx = key - '0';
                                   CipSubWindow *sw = cs->activeSw;
-                                  CipArea *dstArea = & sw->dataRange;
-                                  CipArea *srcArea = & storedDataRanges[idx];
-                                  if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
-                                  {
-                                      memcpy (dstArea, srcArea, sizeof (*srcArea));
-                                      print_debug ("restore range from %d", idx);
-                                  }
-                                  else
-                                      print_debug ("no range stored at %d", idx);
+                                  WorldTransform *dstWorld = & sw->world;
+                                  WorldTransform *srcWorld = & storedWorldTransforms[idx];
+                                  memcpy (dstWorld, srcWorld, sizeof (*srcWorld));
+                                  print_debug ("restore range from %d", idx);
                               }
                               break;
                           }
@@ -2198,7 +1880,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case 'x':
                           if (cs->activeSw)
                           {
-                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              double (*mtx)[3] = cs->activeSw->world.rotMtx;
                               mtx[0][0] =  0; mtx[0][1] = -1; mtx[0][2] =  0;
                               mtx[1][0] =  0; mtx[1][1] =  0; mtx[1][2] =  1;
                               mtx[2][0] = -1; mtx[2][1] =  0; mtx[2][2] =  0;
@@ -2208,7 +1890,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case 'y':
                           if (cs->activeSw)
                           {
-                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              double (*mtx)[3] = cs->activeSw->world.rotMtx;
                               mtx[0][0] =  0; mtx[0][1] =  0; mtx[0][2] = -1;
                               mtx[1][0] = -1; mtx[1][1] =  0; mtx[1][2] =  0;
                               mtx[2][0] =  0; mtx[2][1] =  1; mtx[2][2] =  0;
@@ -2218,7 +1900,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case 'z':
                           if (cs->activeSw)
                           {
-                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              double (*mtx)[3] = cs->activeSw->world.rotMtx;
                               mtx[0][0] =  1; mtx[0][1] =  0; mtx[0][2] =  0;
                               mtx[1][0] =  0; mtx[1][1] =  1; mtx[1][2] =  0;
                               mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
@@ -2228,10 +1910,21 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case 'w':
                           if (cs->activeSw)
                           {
-                              double (*mtx)[3] = cs->activeSw->rotMatrix;
+                              double (*mtx)[3] = cs->activeSw->world.rotMtx;
                               double a = 1.0 / sqrt(2);
                               mtx[0][0] =  a; mtx[0][1] = -a; mtx[0][2] =  0;
                               mtx[1][0] =  a; mtx[1][1] =  a; mtx[1][2] =  0;
+                              mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
+                          }
+                          break;
+
+                case 'v':
+                          if (cs->activeSw)
+                          {
+                              double (*mtx)[3] = cs->activeSw->world.rotMtx;
+                              double a = 1.0 / sqrt(2);
+                              mtx[0][0] =  a; mtx[0][1] =  a; mtx[0][2] =  0;
+                              mtx[1][0] = -a; mtx[1][1] =  a; mtx[1][2] =  0;
                               mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
                           }
                           break;
@@ -2258,13 +1951,10 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                         {
                             int idx = key - '0';
                             CipSubWindow *sw = cs->activeSw;
-                            CipArea *srcArea = & sw->dataRange;
-                            CipArea *dstArea = & storedDataRanges[idx];
-                            if (srcArea->x0 != srcArea->x1 && srcArea->y0 != srcArea->y1)
-                            {
-                                memcpy (dstArea, srcArea, sizeof (*srcArea));
-                                print_debug ("save range to %d", idx);
-                            }
+                            WorldTransform *srcWorld = & sw->world;
+                            WorldTransform *dstWorld = & storedWorldTransforms[idx];
+                            memcpy (dstWorld, srcWorld, sizeof (*srcWorld));
+                            print_debug ("save range to %d", idx);
                         }
                         break;
                     }
@@ -2299,15 +1989,16 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
             unhandled = 0;
             if (mod == KMOD_NONE)
             {
-                double zf = 0.05;
+                double zfp = 1.05;
+                double zfn = 1.0 / 1.05;
                 double mf = 0.025;
                 switch (key)
                 {
                  case 'n': sub_window_change (cs,  1); break;
-                 case '+': cip_zoom (cs->activeSw,  zf,  zf, zf); break;
-                 case '-': cip_zoom (cs->activeSw, -zf, -zf, -zf); break;
-                 case ',': cip_zoom (cs->activeSw, -zf,  0.0, 0.0); break;
-                 case '.': cip_zoom (cs->activeSw,  zf,  0.0, 0.0); break;
+                 case '+': cip_zoom (cs->activeSw, zfp, zfp, zfp); break;
+                 case '-': cip_zoom (cs->activeSw, zfn, zfn, zfn); break;
+                 case ',': cip_zoom (cs->activeSw, zfn,  1.0, 1.0); break;
+                 case '.': cip_zoom (cs->activeSw, zfp,  1.0, 1.0); break;
                            //case 'i': cip_zoom (cs->activeSw,  0.00, -zf); break;
                            //case 'o': cip_zoom (cs->activeSw,  0.00,  zf); break;
                  case SDLK_UP:    cip_move (cs->activeSw,  0.00, -mf); break;
@@ -2370,7 +2061,7 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->hist.origXYZ = NULL;
+    attacher->hist.pz = NULL;
     attacher->histogramFun = histogramFun ? histogramFun : is3d ? make_histogram_3d : make_histogram_2d;
     attacher->colorScheme = cip_make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
@@ -2531,18 +2222,11 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
 {
     uint64_t counter = 0;
     int *bins  = hist->bins;
-    double (*origXYZ)[3] = hist->origXYZ;
+    double *pz = hist->pz;
     uint32_t w = hist->w;
     uint32_t h = hist->h;
 
     wait_for_access (& graph->readAccess);
-
-    double xmin = (double) hist->dataRange.x0;
-    double xmax = (double) hist->dataRange.x1;
-    double ymin = (double) hist->dataRange.y0;
-    double ymax = (double) hist->dataRange.y1;
-    double zmin = (double) hist->dataRange.z0;
-    double zmax = (double) hist->dataRange.z1;
 
     double (*xyzs)[3];
     uint32_t len;
@@ -2562,54 +2246,29 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
     counter = graph->sb->counter;
     release_access (& graph->insertAccess);
 
-    assert (origXYZ);
+    assert (pz);
     uint32_t nBins = w * h;
     for (uint32_t i=0; i<nBins; i++)
     {
-        bins[i]       = 0;
-        origXYZ[i][0] = 0;
-        origXYZ[i][1] = 0;
-        origXYZ[i][2] = 0;
+        bins[i] = 0;
+        pz[i] = 0;
     }
 
-    double cx = 0.5 * (xmax + xmin);
-    double cy = 0.5 * (ymax + ymin);
-    double cz = 0.5 * (zmax + zmin);
-
-    double sx = 1.0 / (xmax - xmin);
-    double sy = 1.0 / (ymax - ymin);
-    double sz = 1.0 / (zmax - zmin);
+    WorldTransform *world = & hist->world;
 
     if (plotType == 'p')
     {
         for (uint32_t i=0; i<len; i++)
         {
-            double relxyz[3] =
-            {
-                sx * (xyzs[i][0] - cx),
-                sy * (xyzs[i][1] - cy),
-                sz * (-xyzs[i][2] - cz),
-            };
-            double rotxyz[3];
-            matrix_vector_multiply (hist->rotMatrix, relxyz, rotxyz);
+            double p[3];
+            world_transform_datapos_to_projected (world, xyzs[i], p);
 
-            double px = rotxyz[0];
-            double py = rotxyz[1];
-            double pz = rotxyz[2];
-
-            double scale = pz * perspectiveFactor + 1;
-
-            if (scale < 0)
+            if (isnan (p[0]) || isnan (p[1]) || isnan (p[2]) ||
+                isinf (p[0]) || isinf (p[1]) || isinf (p[2]))
                 continue;
 
-            px /= scale;
-            py /= scale;
-
-            if (isnan (px) || isnan (py) || isnan (pz) || isinf (px) || isinf (py) || isinf (pz))
-                continue;
-
-            int xi = (int) ((w-1) * (px + 0.5));
-            int yi = (int) ((h-1) * (py + 0.5));
+            int xi = (int) ((w-1) * (0.5*p[0] + 0.5));
+            int yi = (int) ((h-1) * (0.5*p[1] + 0.5));
 
             //if (i)
             //    cip_histogram_line (hist, lastXi, lastYi, xi, yi);
@@ -2618,7 +2277,7 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
 
             if (xi >= 0 && xi < w && yi >= 0 && yi < h)
             {
-                int newVal = 40 - 150*(pz);
+                int newVal = 40 - 150*(p[2]); // FIXME: How should color schemes be applied correctly?
                 if (newVal < 1)
                     newVal = 1;
 
@@ -2628,9 +2287,7 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
                     bins [(uint32_t) yi*w + (uint32_t) xi] = newVal;
                     if (bins [(uint32_t) yi*w + (uint32_t) xi] < 1)
                         bins [(uint32_t) yi*w + (uint32_t) xi] = 1;
-                    origXYZ[(uint32_t) yi*w + (uint32_t) xi][0] =  xyzs[i][0];
-                    origXYZ[(uint32_t) yi*w + (uint32_t) xi][1] =  xyzs[i][1];
-                    origXYZ[(uint32_t) yi*w + (uint32_t) xi][2] = -xyzs[i][2]; // FIXME: well it's not original if sign is changed
+                    pz [(uint32_t) yi*w + (uint32_t) xi] = p[2];
                 }
             }
         }
@@ -2706,17 +2363,18 @@ static uint64_t make_histogram_2d_waterfall (CipHistogram *hist, CipGraph *graph
                 if (hist->counts[xi] > 1e-5)
                 {
                     double avg = sums[xi] / counts[xi];
-                    double yMin = hist->dataRange.y1;
-                    double yMax = hist->dataRange.y0;
-                    double w = (avg - yMin) / (yMax - yMin);
+                    double s = hist->world.scaleMtx[1][1];
+                    double ymin = hist->world.centerPos[1] - s;
+                    double ymax = hist->world.centerPos[1] + s;
+                    double w = (avg - ymin) / (ymax - ymin);
 
                     if (lastNonZeroXi < 0)
                         lastNonZeroXi = xi-1;
                     for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
                         bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
 
-                    //print_debug ("sums[xi]: %f counts[xi]: %f yMin: %f, yMax: %f avg: %f => w: %f => bins[%d]: %d",
-                    //sums[xi], counts[xi], yMin, yMax, avg, w, xi, bins[xi]);
+                    //print_debug ("sums[xi]: %f counts[xi]: %f ymin: %f, ymax: %f avg: %f => w: %f => bins[%d]: %d",
+                    //sums[xi], counts[xi], ymin, ymax, avg, w, xi, bins[xi]);
                     sums[xi]   = 0.0;
                     counts[xi] = 0.0;
                     lastNonZeroXi = xi;
@@ -2730,8 +2388,10 @@ static uint64_t make_histogram_2d_waterfall (CipHistogram *hist, CipGraph *graph
             if (logMode & 1) x = LOGFUN (x);
             if (logMode & 2) y = LOGFUN (y);
 
-#define GET_XI(hist, xf) ((int) ((xf - hist->dataRange.x0) / (hist->dataRange.x1 - hist->dataRange.x0) * (hist->w-1)))
-            int xi = GET_XI (hist, x);
+            double s = hist->world.scaleMtx[0][0];
+            double xmin = hist->world.centerPos[0] - s;
+            double xmax = hist->world.centerPos[0] + s;
+            int xi = (x - xmin) / (xmax - xmin) * (w-1);
 
             if (xi >= 0 && xi < w)
             {
@@ -2756,10 +2416,12 @@ static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t
 
     wait_for_access (& graph->readAccess);
 
-    double xmin = (double) hist->dataRange.x0;
-    double xmax = (double) hist->dataRange.x1;
-    double ymin = (double) hist->dataRange.y0;
-    double ymax = (double) hist->dataRange.y1;
+    double sx = hist->world.scaleMtx[0][0];
+    double sy = hist->world.scaleMtx[0][0];
+    double xmin = hist->world.centerPos[0] - sx;
+    double xmax = hist->world.centerPos[0] + sx;
+    double ymin = hist->world.centerPos[1] - sy;
+    double ymax = hist->world.centerPos[1] + sy;
 
     double (*xys)[2];
     uint32_t len;
@@ -3083,29 +2745,42 @@ static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0
 
 static void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *cs, CipSubWindow *sw, double pos, int vertical, uint32_t color)
 {
+    double sx = sw->world.scaleMtx[0][0];
+    double sy = sw->world.scaleMtx[0][0];
+    double xmin = sw->world.centerPos[0] - sx;
+    double xmax = sw->world.centerPos[0] + sx;
+    double ymin = sw->world.centerPos[1] - sy;
+    double ymax = sw->world.centerPos[1] + sy;
+
     CipArea activeArea;
     CipArea zoomWindowArea = {0,0,1,1};
     get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
 
-    CipPosition dataPos0, dataPos1;
+    double dataPos0[3], dataPos1[3];
     if (vertical)
     {
-        dataPos0.x = pos;
-        dataPos0.y = sw->dataRange.y0;
-        dataPos1.x = pos;
-        dataPos1.y = sw->dataRange.y1;
+        dataPos0[0] = pos;
+        dataPos0[1] = ymin;
+        dataPos0[2] = 0;
+
+        dataPos1[0] = pos;
+        dataPos1[1] = ymax;
+        dataPos1[2] = 0;
     }
     else
     {
-        dataPos0.x = sw->dataRange.x0;
-        dataPos0.y = pos;
-        dataPos1.x = sw->dataRange.x1;
-        dataPos1.y = pos;
+        dataPos0[0] = xmin;
+        dataPos0[1] = pos;
+        dataPos0[2] = 0;
+
+        dataPos1[0] = xmax;
+        dataPos1[1] = pos;
+        dataPos1[2] = 0;
     }
 
     CipPosition winPos0, winPos1;
-    transform_pos (& sw->dataRange, & dataPos0, & activeArea, & winPos0);
-    transform_pos (& sw->dataRange, & dataPos1, & activeArea, & winPos1);
+    datapos_to_winpos (& sw->world, dataPos0, & activeArea, & winPos0);
+    datapos_to_winpos (& sw->world, dataPos1, & activeArea, & winPos1);
 
     uint32_t x0 = (uint32_t) (winPos0.x * w);
     uint32_t y0 = (uint32_t) (winPos0.y * h);
@@ -3126,6 +2801,18 @@ static void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *
 
 static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
 {
+    double sx = sw->world.scaleMtx[0][0];
+    double sy = sw->world.scaleMtx[0][0];
+    double xmin = sw->world.centerPos[0] - sx;
+    double xmax = sw->world.centerPos[0] + sx;
+    double ymin = sw->world.centerPos[1] - sy;
+    double ymax = sw->world.centerPos[1] + sy;
+
+    double x0 = xmin;
+    double x1 = xmax;
+    double y0 = ymax;
+    double y1 = ymin;
+
     uint32_t gridColor0 = make_gray (0.2f);
     uint32_t gridColor1 = make_gray (0.4f);
 
@@ -3133,17 +2820,17 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     CipArea zoomWindowArea = {0,0,1,1};
     get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
 
-    double dy, y0, y1;
+    double dy, yStop, yStart;
     int yTens, ySubs;
     int cntGuard = 4000;
 
     if (sw->gridMode & 1)
     {
         // keep in mind y1 < y0 because plot window has positive y-data direction upwards
-        dy = pow (10, floor (log10 (sw->dataRange.y0 - sw->dataRange.y1)));
-        y0 = ceil (sw->dataRange.y0 / dy) * dy;
-        y1 = floor (sw->dataRange.y1 / dy) * dy;
-        yTens = (int) ((sw->dataRange.y0 - sw->dataRange.y1) / dy);
+        dy = pow (10, floor (log10 (y0 - y1)));
+        yStop = ceil (y0 / dy) * dy;
+        yStart = floor (y1 / dy) * dy;
+        yTens = (int) ((y0 - y1) / dy);
         if (yTens < 1)
             yTens = 1;
         ySubs = 1;
@@ -3151,26 +2838,23 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
             ySubs *= 2;
 
         int cnt = 0;
-        for (double y=y1; y<y0 && cnt<cntGuard && subHeight > 200; y+=dy/(ySubs*5))
+        for (double y=yStart; y<yStop && cnt<cntGuard && subHeight > 200; y+=dy/(ySubs*5))
         {
             cnt++;
-            if (y1 <= y && y <= y0)
+            if (yStart <= y && y <= yStop)
                 draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
         }
         cnt = 0;
         uint32_t lastYi = 0;
-        for (double y=y1; y<y0 && cnt<cntGuard; y+=dy/ySubs)
+        for (double y=yStart; y<yStop && cnt<cntGuard; y+=dy/ySubs)
         {
             cnt++;
-            if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
+            if (y < y1 || y0 < y)
                 continue;
 
-            CipPosition dataPos;
-            dataPos.x = sw->dataRange.x0;
-            dataPos.y = y;
-
+            double dataPos[3] = {x0, y, 0};
             CipPosition winPos;
-            transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+            datapos_to_winpos (& sw->world, dataPos, & activeArea, & winPos);
 
             uint32_t yi = (uint32_t) (winPos.y * h);
             uint32_t scale = 1 + (cs->zoomEnabled || cs->fullscreen);
@@ -3186,10 +2870,10 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
 
     if (sw->gridMode & 2)
     {
-        double dx = pow (10, floor (log10 (sw->dataRange.x1 - sw->dataRange.x0)));
-        double x0 = floor (sw->dataRange.x0 / dx) * dx;
-        double x1 = ceil (sw->dataRange.x1 / dx) * dx;
-        int xTens = (int) ((sw->dataRange.x1 - sw->dataRange.x0) / dx);
+        double dx = pow (10, floor (log10 (x1 - x0)));
+        double xStart = floor (x0 / dx) * dx;
+        double xStop = ceil (x1 / dx) * dx;
+        int xTens = (int) ((x1 - x0) / dx);
         if (xTens < 1)
             xTens = 1;
         int xSubs = 1;
@@ -3197,26 +2881,23 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
             xSubs *= 2;
 
         int cnt = 0;
-        for (double x=x0; x<x1 && cnt<cntGuard && subHeight > 200; x+=dx/(xSubs*5))
+        for (double x=xStart; x<xStop && cnt<cntGuard && subHeight > 200; x+=dx/(xSubs*5))
         {
             cnt++;
-            if (x0 <= x && x <= x1)
+            if (xStart <= x && x <= xStop)
                 draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor0);
         }
         cnt = 0;
         uint32_t lastXi = 0;
-        for (double x=x0; x<x1 && cnt<cntGuard; x+=dx/xSubs)
+        for (double x=xStart; x<xStop && cnt<cntGuard; x+=dx/xSubs)
         {
             cnt++;
-            if (x < sw->dataRange.x0 || sw->dataRange.x1 < x)
+            if (x < x0 || x1 < x)
                 continue;
 
-            CipPosition dataPos;
-            dataPos.x = x;
-            dataPos.y = sw->dataRange.y1;
-
+            double dataPos[3] = {x, y1, 0};
             CipPosition winPos;
-            transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+            datapos_to_winpos (& sw->world, dataPos, & activeArea, & winPos);
 
             uint32_t xi = (uint32_t) (winPos.x * w);
             uint32_t yi = (uint32_t) (winPos.y * h) - 2;
@@ -3239,18 +2920,15 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     {
         int cnt = 0;
         uint32_t lastYi = 0;
-        for (double y=y1; y<y0 && cnt<cntGuard; y+=dy/ySubs)
+        for (double y=yStart; y<yStop && cnt<cntGuard; y+=dy/ySubs)
         {
             cnt++;
-            if (y < sw->dataRange.y1 || sw->dataRange.y0 < y)
+            if (y < y1 || y0 < y)
                 continue;
 
-            CipPosition dataPos;
-            dataPos.x = sw->dataRange.x0;
-            dataPos.y = y;
-
+            double dataPos[3] = {x0, y, 0};
             CipPosition winPos;
-            transform_pos (& sw->dataRange, & dataPos, & activeArea, & winPos);
+            datapos_to_winpos (& sw->world, dataPos, & activeArea, & winPos);
 
             uint32_t xi = (uint32_t) (winPos.x * w) + 2;
             uint32_t yi = (uint32_t) (winPos.y * h);
@@ -3388,21 +3066,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             int updateHistogram =
                 (forceRefresh) ||
                 (attacher->lastPlotType != attacher->plotType) ||
-                (hist->rotMatrix[0][0] != sw->rotMatrix[0][0]) ||
-                (hist->rotMatrix[0][1] != sw->rotMatrix[0][1]) ||
-                (hist->rotMatrix[0][2] != sw->rotMatrix[0][2]) ||
-                (hist->rotMatrix[1][0] != sw->rotMatrix[1][0]) ||
-                (hist->rotMatrix[1][1] != sw->rotMatrix[1][1]) ||
-                (hist->rotMatrix[1][2] != sw->rotMatrix[1][2]) ||
-                (hist->rotMatrix[2][0] != sw->rotMatrix[2][0]) ||
-                (hist->rotMatrix[2][1] != sw->rotMatrix[2][1]) ||
-                (hist->rotMatrix[2][2] != sw->rotMatrix[2][2]) ||
-                (hist->dataRange.x0 != sw->dataRange.x0) ||
-                (hist->dataRange.x1 != sw->dataRange.x1) ||
-                (hist->dataRange.y0 != sw->dataRange.y0) ||
-                (hist->dataRange.y1 != sw->dataRange.y1) ||
-                (hist->dataRange.z0 != sw->dataRange.z0) ||
-                (hist->dataRange.z1 != sw->dataRange.z1);
+                (memcmp (& hist->world, & sw->world, sizeof (sw->world)));
 
             if (updateHistogram)
                 attacher->lastGraphCounter = 0;
@@ -3419,7 +3083,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
                 int is3d = (attacher->graph->sb->itemSize == sizeof (double) * 3);
                 if (is3d)
-                    hist->origXYZ = safe_calloc (hist->w * hist->h, sizeof (hist->origXYZ[0]));
+                    hist->pz = safe_calloc (hist->w * hist->h, sizeof (hist->pz[0]));
 
                 attacher->lastGraphCounter = 0;
                 updateHistogram = 1;
@@ -3435,10 +3099,10 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
                 hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
 
-                if (hist->origXYZ)
+                if (hist->pz)
                 {
-                    free (hist->origXYZ);
-                    hist->origXYZ = safe_calloc (hist->w * hist->h, sizeof (hist->origXYZ[0]));
+                    free (hist->pz);
+                    hist->pz = safe_calloc (hist->w * hist->h, sizeof (hist->pz[0]));
                 }
 
                 attacher->lastGraphCounter = 0;
@@ -3447,23 +3111,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
             if (updateHistogram)
             {
-                hist->dataRange.x0 = sw->dataRange.x0;
-                hist->dataRange.x1 = sw->dataRange.x1;
-                hist->dataRange.y0 = sw->dataRange.y0;
-                hist->dataRange.y1 = sw->dataRange.y1;
-                hist->dataRange.z0 = sw->dataRange.z0;
-                hist->dataRange.z1 = sw->dataRange.z1;
-
-                hist->rotMatrix[0][0] = sw->rotMatrix[0][0];
-                hist->rotMatrix[0][1] = sw->rotMatrix[0][1];
-                hist->rotMatrix[0][2] = sw->rotMatrix[0][2];
-                hist->rotMatrix[1][0] = sw->rotMatrix[1][0];
-                hist->rotMatrix[1][1] = sw->rotMatrix[1][1];
-                hist->rotMatrix[1][2] = sw->rotMatrix[1][2];
-                hist->rotMatrix[2][0] = sw->rotMatrix[2][0];
-                hist->rotMatrix[2][1] = sw->rotMatrix[2][1];
-                hist->rotMatrix[2][2] = sw->rotMatrix[2][2];
-
+                memcpy (& hist->world, & sw->world, sizeof (sw->world));
                 attacher->lastGraphCounter = attacher->histogramFun (
                   hist, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
                 attacher->lastPlotType = attacher->plotType;
@@ -3683,22 +3331,14 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
             sw->selectedWindowArea1.y0 = NaN;
             sw->selectedWindowArea1.y1 = NaN;
 
-            sw->dataRange.x0 = -1;
-            sw->dataRange.x1 =  1;
-            sw->dataRange.y0 =  1;
-            sw->dataRange.y1 = -1;
-            sw->dataRange.z0 = -1;
-            sw->dataRange.z1 =  1;
-            memcpy (& sw->defaultDataRange, & sw->dataRange, sizeof (CipArea));
+            world_transform_set_default_values (& sw->world);
+            for (int i=0; i<10; i++)
+                world_transform_set_default_values (& storedWorldTransforms[i]);
 
             sw->windowArea.x0 = (ci    ) * dx;
             sw->windowArea.x1 = (ci + 1) * dx;
             sw->windowArea.y0 = (ri    ) * dy;
             sw->windowArea.y1 = (ri + 1) * dy;
-
-            for (int i=0; i<3; i++)
-                for (int j=0; j<3; j++)
-                    sw->rotMatrix[i][j] = (i==j);
         }
     }
 
