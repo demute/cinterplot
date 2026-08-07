@@ -40,7 +40,7 @@ typedef struct CipState
     int (*app_on_mouse_motion) (CipState *cs, int windowIndex, double x, double y);
 
     int mouseState;
-    int mouseScreenPos[2];
+    uint32_t mouseScreenPos[2];
 
     CipMouse mouse;
 
@@ -1125,6 +1125,9 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
                  int x1 = (swa->x1 - wa->x0);
                  int y1 = (swa->y1 - wa->y0);
 
+                 int w = wa->x1 - wa->x0 + 1;
+                 int h = wa->y1 - wa->y0 + 1;
+
                  double d0[3], d1[3];
                  world_transform_bin_to_datapos (& sw->world, w, h, x0, y0, d0);
                  world_transform_bin_to_datapos (& sw->world, w, h, x1, y1, d1);
@@ -1152,6 +1155,25 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
     return 1;
 }
 
+void screenpos_to_datapos (uint32_t screenPos[2], double dataPos[3])
+{
+    dataPos[0] = 0;
+    dataPos[1] = 0;
+    dataPos[2] = 0;
+}
+
+void binpos_to_screenpos (uint32_t binPos[2], uint32_t screenPos[2])
+{
+    screenPos[0] = 0;
+    screenPos[1] = 0;
+}
+
+void screenpos_to_binpos (uint32_t screenPos[2], uint32_t binPos[2])
+{
+    binPos[0] = 0;
+    binPos[1] = 0;
+}
+
 static int on_mouse_wheel (CipState *cs, float xf, float yf)
 {
     CipSubWindow *sw = cs->activeSw;
@@ -1168,7 +1190,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
                 1
             };
             double fixedPos[3];
-            mouse_screenpos_to_datapos (cs->mouseScreenPos, & fixedPos);
+            screenpos_to_datapos (cs->mouseScreenPos, fixedPos);
             world_transform_scale_world (& sw->world, fixedPos, scales);
             return 1;
         }
@@ -1185,7 +1207,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         {
             // rotating z
             double fixedPos[3];
-            mouse_screenpos_to_datapos (cs->mouseScreenPos, & fixedPos);
+            screenpos_to_datapos (cs->mouseScreenPos, fixedPos);
             world_transform_rotate_world (& sw->world, fixedPos, 2, -yf * 0.02);
             return 1;
         }
@@ -1193,7 +1215,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         {
             // rotating
             double fixedPos[3];
-            mouse_screenpos_to_datapos (cs->mouseScreenPos, & fixedPos);
+            screenpos_to_datapos (cs->mouseScreenPos, fixedPos);
             world_transform_rotate_world (& sw->world, fixedPos, 2,  yf * 0.02);
             world_transform_rotate_world (& sw->world, fixedPos, 2, -xf * 0.02);
             return 1;
@@ -1304,23 +1326,14 @@ static int find_closest_point (CipHistogram *hist, uint32_t _x0, uint32_t _y0, u
     return 0;
 }
 
-static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
-{
-    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
-    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
-    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
-    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
-    dstPos->z = 0;
-}
-
 static int on_mouse_motion (CipState *cs, int xi, int yi)
 {
     switch (cs->mouseState)
     {
      case MOUSE_STATE_NONE:
          {
-             uint32_t w = cs->windowWidth;
-             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+             //uint32_t w = cs->windowWidth;
+             //uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
              CipArea activeArea;
 
              if (!cs->zoomEnabled)
@@ -1371,18 +1384,19 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  CipHistogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
                  uint32_t w = hist->w;
                  uint32_t h = hist->h;
-                 int *bins = hist->bins;
-                 double *pz = hist->pz;
+                 int  *bins = hist->bins;
+
                  if (!bins)
                  {
                      // if mouse is moved before bins has been alloc'd, this may happen
                      return 0;
                  }
-                 CipArea binArea = {0, 0, w, h};
-                 CipPosition binPos;
-                 transform_pos (& activeArea, & cs->mouseScreenPos, & binArea, & binPos);
-                 uint32_t x0 = (uint32_t) binPos.x;
-                 uint32_t y0 = (uint32_t) binPos.y;
+
+                 uint32_t binPos[2];
+                 screenpos_to_binpos (cs->mouseScreenPos, binPos);
+
+                 uint32_t x0 = binPos[0];
+                 uint32_t y0 = binPos[1];
 
                  if (cs->trackingMode == 1)
                  {
@@ -1407,9 +1421,8 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          }
                          if (bestY >= 0)
                          {
-                             binPos.x = x0;
-                             binPos.y = bestY;
-                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseScreenPos);
+                             binPos[1] = bestY;
+                             binpos_to_screenpos (binPos, cs->mouseScreenPos);
                          }
                      }
                  }
@@ -1436,9 +1449,8 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          }
                          if (bestX >= 0)
                          {
-                             binPos.x = bestX;
-                             binPos.y = y0;
-                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseScreenPos);
+                             binPos[0] = bestX;
+                             binpos_to_screenpos (binPos, cs->mouseScreenPos);
                          }
                      }
                  }
@@ -1447,9 +1459,9 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      uint32_t xi, yi;
                      if (find_closest_point (hist, x0, y0, & xi, & yi) >= 0)
                      {
-                         binPos.x = xi;
-                         binPos.y = yi;
-                         transform_pos (& binArea, & binPos, & activeArea, & cs->mouseScreenPos);
+                         binPos[0] = xi;
+                         binPos[1] = yi;
+                         binpos_to_screenpos (binPos, cs->mouseScreenPos);
                      }
                  }
                  else
@@ -1465,7 +1477,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          break;
 
                  double mouseDataPos[3];
-                 mouse_screenpos_to_datapos (cs->mouseScreenPos, & mouseDataPos);
+                 screenpos_to_datapos (cs->mouseScreenPos, mouseDataPos);
                  cs->app_on_mouse_motion (cs, windowIndex, mouseDataPos[0], mouseDataPos[1]);
              }
 
@@ -2117,9 +2129,10 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
         for (uint32_t i=0; i<len; i++)
         {
             int xi, yi;
-            if (world_transform_datapos_to_bin (world, xyzs[i], w, h, & xi, & yi) == 0)
+            double zVal;
+            if (world_transform_datapos_to_bin (world, xyzs[i], w, h, & xi, & yi, & zVal) == 0)
             {
-                int newVal = 40 - 150*(p[2]); // FIXME: How should color schemes be applied correctly?
+                int newVal = 40 - 150*zVal;
                 if (newVal < 1)
                     newVal = 1;
 
@@ -2130,7 +2143,7 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
                     bins [idx] = newVal;
                     if (bins [idx] < 1)
                         bins [idx] = 1;
-                    pz [idx] = p[2];
+                    pz[idx] = zVal;
                 }
             }
         }
@@ -2586,14 +2599,6 @@ static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0
     return y - y0;
 }
 
-static inline void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *cs, CipSubWindow *sw, double dataPos0[3], double dataPos1[3], uint32_t color)
-{
-    int xi0, yi0, xi1, yi1;
-    world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0);
-    world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1);
-    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, color);
-}
-
 static void get_grid_conf (double x0, double x1, double *xStart, double *xStop, double *dx)
 {
     if (x1 < x0)
@@ -2649,8 +2654,8 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 int xi0, yi0, xi1, yi1;
                 double dataPos0[3] = {xmin, y + i*0.2, 0};
                 double dataPos1[3] = {xmax, y + i*0.2, 0};
-                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0);
-                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1);
+                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0, NULL);
+                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1, NULL);
 
                 if (i == 0)
                 {
@@ -2680,8 +2685,8 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 int xi0, yi0, xi1, yi1;
                 double dataPos0[3] = {x + i*0.2, ymin, 0};
                 double dataPos1[3] = {x + i*0.2, ymax, 0};
-                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0);
-                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1);
+                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0, NULL);
+                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1, NULL);
 
                 if (i == 0)
                 {
@@ -2932,7 +2937,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         {
             CipSubWindow *sw = cs->activeSw;
             double mouseDataPos[3];
-            mouse_screenpos_to_datapos (cs->mouseScreenPos, & mouseDataPos);
+            screenpos_to_datapos (cs->mouseScreenPos, mouseDataPos);
 
             char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};

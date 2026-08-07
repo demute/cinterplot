@@ -203,7 +203,7 @@ void world_transform_datapos_to_projected (WorldTransform *world, double x[3], d
     world_transform_worldpos_to_projected (world, & w, p);
 }
 
-int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi)
+int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi, double *pz)
 {
     double p[3];
     world_transform_datapos_to_projected (world, x, p);
@@ -212,6 +212,8 @@ int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, 
 
     *xi = (0.5 * p[0] + 0.5) * (w-1);
     *yi = (0.5 * p[1] + 0.5) * (h-1);
+    if (pz)
+        *pz = p[2];
 
     return (*xi >= 0 && *yi >= 0 && *xi < w && *yi < h) ? 0 : 1;
 }
