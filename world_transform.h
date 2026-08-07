@@ -93,20 +93,23 @@ typedef struct WorldTransform
 } WorldTransform;
 
 
-void world_transform_datapos_to_worldpos (WorldTransform *world, double x[3], double w[3]);
-void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], double x[3]);
-void world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3]);
-void world_transform_datapos_to_projected (WorldTransform *world, double x[3], double p[3]);
-void world_transform_projected_to_worldpos (WorldTransform *world, double p[3], double w[3]);
-void world_transform_projected_to_datapos (WorldTransform *world, double p[3], double d[3]);
-void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, double wd[3]);
 void world_transform_adjust_centerpos_using_scaled_diff (WorldTransform *world, double sd[3]);
-void world_transform_rotate_world (WorldTransform *world, double datapos[3], int axis, double theta);
+void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, double wd[3]);
+int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi);
+int  world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double x[3]);
+int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi);
+void world_transform_datapos_to_projected (WorldTransform *world, double x[3], double p[3]);
+void world_transform_datapos_to_worldpos (WorldTransform *world, double x[3], double w[3]);
+void world_transform_projected_to_datapos (WorldTransform *world, double p[3], double d[3]);
+void world_transform_projected_to_worldpos (WorldTransform *world, double p[3], double w[3]);
 void world_transform_rotate_data (WorldTransform *world, double datapos[3], int axis, double theta);
+void world_transform_rotate_world (WorldTransform *world, double datapos[3], int axis, double theta);
 void world_transform_scale_world (WorldTransform *world, double datapos[3], double scale[3]);
+void world_transform_set_default_values (WorldTransform *world);
 void world_transform_set_range (WorldTransform *world, int axis, double range[2], double margin);
 void world_transform_set_ranges (WorldTransform *world, double ranges[3][2], double margin);
-void world_transform_set_default_values (WorldTransform *world);
+void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], double x[3]);
+void world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3]);
 
 #ifdef __cplusplus
 } /* end extern C */

@@ -36,41 +36,41 @@ typedef struct CipGraph
 
 typedef struct CipArea
 {
-    double x0;
-    double y0;
-    double x1;
-    double y1;
+    int x0;
+    int y0;
+    int x1;
+    int y1;
 } CipArea;
 
 typedef struct CipPosition
 {
-    double x;
-    double y;
-    double z;
+    int x;
+    int y;
+    int z;
 } CipPosition;
 
 typedef struct CipHistogram
 {
     WorldTransform world;
-    uint32_t w;
-    uint32_t h;
-    int *bins;
-    double *counts;
-    double *sums;
-    double *pz;
+    uint32_t  w;
+    uint32_t  h;
+    int      *bins;
+    double   *counts;
+    double   *sums;
+    double   *pz;
 } CipHistogram;
 
 typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 
 typedef struct GraphAttacher
 {
-    CipGraph *graph;
+    CipGraph       *graph;
     CipColorScheme *colorScheme;
     CipHistogram    hist;
-    uint64_t     lastGraphCounter;
-    char         plotType;
-    char         lastPlotType;
-    HistogramFun histogramFun;
+    uint64_t        lastGraphCounter;
+    char            plotType;
+    char            lastPlotType;
+    HistogramFun    histogramFun;
 } GraphAttacher;
 
 typedef struct CipSubWindow
@@ -85,12 +85,10 @@ typedef struct CipSubWindow
     uint32_t gridMode : 2;
     uint32_t selectedGraph;
 
-    CipPosition mouseDataPos;
     WorldTransform world;
-
     CipArea windowArea;
-    CipArea selectedWindowArea0;
-    CipArea selectedWindowArea1;
+    CipArea selectedArea;
+    CipArea selectedAreaRaw;
 } CipSubWindow;
 
 #define KMOD_NONE  0

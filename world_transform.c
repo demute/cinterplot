@@ -183,8 +183,8 @@ void world_transform_worldpos_to_projected (WorldTransform *world, double w[3], 
 
 void world_transform_projected_to_worldpos (WorldTransform *world, double p[3], double w[3])
 {
-    w[0] = p[0] * (w[2] * world->perspectiveFactor + 1);
-    w[1] = p[1] * (w[2] * world->perspectiveFactor + 1);
+    w[0] = p[0] * (p[2] * world->perspectiveFactor + 1);
+    w[1] = p[1] * (p[2] * world->perspectiveFactor + 1);
     w[2] = p[2];
 }
 
@@ -201,6 +201,31 @@ void world_transform_datapos_to_projected (WorldTransform *world, double x[3], d
 
     world_transform_datapos_to_worldpos (world, x, & w);
     world_transform_worldpos_to_projected (world, & w, p);
+}
+
+int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi)
+{
+    double p[3];
+    world_transform_datapos_to_projected (world, x, p);
+    if (isinf (p[0]) || isinf (p[1]) || isnan (p[0]) || isnan (p[1]))
+        return -1;
+
+    *xi = (0.5 * p[0] + 0.5) * (w-1);
+    *yi = (0.5 * p[1] + 0.5) * (h-1);
+
+    return (*xi >= 0 && *yi >= 0 && *xi < w && *yi < h) ? 0 : 1;
+}
+
+void world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double x[3])
+{
+    double w[3] =
+    {
+        2 * xi * (1.0 / (w-1)) - 1,
+        2 * yi * (1.0 / (h-1)) - 1,
+        0
+    };
+
+    world_transform_worldpos_to_datapos (world, w, x);
 }
 
 void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, double wd[3])

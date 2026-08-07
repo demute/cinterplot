@@ -40,7 +40,7 @@ typedef struct CipState
     int (*app_on_mouse_motion) (CipState *cs, int windowIndex, double x, double y);
 
     int mouseState;
-    CipPosition mouseWindowPos;
+    int mouseScreenPos[2];
 
     CipMouse mouse;
 
@@ -654,15 +654,6 @@ static void undo_zooming (CipSubWindow *sw)
     //memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
 }
 
-static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
-{
-    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
-    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
-    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
-    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
-    dstPos->z = 0;
-}
-
 static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
 {
     uint32_t w = cs->windowWidth;
@@ -680,17 +671,6 @@ static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
     dst->y1 = src->y1 - yp - epsh;
 }
 
-static inline void datapos_to_winpos (WorldTransform *world, double dataPos[3], CipArea *winArea, CipPosition *winPos)
-{
-    double p[3];
-    CipArea projectedArea = {-1,-1, 1, 1};
-    CipPosition ppos = {p[0], p[1], p[2]};
-
-    world_transform_datapos_to_projected (world, dataPos, p);
-
-    transform_pos (& projectedArea, & ppos, winArea, winPos);
-}
-
 int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
 {
     if (!sw)
@@ -700,26 +680,22 @@ int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
 
     int xIsLog = sw->logMode & 1;
     int yIsLog = sw->logMode & 2;
-    //int zIsLog = sw->logMode & 4;
+    int zIsLog = sw->logMode & 4;
 
     int xWantsLog = mode & 1;
     int yWantsLog = mode & 2;
-    //int zWantsLog = mode & 4;
-
-    CipArea activeArea;
-    CipArea zoomWindowArea = {0,0,1,1};
-    get_active_area (cs, & zoomWindowArea, & activeArea);
-    CipPosition mouseWinPos;
-    double md[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
-    datapos_to_winpos (& sw->world, md, & activeArea, & mouseWinPos);
+    int zWantsLog = mode & 4;
 
     double sx = sw->world.scaleMtx[0][0];
     double sy = sw->world.scaleMtx[1][1];
+    double sz = sw->world.scaleMtx[2][2];
 
     double x0 = sw->world.centerPos[0] - sx;
     double x1 = sw->world.centerPos[0] + sx;
-    double y0 = sw->world.centerPos[0] - sy;
-    double y1 = sw->world.centerPos[0] + sy;
+    double y0 = sw->world.centerPos[1] - sy;
+    double y1 = sw->world.centerPos[1] + sy;
+    double z0 = sw->world.centerPos[2] - sz;
+    double z1 = sw->world.centerPos[2] + sz;
 
     if (xIsLog != xWantsLog)
     {
@@ -727,13 +703,11 @@ int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
         {
             x0 = LOGFUN (x0);
             x1 = LOGFUN (x1);
-            sw->mouseDataPos.x = LOGFUN (sw->mouseDataPos.x);
         }
         else
         {
             x0 = EXPFUN (x0);
             x1 = EXPFUN (x1);
-            sw->mouseDataPos.x = EXPFUN (sw->mouseDataPos.x);
         }
 
         sw->world.centerPos[0] = 0.5 * (x0 + x1);
@@ -746,51 +720,40 @@ int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
         {
             y0 = LOGFUN (y0);
             y1 = LOGFUN (y1);
-            sw->mouseDataPos.y = LOGFUN (sw->mouseDataPos.y);
         }
         else
         {
             y0 = EXPFUN (y0);
             y1 = EXPFUN (y1);
-            sw->mouseDataPos.y = EXPFUN (sw->mouseDataPos.y);
         }
 
         sw->world.centerPos[1] = 0.5 * (y0 + y1);
         sw->world.scaleMtx[1][1] = 0.5 * (y1 - y0);
     }
 
-    //if (zIsLog != zWantsLog)
-    //{
-    //    if (zWantsLog)
-    //    {
-    //        sw->dataRange.z0   = LOGFUN (sw->dataRange.z0);
-    //        sw->dataRange.z1   = LOGFUN (sw->dataRange.z1);
-    //        //sw->mouseDataPos.z = LOGFUN (sw->mouseDataPos.z);
-    //    }
-    //    else
-    //    {
-    //        sw->dataRange.z0   = EXPFUN (sw->dataRange.z0);
-    //        sw->dataRange.z1   = EXPFUN (sw->dataRange.z1);
-    //        //sw->mouseDataPos.z = EXPFUN (sw->mouseDataPos.z);
-    //    }
-    //}
+    if (zIsLog != zWantsLog)
+    {
+        if (zWantsLog)
+        {
+            z0 = LOGFUN (z0);
+            z1 = LOGFUN (z1);
+        }
+        else
+        {
+            z0 = EXPFUN (z0);
+            z1 = EXPFUN (z1);
+        }
+    }
 
     sw->logMode = mode & 7;
 
-    if (isnan (x0) || isnan (x1) || isnan (y0) || isnan (y1))
-        //isnan (z0) || isnan (z1))
+    if (isnan (x0) || isnan (x1) ||
+        isnan (y0) || isnan (y1) ||
+        isnan (z0) || isnan (z1))
     {
         cip_autoscale_sw (sw);
     }
-
-    CipArea projectedArea = {-1,-1, 1, 1};
-    CipPosition mPos;
-    transform_pos (& activeArea, & mouseWinPos, & projectedArea, & mPos);
-    double mp[3] = {mPos.x, mPos.y, mPos.z};
-    world_transform_projected_to_datapos (& sw->world, mp, md);
-    sw->mouseDataPos.x = md[0];
-    sw->mouseDataPos.y = md[1];
-    sw->mouseDataPos.z = md[2];
+    
     return 1;
 }
 
@@ -808,19 +771,6 @@ static void sub_window_change (CipState *cs, int dir)
     if (index > (int) cs->numSubWindows - 1)
         index = (int) cs->numSubWindows - 1;
 
-    if (cs->zoomEnabled)
-    {
-        CipSubWindow *sw0 = cs->activeSw;
-        CipSubWindow *sw1 = & cs->subWindows[index];
-
-        double dataPos[3] = { sw0->mouseDataPos.x, sw0->mouseDataPos.y, sw0->mouseDataPos.z};
-        double worldPos[3];
-        world_transform_datapos_to_worldpos (& sw0->world, dataPos, worldPos);
-        world_transform_worldpos_to_datapos (& sw1->world, worldPos, dataPos);
-        sw1->mouseDataPos.x = dataPos[0];
-        sw1->mouseDataPos.y = dataPos[1];
-        sw1->mouseDataPos.z = dataPos[2];
-    }
     cs->activeSw = & cs->subWindows[index];
 }
 
@@ -1118,19 +1068,17 @@ static int on_mouse_pressed (CipState *cs, int xi, int yi, int button, int click
          case KMOD_NONE:
              {
                  cs->mouseState = MOUSE_STATE_SELECTING;
-                 uint32_t w = cs->windowWidth;
-                 uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-                 cs->mouseWindowPos.x = (double) xi / w;
-                 cs->mouseWindowPos.y = (double) yi / h;
-                 cs->activeSw->selectedWindowArea0.x0 = cs->mouseWindowPos.x;
-                 cs->activeSw->selectedWindowArea0.y0 = cs->mouseWindowPos.y;
-                 cs->activeSw->selectedWindowArea0.x1 = cs->mouseWindowPos.x;
-                 cs->activeSw->selectedWindowArea0.y1 = cs->mouseWindowPos.y;
+                 cs->mouseScreenPos[0] = (double) xi;
+                 cs->mouseScreenPos[1] = (double) yi;
+                 CipArea *swa  = & cs->activeSw->selectedArea;
+                 CipArea *swar = & cs->activeSw->selectedAreaRaw;
 
-                 cs->activeSw->selectedWindowArea1.x0 = cs->mouseWindowPos.x;
-                 cs->activeSw->selectedWindowArea1.y0 = cs->mouseWindowPos.y;
-                 cs->activeSw->selectedWindowArea1.x1 = cs->mouseWindowPos.x;
-                 cs->activeSw->selectedWindowArea1.y1 = cs->mouseWindowPos.y;
+                 swar->x0 = cs->mouseScreenPos[0];
+                 swar->y0 = cs->mouseScreenPos[1];
+                 swar->x1 = cs->mouseScreenPos[0];
+                 swar->y1 = cs->mouseScreenPos[1];
+                 memcpy (swa, swar, sizeof (*swa));
+
                  break;
              }
          case KMOD_GUI:
@@ -1165,42 +1113,32 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
     {
      case MOUSE_STATE_SELECTING:
          {
-             CipArea *swa0 = & cs->activeSw->selectedWindowArea0;
-             CipArea *swa1 = & cs->activeSw->selectedWindowArea1;
-             if (swa1->x0 == swa1->x1 && swa1->y0 == swa1->y1)
+             CipArea *swa = & cs->activeSw->selectedArea;
+             CipArea *wa  = & cs->activeSw->windowArea;
+             if (swa->x0 == swa->x1 && swa->y0 == swa->y1)
                  cs->zoomEnabled ^= 1;
              else
              {
-
                  CipSubWindow *sw = cs->activeSw;
-                 CipArea *swa = & sw->selectedWindowArea1;
-                 CipArea activeArea;
-                 CipArea zoomWindowArea = {0,0,1,1};
-                 get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
+                 int x0 = (swa->x0 - wa->x0);
+                 int y0 = (swa->y0 - wa->y0);
+                 int x1 = (swa->x1 - wa->x0);
+                 int y1 = (swa->y1 - wa->y0);
 
-                 double wx0 = swa->x0 / (activeArea.x1 - activeArea.x0);
-                 double wx1 = swa->x1 / (activeArea.x1 - activeArea.x0);
-                 double wy0 = swa->y0 / (activeArea.y1 - activeArea.y0);
-                 double wy1 = swa->y1 / (activeArea.y1 - activeArea.y0);
-
-                 double w0[3] = {wx0, wy0, 0};
-                 double w1[3] = {wx1, wy1, 0};
-                 double x0[3], x1[3];
-
-                 world_transform_worldpos_to_datapos (& sw->world, w0, x0);
-                 world_transform_worldpos_to_datapos (& sw->world, w1, x1);
+                 double d0[3], d1[3];
+                 world_transform_bin_to_datapos (& sw->world, w, h, x0, y0, d0);
+                 world_transform_bin_to_datapos (& sw->world, w, h, x1, y1, d1);
 
                  double ranges[3][2] =
                  {
-                     {x0[0], x1[0]},
-                     {x0[1], x1[1]},
-                     {x0[2], x1[2]},
+                     {d0[0], d1[0]},
+                     {d0[1], d1[1]},
+                     {d0[2], d1[2]},
                  };
 
                  world_transform_set_ranges (& sw->world, ranges, 0.0);
              }
-             swa0->x0 = swa0->x1 = swa0->y0 = swa0->y1 = NaN;
-             swa1->x0 = swa1->x1 = swa1->y0 = swa1->y1 = NaN;
+             bzero (swa, sizeof (*swa));
              break;
          }
      default:
@@ -1223,14 +1161,14 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         {
             // zooming
             CipSubWindow *sw = cs->activeSw;
-
             double scales[3] =
             {
                 1 + 0.05*xf,
                 1 + 0.05*yf,
                 1
             };
-            double fixedPos[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
+            double fixedPos[3];
+            mouse_screenpos_to_datapos (cs->mouseScreenPos, & fixedPos);
             world_transform_scale_world (& sw->world, fixedPos, scales);
             return 1;
         }
@@ -1246,14 +1184,16 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         else if (cs->pressedModifiers == (KMOD_ALT | KMOD_SHIFT))
         {
             // rotating z
-            double fixedPos[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
+            double fixedPos[3];
+            mouse_screenpos_to_datapos (cs->mouseScreenPos, & fixedPos);
             world_transform_rotate_world (& sw->world, fixedPos, 2, -yf * 0.02);
             return 1;
         }
         else if (cs->pressedModifiers == KMOD_SHIFT)
         {
             // rotating
-            double fixedPos[3] = {sw->mouseDataPos.x, sw->mouseDataPos.y, sw->mouseDataPos.z};
+            double fixedPos[3];
+            mouse_screenpos_to_datapos (cs->mouseScreenPos, & fixedPos);
             world_transform_rotate_world (& sw->world, fixedPos, 2,  yf * 0.02);
             world_transform_rotate_world (& sw->world, fixedPos, 2, -xf * 0.02);
             return 1;
@@ -1262,11 +1202,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         {
             // moving
             CipSubWindow *sw = cs->activeSw;
-
-            double pdx = xf * 0.01;
-            double pdy = yf * 0.01;
-
-            double wd[3] = {pdx, pdy, 0};
+            double wd[3] = {0.01*xf, 0.01*yf, 0};
             world_transform_adjust_centerpos_using_world_diff (& sw->world, wd);
             return 1;
         }
@@ -1368,6 +1304,15 @@ static int find_closest_point (CipHistogram *hist, uint32_t _x0, uint32_t _y0, u
     return 0;
 }
 
+static void transform_pos (const CipArea *srcArea, const CipPosition *srcPos, const CipArea *dstArea, CipPosition *dstPos)
+{
+    double xf = (srcPos->x - srcArea->x0) / (srcArea->x1 - srcArea->x0);
+    double yf = (srcPos->y - srcArea->y0) / (srcArea->y1 - srcArea->y0);
+    dstPos->x = xf * (dstArea->x1 - dstArea->x0) + dstArea->x0;
+    dstPos->y = yf * (dstArea->y1 - dstArea->y0) + dstArea->y0;
+    dstPos->z = 0;
+}
+
 static int on_mouse_motion (CipState *cs, int xi, int yi)
 {
     switch (cs->mouseState)
@@ -1396,21 +1341,11 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      get_active_area (cs, & sw->windowArea, & activeArea);
                  }
 
+                 cs->mouseScreenPos[0] = xi;
+                 cs->mouseScreenPos[1] = yi;
 
-                 cs->mouseWindowPos.x = (double) (xi) / w;
-                 cs->mouseWindowPos.y = (double) (yi) / h;
-                 CipArea worldArea = {-1,-1, 1, 1};
-                 CipPosition mouseWorldPos;
-                 transform_pos (& activeArea, & cs->mouseWindowPos, & worldArea, & mouseWorldPos);
-                 double mw[3] = {mouseWorldPos.x, mouseWorldPos.y, mouseWorldPos.z};
-                 double md[3];
-                 world_transform_worldpos_to_datapos (& sw->world, mw, md);
-                 sw->mouseDataPos.x = md[0];
-                 sw->mouseDataPos.y = md[1];
-                 sw->mouseDataPos.z = md[2];
-
-                 if (activeArea.x0 <= cs->mouseWindowPos.x && cs->mouseWindowPos.x <= activeArea.x1 &&
-                     activeArea.y0 <= cs->mouseWindowPos.y && cs->mouseWindowPos.y <= activeArea.y1)
+                 if (activeArea.x0 <= cs->mouseScreenPos[0] && cs->mouseScreenPos[0] <= activeArea.x1 &&
+                     activeArea.y0 <= cs->mouseScreenPos[1] && cs->mouseScreenPos[1] <= activeArea.y1)
                      cs->activeSw = sw;
 
                  if (cs->zoomEnabled)
@@ -1445,7 +1380,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  }
                  CipArea binArea = {0, 0, w, h};
                  CipPosition binPos;
-                 transform_pos (& activeArea, & cs->mouseWindowPos, & binArea, & binPos);
+                 transform_pos (& activeArea, & cs->mouseScreenPos, & binArea, & binPos);
                  uint32_t x0 = (uint32_t) binPos.x;
                  uint32_t y0 = (uint32_t) binPos.y;
 
@@ -1472,21 +1407,9 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          }
                          if (bestY >= 0)
                          {
-                             int xi = x0;
-                             int yi = bestY;
-
-                             double p[3] =
-                             {
-                                 xi * (2.0 / (w-1)) - 1,
-                                 yi * (2.0 / (h-1)) - 1,
-                                 pz ? pz[w * yi + xi] : 0
-                             };
-
-                             double d[3];
-                             world_transform_projected_to_datapos (& sw->world, p, d);
-                             sw->mouseDataPos.x = d[0];
-                             sw->mouseDataPos.y = d[1];
-                             sw->mouseDataPos.z = d[2];
+                             binPos.x = x0;
+                             binPos.y = bestY;
+                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseScreenPos);
                          }
                      }
                  }
@@ -1513,21 +1436,9 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          }
                          if (bestX >= 0)
                          {
-                             int xi = bestX;
-                             int yi = y0;
-
-                             double p[3] =
-                             {
-                                 xi * (2.0 / (w-1)) - 1,
-                                 yi * (2.0 / (h-1)) - 1,
-                                 pz ? pz[w * yi + xi] : 0
-                             };
-
-                             double d[3];
-                             world_transform_projected_to_datapos (& sw->world, p, d);
-                             sw->mouseDataPos.x = d[0];
-                             sw->mouseDataPos.y = d[1];
-                             sw->mouseDataPos.z = d[2];
+                             binPos.x = bestX;
+                             binPos.y = y0;
+                             transform_pos (& binArea, & binPos, & activeArea, & cs->mouseScreenPos);
                          }
                      }
                  }
@@ -1536,18 +1447,9 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      uint32_t xi, yi;
                      if (find_closest_point (hist, x0, y0, & xi, & yi) >= 0)
                      {
-                         double p[3] =
-                         {
-                             xi * (2.0 / (w-1)) - 1,
-                             yi * (2.0 / (h-1)) - 1,
-                             pz ? pz[w * yi + xi] : 0
-                         };
-
-                         double d[3];
-                         world_transform_projected_to_datapos (& sw->world, p, d);
-                         sw->mouseDataPos.x = d[0];
-                         sw->mouseDataPos.y = d[1];
-                         sw->mouseDataPos.z = d[2];
+                         binPos.x = xi;
+                         binPos.y = yi;
+                         transform_pos (& binArea, & binPos, & activeArea, & cs->mouseScreenPos);
                      }
                  }
                  else
@@ -1562,94 +1464,50 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      if (& cs->subWindows[windowIndex] == sw)
                          break;
 
-                 cs->app_on_mouse_motion (cs, windowIndex, sw->mouseDataPos.x, sw->mouseDataPos.y);
+                 double mouseDataPos[3];
+                 mouse_screenpos_to_datapos (cs->mouseScreenPos, & mouseDataPos);
+                 cs->app_on_mouse_motion (cs, windowIndex, mouseDataPos[0], mouseDataPos[1]);
              }
 
              break;
          }
      case MOUSE_STATE_MOVING:
          {
-             print_debug ("redundant, no?");
-             // FIXME: I don't think we need this code?
-             // If I'm wrong, port it using world_transform
-             //CipPosition oldPos = {cs->mouseWindowPos.x, cs->mouseWindowPos.y};
-             //uint32_t w = cs->windowWidth;
-             //uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-             //cs->mouseWindowPos.x = (double) xi / w;
-             //cs->mouseWindowPos.y = (double) yi / h;
-             //CipSubWindow *sw = cs->activeSw;
-             //CipArea *dr = & sw->dataRange;
-             //double dx = (cs->mouseWindowPos.x - oldPos.x);
-             //double dy = (cs->mouseWindowPos.y - oldPos.y);
-             //if (!cs->zoomEnabled)
-             //{
-             //    dx /= (sw->windowArea.x1 - sw->windowArea.x0);
-             //    dy /= (sw->windowArea.y1 - sw->windowArea.y0);
-             //}
-             //dx *= dr->x1 - dr->x0;
-             //dy *= dr->y1 - dr->y0;
-
-             ////printn ("moving window [%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
-             //dr->x0 -= dx;
-             //dr->x1 -= dx;
-             //dr->y0 -= dy;
-             //dr->y1 -= dy;
-             ////print ("[%f, %f] < [%f, %f] => ", dr->x0, dr->y0, dr->x1, dr->y1);
-
+             print_debug ("foobar");
              break;
          }
      case MOUSE_STATE_SELECTING:
          {
-             uint32_t w = cs->windowWidth;
-             uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-             cs->mouseWindowPos.x = (double) xi / w;
-             cs->mouseWindowPos.y = (double) yi / h;
-             CipArea *swa0 = & cs->activeSw->selectedWindowArea0;
-             CipArea *swa1 = & cs->activeSw->selectedWindowArea1;
-             swa0->x1 = cs->mouseWindowPos.x;
-             swa0->y1 = cs->mouseWindowPos.y;
-             if (swa0->x0 < swa0->x1)
+             cs->mouseScreenPos[0] = xi;
+             cs->mouseScreenPos[1] = yi;
+             CipArea *wa   = & cs->activeSw->windowArea;
+             CipArea *swa  = & cs->activeSw->selectedArea;
+             CipArea *swar = & cs->activeSw->selectedAreaRaw;
+
+             swar->x1 = xi;
+             swar->y1 = yi;
+
+             swa->x0 = (swar->x0 < swar->x1) ? swar->x0 : swar->x1;
+             swa->x1 = (swar->x0 < swar->x1) ? swar->x1 : swar->x0;
+             swa->y0 = (swar->y0 < swar->y1) ? swar->y0 : swar->y1;
+             swa->y1 = (swar->y0 < swar->y1) ? swar->y1 : swar->y0;
+
+             int dxMin = 16;
+             int dyMin = 16;
+             int dx = swa->x1 - swa->x0;
+             int dy = swa->y1 - swa->y0;
+
+             if (dx < dxMin)
              {
-                 swa1->x0 = swa0->x0;
-                 swa1->x1 = swa0->x1;
+                 swa->y0 = wa->y0;
+                 swa->y1 = wa->y1;
              }
-             else
+             if (dy < dyMin)
              {
-                 swa1->x0 = swa0->x1;
-                 swa1->x1 = swa0->x0;
-             }
-             if (swa0->y0 < swa0->y1)
-             {
-                 swa1->y0 = swa0->y0;
-                 swa1->y1 = swa0->y1;
-             }
-             else
-             {
-                 swa1->y0 = swa0->y1;
-                 swa1->y1 = swa0->y0;
+                 swa->x0 = wa->x0;
+                 swa->x1 = wa->x1;
              }
 
-             double minDiffX = 16.0 / w;
-             double minDiffY = 16.0 / h;
-
-             double dx = swa1->x1 - swa1->x0;
-             double dy = swa1->y1 - swa1->y0;
-
-             if (dx >= minDiffX || dy >= minDiffY)
-             {
-                 CipArea zoomWindowArea = {0,0,1,1};
-                 CipArea *wa = cs->zoomEnabled ? & zoomWindowArea : & cs->activeSw->windowArea;
-                 if (dx < minDiffX)
-                 {
-                     swa1->x0 = wa->x0;
-                     swa1->x1 = wa->x1;
-                 }
-                 if (dy < minDiffY)
-                 {
-                     swa1->y0 = wa->y0;
-                     swa1->y1 = wa->y1;
-                 }
-             }
              break;
          }
      case MOUSE_STATE_RESIZING_L:
@@ -1870,10 +1728,8 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                               cs->mouseState = MOUSE_STATE_NONE;
                               if (cs->activeSw)
                               {
-                                  CipArea *a0 = & cs->activeSw->selectedWindowArea0;
-                                  CipArea *a1 = & cs->activeSw->selectedWindowArea1;
+                                  CipArea *a0 = & cs->activeSw->selectedArea;
                                   bzero (a0, sizeof (*a0));
-                                  bzero (a1, sizeof (*a1));
                               }
                               break;
                           }
@@ -2260,34 +2116,21 @@ static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t
     {
         for (uint32_t i=0; i<len; i++)
         {
-            double p[3];
-            world_transform_datapos_to_projected (world, xyzs[i], p);
-
-            if (isnan (p[0]) || isnan (p[1]) || isnan (p[2]) ||
-                isinf (p[0]) || isinf (p[1]) || isinf (p[2]))
-                continue;
-
-            int xi = (int) ((w-1) * (0.5*p[0] + 0.5));
-            int yi = (int) ((h-1) * (0.5*p[1] + 0.5));
-
-            //if (i)
-            //    cip_histogram_line (hist, lastXi, lastYi, xi, yi);
-            //lastXi = xi;
-            //lastYi = yi;
-
-            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
+            int xi, yi;
+            if (world_transform_datapos_to_bin (world, xyzs[i], w, h, & xi, & yi) == 0)
             {
                 int newVal = 40 - 150*(p[2]); // FIXME: How should color schemes be applied correctly?
                 if (newVal < 1)
                     newVal = 1;
 
-                int oldVal = bins [(uint32_t) yi*w + (uint32_t) xi];
+                int idx = yi * w + xi;
+                int oldVal = bins [idx];
                 if (newVal > oldVal)
                 {
-                    bins [(uint32_t) yi*w + (uint32_t) xi] = newVal;
-                    if (bins [(uint32_t) yi*w + (uint32_t) xi] < 1)
-                        bins [(uint32_t) yi*w + (uint32_t) xi] = 1;
-                    pz [(uint32_t) yi*w + (uint32_t) xi] = p[2];
+                    bins [idx] = newVal;
+                    if (bins [idx] < 1)
+                        bins [idx] = 1;
+                    pz [idx] = p[2];
                 }
             }
         }
@@ -2743,60 +2586,41 @@ static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0
     return y - y0;
 }
 
-static void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *cs, CipSubWindow *sw, double pos, int vertical, uint32_t color)
+static inline void draw_data_line (uint32_t *pixels, uint32_t w, uint32_t h, CipState *cs, CipSubWindow *sw, double dataPos0[3], double dataPos1[3], uint32_t color)
 {
-    double sx = sw->world.scaleMtx[0][0];
-    double sy = sw->world.scaleMtx[0][0];
-    double xmin = sw->world.centerPos[0] - sx;
-    double xmax = sw->world.centerPos[0] + sx;
-    double ymin = sw->world.centerPos[1] - sy;
-    double ymax = sw->world.centerPos[1] + sy;
+    int xi0, yi0, xi1, yi1;
+    world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0);
+    world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1);
+    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, color);
+}
 
-    CipArea activeArea;
-    CipArea zoomWindowArea = {0,0,1,1};
-    get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
-
-    double dataPos0[3], dataPos1[3];
-    if (vertical)
+static void get_grid_conf (double x0, double x1, double *xStart, double *xStop, double *dx)
+{
+    if (x1 < x0)
     {
-        dataPos0[0] = pos;
-        dataPos0[1] = ymin;
-        dataPos0[2] = 0;
-
-        dataPos1[0] = pos;
-        dataPos1[1] = ymax;
-        dataPos1[2] = 0;
-    }
-    else
-    {
-        dataPos0[0] = xmin;
-        dataPos0[1] = pos;
-        dataPos0[2] = 0;
-
-        dataPos1[0] = xmax;
-        dataPos1[1] = pos;
-        dataPos1[2] = 0;
+        double tmp = x0;
+        x0 = x1;
+        x1 = tmp;
     }
 
-    CipPosition winPos0, winPos1;
-    datapos_to_winpos (& sw->world, dataPos0, & activeArea, & winPos0);
-    datapos_to_winpos (& sw->world, dataPos1, & activeArea, & winPos1);
+    double diff = x1 - x0;
+    double biggestPowerTenStep = pow (10, floor (log10 (diff)));
 
-    uint32_t x0 = (uint32_t) (winPos0.x * w);
-    uint32_t y0 = (uint32_t) (winPos0.y * h);
-    uint32_t x1 = (uint32_t) (winPos1.x * w);
-    uint32_t y1 = (uint32_t) (winPos1.y * h);
+    int numBiggestSteps = (int) floor (diff / biggestPowerTenStep);
+    if (numBiggestSteps < 1)
+        numBiggestSteps = 1;
 
-    if (vertical)
-    {
-        if (activeArea.x0 <= winPos0.x && winPos0.x <= activeArea.x1)
-            lineRGBA (pixels, w, h, x0, y0, x1, y1, color);
-    }
-    else
-    {
-        if (activeArea.y0 <= winPos0.y && winPos0.y <= activeArea.y1)
-            lineRGBA (pixels, w, h, x0, y0, x1, y1, color);
-    }
+    int numDivisions = 1;
+    while (numBiggestSteps * numDivisions < 8)
+        numDivisions *= 2;
+
+    double step = biggestPowerTenStep / numDivisions;
+    if (step <= 0)
+        exit_error ("bug");
+
+    *xStart   = ceil  (x0 / step) * step;
+    *xStop    = floor (x1 / step) * step;
+    *dx       = step;
 }
 
 static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
@@ -2808,144 +2632,68 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
     double ymin = sw->world.centerPos[1] - sy;
     double ymax = sw->world.centerPos[1] + sy;
 
-    double x0 = xmin;
-    double x1 = xmax;
-    double y0 = ymax;
-    double y1 = ymin;
-
-    uint32_t gridColor0 = make_gray (0.2f);
-    uint32_t gridColor1 = make_gray (0.4f);
-
-    CipArea activeArea;
-    CipArea zoomWindowArea = {0,0,1,1};
-    get_active_area (cs, (cs->zoomEnabled ? & zoomWindowArea : & sw->windowArea), & activeArea);
-
-    double dy, yStop, yStart;
-    int yTens, ySubs;
-    int cntGuard = 4000;
+    uint32_t gridColorFine   = make_gray (0.2f);
+    uint32_t gridColorCoarse = make_gray (0.4f);
+    uint32_t textColor       = make_gray (0.9f);
+    int useTransparentBg = 1;
 
     if (sw->gridMode & 1)
     {
-        // keep in mind y1 < y0 because plot window has positive y-data direction upwards
-        dy = pow (10, floor (log10 (y0 - y1)));
-        yStop = ceil (y0 / dy) * dy;
-        yStart = floor (y1 / dy) * dy;
-        yTens = (int) ((y0 - y1) / dy);
-        if (yTens < 1)
-            yTens = 1;
-        ySubs = 1;
-        while (ySubs * yTens < 8)
-            ySubs *= 2;
+        double dy, yStart, yStop;
+        get_grid_conf (ymin, ymax, & yStart, & yStop, & dy);
 
-        int cnt = 0;
-        for (double y=yStart; y<yStop && cnt<cntGuard && subHeight > 200; y+=dy/(ySubs*5))
+        for (double y=yStart; y<yStop; y+=dy)
         {
-            cnt++;
-            if (yStart <= y && y <= yStop)
-                draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor0);
-        }
-        cnt = 0;
-        uint32_t lastYi = 0;
-        for (double y=yStart; y<yStop && cnt<cntGuard; y+=dy/ySubs)
-        {
-            cnt++;
-            if (y < y1 || y0 < y)
-                continue;
-
-            double dataPos[3] = {x0, y, 0};
-            CipPosition winPos;
-            datapos_to_winpos (& sw->world, dataPos, & activeArea, & winPos);
-
-            uint32_t yi = (uint32_t) (winPos.y * h);
-            uint32_t scale = 1 + (cs->zoomEnabled || cs->fullscreen);
-
-            if (abs ((int) yi - (int) lastYi) > 10*scale)
+            for (int i=0; i<5; i++)
             {
-                draw_data_line (pixels, w, h, cs, sw, y, 0, gridColor1);
-                if (! ((sw->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
-                    lastYi = yi;
-            }
-        }
-    }
+                int xi0, yi0, xi1, yi1;
+                double dataPos0[3] = {xmin, y + i*0.2, 0};
+                double dataPos1[3] = {xmax, y + i*0.2, 0};
+                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0);
+                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1);
 
-    if (sw->gridMode & 2)
-    {
-        double dx = pow (10, floor (log10 (x1 - x0)));
-        double xStart = floor (x0 / dx) * dx;
-        double xStop = ceil (x1 / dx) * dx;
-        int xTens = (int) ((x1 - x0) / dx);
-        if (xTens < 1)
-            xTens = 1;
-        int xSubs = 1;
-        while (xSubs * xTens < 8)
-            xSubs *= 2;
-
-        int cnt = 0;
-        for (double x=xStart; x<xStop && cnt<cntGuard && subHeight > 200; x+=dx/(xSubs*5))
-        {
-            cnt++;
-            if (xStart <= x && x <= xStop)
-                draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor0);
-        }
-        cnt = 0;
-        uint32_t lastXi = 0;
-        for (double x=xStart; x<xStop && cnt<cntGuard; x+=dx/xSubs)
-        {
-            cnt++;
-            if (x < x0 || x1 < x)
-                continue;
-
-            double dataPos[3] = {x, y1, 0};
-            CipPosition winPos;
-            datapos_to_winpos (& sw->world, dataPos, & activeArea, & winPos);
-
-            uint32_t xi = (uint32_t) (winPos.x * w);
-            uint32_t yi = (uint32_t) (winPos.y * h) - 2;
-            uint32_t scale = 1 + (cs->zoomEnabled || cs->fullscreen);
-            if (abs ((int) xi - (int) lastXi) > 10*scale)
-            {
-                uint32_t textColor = make_gray (0.9f);
-                int transparent = 1;
-                char text[256];
-                snprintf (text, sizeof (text), "%g", (fabs (x) < dx * 1e-4) ? 0 : x);
-
-                draw_data_line (pixels, w, h, cs, sw, x, 1, gridColor1);
-                draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BC);
-                lastXi = xi;
-            }
-        }
-    }
-
-    if (sw->gridMode & 1)
-    {
-        int cnt = 0;
-        uint32_t lastYi = 0;
-        for (double y=yStart; y<yStop && cnt<cntGuard; y+=dy/ySubs)
-        {
-            cnt++;
-            if (y < y1 || y0 < y)
-                continue;
-
-            double dataPos[3] = {x0, y, 0};
-            CipPosition winPos;
-            datapos_to_winpos (& sw->world, dataPos, & activeArea, & winPos);
-
-            uint32_t xi = (uint32_t) (winPos.x * w) + 2;
-            uint32_t yi = (uint32_t) (winPos.y * h);
-            uint32_t scale = 1 + (cs->zoomEnabled || cs->fullscreen);
-
-            if (abs ((int) yi - (int) lastYi) > 10*scale)
-            {
-                uint32_t textColor = make_gray (0.9f);
-                int transparent = 1;
-                char text[256];
-                snprintf (text, sizeof (text), "%g", (fabs (y) < dy * 1e-4) ? 0 : y);
-
-                // draw text only if it will not collide with text on x-axis
-                if (! ((sw->gridMode & 2) && (activeArea.y1 - winPos.y) * h < 10 * scale))
+                if (i == 0)
                 {
-                    draw_text (pixels, w, h, xi, yi, textColor, transparent, text, scale, ALIGN_BL);
-                    lastYi = yi;
+                    uint32_t scale = 1;
+                    char text[32];
+                    snprintf (text, sizeof (text), "%g", y);
+                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorCoarse);
+                    draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BC);
+                }
+                else
+                {
+                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorFine);
+                }
+            }
+        }
+    }
+
+    if (sw->gridMode & 2) // vertical lines
+    {
+        double dx, xStart, xStop;
+        get_grid_conf (xmin, xmax, & xStart, & xStop, & dx);
+
+        for (double x=xStart; x<xStop; x+=dx)
+        {
+            for (int i=0; i<5; i++)
+            {
+                int xi0, yi0, xi1, yi1;
+                double dataPos0[3] = {x + i*0.2, ymin, 0};
+                double dataPos1[3] = {x + i*0.2, ymax, 0};
+                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0);
+                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1);
+
+                if (i == 0)
+                {
+                    uint32_t scale = 1;
+                    char text[32];
+                    snprintf (text, sizeof (text), "%g", x);
+                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorCoarse);
+                    draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BC);
+                }
+                else
+                {
+                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorFine);
                 }
             }
         }
@@ -3125,9 +2873,8 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             uint32_t *colors = attacher->colorScheme->colors;
             uint32_t nLevels = attacher->colorScheme->nLevels;
 
-            uint32_t mousePosX = (uint32_t) (cs->mouseWindowPos.x * w);
-            uint32_t mousePosY = (uint32_t) (cs->mouseWindowPos.y * h);
-
+            uint32_t mousePosX = cs->mouseScreenPos[0];
+            uint32_t mousePosY = cs->mouseScreenPos[1];
 
             for (uint32_t yi=0; yi<subHeight; yi++)
             {
@@ -3149,15 +2896,13 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             }
         }
 
-        if (isfinite (sw->selectedWindowArea1.x0) &&
-            isfinite (sw->selectedWindowArea1.x1) &&
-            isfinite (sw->selectedWindowArea1.y0) &&
-            isfinite (sw->selectedWindowArea1.y1))
+        if (sw->selectedArea.x0 != sw->selectedArea.x1 &&
+            sw->selectedArea.y0 != sw->selectedArea.y1)
         {
-            int sx0 = (int) (sw->selectedWindowArea1.x0 * w - cs->margin);
-            int sy0 = (int) (sw->selectedWindowArea1.y0 * h - cs->margin);
-            int sx1 = (int) (sw->selectedWindowArea1.x1 * w - cs->margin);
-            int sy1 = (int) (sw->selectedWindowArea1.y1 * h - cs->margin);
+            int sx0 = sw->selectedArea.x0;
+            int sy0 = sw->selectedArea.y0;
+            int sx1 = sw->selectedArea.x1;
+            int sy1 = sw->selectedArea.y1;
 
             for (int yi=sy0; yi<=sy1; yi++)
             {
@@ -3186,13 +2931,15 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         if (cs->activeSw)
         {
             CipSubWindow *sw = cs->activeSw;
-            double mx = sw->mouseDataPos.x;
-            double my = sw->mouseDataPos.y;
+            double mouseDataPos[3];
+            mouse_screenpos_to_datapos (cs->mouseScreenPos, & mouseDataPos);
+
             char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
             char *trackingModeStr = tm[cs->trackingMode];
             char *logModeStr      = lm[sw->logMode];
-            snprintf (text, sizeof (text), "(x,y) = (%0.8g, %0.8g) tracking:%s logMode:%s", mx, my, trackingModeStr, logModeStr);
+            snprintf (text, sizeof (text), "(x,y) = (%0.8g, %0.8g) tracking:%s logMode:%s",
+                      mouseDataPos[0], mouseDataPos[1], trackingModeStr, logModeStr);
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
 
             char *title = sw->title;
@@ -3306,6 +3053,7 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
     cs->margin   = margin   & 0xff;
     cs->numSubWindows = numSubWindows;
 
+    // FIXME: Dessa får nog bli i pixlar också.
     double dy = 1.0 / nRows;
     double dx = 1.0 / nCols;
 
@@ -3320,16 +3068,7 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
             sw->logMode = 0;
             sw->gridMode = 0;
             sw->selectedGraph = 0;
-
-            sw->selectedWindowArea0.x0 = NaN;
-            sw->selectedWindowArea0.x1 = NaN;
-            sw->selectedWindowArea0.y0 = NaN;
-            sw->selectedWindowArea0.y1 = NaN;
-
-            sw->selectedWindowArea1.x0 = NaN;
-            sw->selectedWindowArea1.x1 = NaN;
-            sw->selectedWindowArea1.y0 = NaN;
-            sw->selectedWindowArea1.y1 = NaN;
+            bzero (& sw->selectedArea, sizeof (sw->selectedArea));
 
             world_transform_set_default_values (& sw->world);
             for (int i=0; i<10; i++)
