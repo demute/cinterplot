@@ -96,7 +96,7 @@ typedef struct WorldTransform
 void world_transform_adjust_centerpos_using_scaled_diff (WorldTransform *world, double sd[3]);
 void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, double wd[3]);
 int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi, double *pz);
-int  world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double x[3]);
+void world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double x[3]);
 void world_transform_datapos_to_projected (WorldTransform *world, double x[3], double p[3]);
 void world_transform_datapos_to_worldpos (WorldTransform *world, double x[3], double w[3]);
 void world_transform_projected_to_datapos (WorldTransform *world, double p[3], double d[3]);

@@ -63,12 +63,13 @@ static void matrix_transpose_vector_multiply (double mtx[3][3], double src[3], d
     dst[2] = tmp[2];
 }
 
-static inline void vector_add (double dst[3], double v1[3], double v2[3])
-{
-    dst[0] = v1[0] + v1[0];
-    dst[1] = v1[1] + v1[1];
-    dst[2] = v1[2] + v1[2];
-}
+// unused
+//static inline void vector_add (double dst[3], double v1[3], double v2[3])
+//{
+//    dst[0] = v1[0] + v1[0];
+//    dst[1] = v1[1] + v1[1];
+//    dst[2] = v1[2] + v1[2];
+//}
 
 static inline void vector_subtract (double dst[3], double v1[3], double v2[3])
 {
@@ -122,32 +123,33 @@ static inline void make_transpose_matrix (double dst[3][3], double src[3][3])
             dst[i][j] = src[j][i];
 }
 
-static void normalise_matrix (double mtx[3][3])
-{
-    double norm;
-
-    // Normalize first column
-    norm = sqrt(mtx[0][0] * mtx[0][0] + mtx[1][0] * mtx[1][0] + mtx[2][0] * mtx[2][0]);
-    mtx[0][0] /= norm;
-    mtx[1][0] /= norm;
-    mtx[2][0] /= norm;
-
-    // Make second column orthogonal to first and normalize
-    double dot = mtx[0][0] * mtx[0][1] + mtx[1][0] * mtx[1][1] + mtx[2][0] * mtx[2][1];
-    mtx[0][1] -= dot * mtx[0][0];
-    mtx[1][1] -= dot * mtx[1][0];
-    mtx[2][1] -= dot * mtx[2][0];
-
-    norm = sqrt(mtx[0][1] * mtx[0][1] + mtx[1][1] * mtx[1][1] + mtx[2][1] * mtx[2][1]);
-    mtx[0][1] /= norm;
-    mtx[1][1] /= norm;
-    mtx[2][1] /= norm;
-
-    // Compute third column as cross product of first two
-    mtx[0][2] = mtx[1][0] * mtx[2][1] - mtx[2][0] * mtx[1][1];
-    mtx[1][2] = mtx[2][0] * mtx[0][1] - mtx[0][0] * mtx[2][1];
-    mtx[2][2] = mtx[0][0] * mtx[1][1] - mtx[1][0] * mtx[0][1];
-}
+// unused
+//static void normalise_matrix (double mtx[3][3])
+//{
+//    double norm;
+//
+//    // Normalize first column
+//    norm = sqrt(mtx[0][0] * mtx[0][0] + mtx[1][0] * mtx[1][0] + mtx[2][0] * mtx[2][0]);
+//    mtx[0][0] /= norm;
+//    mtx[1][0] /= norm;
+//    mtx[2][0] /= norm;
+//
+//    // Make second column orthogonal to first and normalize
+//    double dot = mtx[0][0] * mtx[0][1] + mtx[1][0] * mtx[1][1] + mtx[2][0] * mtx[2][1];
+//    mtx[0][1] -= dot * mtx[0][0];
+//    mtx[1][1] -= dot * mtx[1][0];
+//    mtx[2][1] -= dot * mtx[2][0];
+//
+//    norm = sqrt(mtx[0][1] * mtx[0][1] + mtx[1][1] * mtx[1][1] + mtx[2][1] * mtx[2][1]);
+//    mtx[0][1] /= norm;
+//    mtx[1][1] /= norm;
+//    mtx[2][1] /= norm;
+//
+//    // Compute third column as cross product of first two
+//    mtx[0][2] = mtx[1][0] * mtx[2][1] - mtx[2][0] * mtx[1][1];
+//    mtx[1][2] = mtx[2][0] * mtx[0][1] - mtx[0][0] * mtx[2][1];
+//    mtx[2][2] = mtx[0][0] * mtx[1][1] - mtx[1][0] * mtx[0][1];
+//}
 
 void world_transform_datapos_to_worldpos (WorldTransform *world, double x[3], double w[3])
 {
@@ -220,14 +222,14 @@ int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, 
 
 void world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double x[3])
 {
-    double w[3] =
+    double wpos[3] =
     {
         2 * xi * (1.0 / (w-1)) - 1,
         2 * yi * (1.0 / (h-1)) - 1,
         0
     };
 
-    world_transform_worldpos_to_datapos (world, w, x);
+    world_transform_worldpos_to_datapos (world, wpos, x);
 }
 
 void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, double wd[3])
