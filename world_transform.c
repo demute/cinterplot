@@ -205,7 +205,7 @@ void world_transform_datapos_to_projected (WorldTransform *world, double x[3], d
     world_transform_worldpos_to_projected (world, & w, p);
 }
 
-int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi, double *pz)
+int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi, double *wz)
 {
     double p[3];
     world_transform_datapos_to_projected (world, x, p);
@@ -214,22 +214,22 @@ int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, 
 
     *xi = (0.5 * p[0] + 0.5) * (w-1);
     *yi = (0.5 * p[1] + 0.5) * (h-1);
-    if (pz)
-        *pz = p[2];
+    if (wz)
+        *wz = p[2];
 
     return (*xi >= 0 && *yi >= 0 && *xi < w && *yi < h) ? 0 : 1;
 }
 
-void world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double x[3])
+void world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double wzVal, double x[3])
 {
-    double wpos[3] =
+    double p[3] =
     {
-        2 * xi * (1.0 / (w-1)) - 1,
-        2 * yi * (1.0 / (h-1)) - 1,
-        0
+        2 * ((double) xi / (w-1) - 0.5),
+        2 * ((double) yi / (h-1) - 0.5),
+        wzVal
     };
 
-    world_transform_worldpos_to_datapos (world, wpos, x);
+    world_transform_projected_to_datapos (world, p, x);
 }
 
 void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, double wd[3])

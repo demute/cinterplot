@@ -52,12 +52,12 @@ typedef struct CipPosition
 typedef struct CipHistogram
 {
     WorldTransform world;
-    uint32_t  w;
-    uint32_t  h;
+    int  w;
+    int  h;
     int      *bins;
     double   *counts;
     double   *sums;
-    double   *pz;
+    double   *wz;
 } CipHistogram;
 
 typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);

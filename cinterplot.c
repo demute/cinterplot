@@ -114,17 +114,6 @@ static volatile int iconWidth = 0;
 static volatile int iconHeight = 0;
 static volatile int iconWb = 0;
 
-static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
-static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
-
-//static void *safe_malloc (size_t size)
-//{
-//    void *ptr = malloc (size);
-//    if (!ptr)
-//        exit_error ("can't malloc %ld", size);
-//    return ptr;
-//}
-
 static void *safe_calloc (size_t count, size_t size)
 {
     void *ptr = calloc (count, size);
@@ -1099,8 +1088,9 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
                  int h = wa->y1 - wa->y0;
 
                  double d0[3], d1[3];
-                 world_transform_bin_to_datapos (& sw->world, w, h, x0, y0, d0);
-                 world_transform_bin_to_datapos (& sw->world, w, h, x1, y1, d1);
+                 double wzVal = 0;
+                 world_transform_bin_to_datapos (& sw->world, w, h, x0, y0, wzVal, d0);
+                 world_transform_bin_to_datapos (& sw->world, w, h, x1, y1, wzVal, d1);
 
                  double ranges[3][2] =
                  {
@@ -1135,8 +1125,8 @@ void mouse_screenpos_to_datapos (CipState *cs, double dataPos[3])
         return;
     }
 
-    CipSubWindow *sw = cs->activeSw;
-    CipArea      *wa = & sw->windowArea;
+    CipSubWindow *sw   = cs->activeSw;
+    CipArea      *wa   = & sw->windowArea;
 
     int xi = cs->mouseScreenPos[0];
     int yi = cs->mouseScreenPos[1];
@@ -1148,7 +1138,15 @@ void mouse_screenpos_to_datapos (CipState *cs, double dataPos[3])
     int binw = wa->x1 - wa->x0;
     int binh = wa->y1 - wa->y0;
 
-    world_transform_bin_to_datapos (& sw->world, binw, binh, binx, biny, dataPos);
+    double wzVal = 0;
+    if (sw->selectedGraph < sw->numAttachedGraphs)
+    {
+        CipHistogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
+        if (hist->wz)
+            wzVal = hist->wz[binw * biny + binx];
+    }
+
+    world_transform_bin_to_datapos (& sw->world, binw, binh, binx, biny, wzVal, dataPos);
 }
 
 static int on_mouse_wheel (CipState *cs, float xf, float yf)
@@ -1209,7 +1207,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
     return 0;
 }
 
-static int find_closest_point (CipHistogram *hist, uint32_t _x0, uint32_t _y0, uint32_t *_x, uint32_t *_y)
+static int find_closest_point (CipHistogram *hist, int x0, int y0, int *_x, int *_y)
 {
     // this algorithm takes a point (x0,y0) and spirals around it with a rectangular
     // spiral until it finds a point in the histogram that is set. When it is found,
@@ -1224,9 +1222,6 @@ static int find_closest_point (CipHistogram *hist, uint32_t _x0, uint32_t _y0, u
     //   ^^^<<<<|||
     //   ^^<<<<<<||
     //   ^<<<<<<<<|
-
-    int x0 = (int) _x0;
-    int y0 = (int) _y0;
 
     int dirx[4] = {1, 0, -1,  0};
     int diry[4] = {0, 1,  0, -1};
@@ -1407,7 +1402,10 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      else if (cs->trackingMode == 3)
                      {
                          // trackingMode 3: mouse position is used to get the closest coordinate on the graph
-                         find_closest_point (hist, binx, biny, & cs->mouseScreenPos[0], & cs->mouseScreenPos[1]);
+                         int newx, newy;
+                         find_closest_point (hist, binx, biny, & newx, & newy);
+                         cs->mouseScreenPos[0] = x0 + newx;
+                         cs->mouseScreenPos[1] = y0 + newy;
                      }
                      else
                          exit_error ("bug: %d", cs->trackingMode);
@@ -1849,6 +1847,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
     return 1;
 }
 
+static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 
 GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors)
 {
@@ -1865,15 +1864,14 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
         return NULL;
     }
 
-    int is3d = graph->sb->itemSize == sizeof (double) * 3;
     GraphAttacher *attacher = safe_calloc (1, sizeof (*attacher));
     attacher->graph = graph;
     attacher->plotType = plotType;
     attacher->hist.w = 0;
     attacher->hist.h = 0;
     attacher->hist.bins = NULL;
-    attacher->hist.pz = NULL;
-    attacher->histogramFun = histogramFun ? histogramFun : is3d ? make_histogram_3d : make_histogram_2d;
+    attacher->hist.wz = NULL;
+    attacher->histogramFun = histogramFun ? histogramFun : make_histogram;
     attacher->colorScheme = cip_make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
@@ -2028,368 +2026,316 @@ void cip_graph_remove_points (CipGraph *graph)
     release_access (& graph->readAccess);
 }
 
-
-static uint64_t make_histogram_3d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
+static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
+    // FIXME: rename: make_histogram -> render_canvas, CipHistogram -> CipCanvas *hist -> *canvas cip_histogram_line -> cip_canvas_line
+
     uint64_t counter = 0;
     int *bins  = hist->bins;
-    double *pz = hist->pz;
-    uint32_t w = hist->w;
-    uint32_t h = hist->h;
+    double *wz = hist->wz;
+    int w = hist->w;
+    int h = hist->h;
+    double *sums   = hist->sums;
+    double *counts = hist->counts;
 
-    wait_for_access (& graph->readAccess);
-
-    double (*xyzs)[3];
+    uint8_t *buf;
     uint32_t len;
+    wait_for_access (& graph->readAccess);
     wait_for_access (& graph->insertAccess);
-    stream_buffer_get (graph->sb, & xyzs, & len);
+    stream_buffer_get (graph->sb, & buf, & len);
+
+    size_t sz = graph->sb->itemSize;
+
+    int i0 = 0;
+    if (plotType == 'p' && lastGraphCounter)
+        i0 = stream_buffer_counter_to_index (graph->sb, lastGraphCounter + 1);
+
     if (!len)
     {
         release_access (& graph->insertAccess);
         release_access (& graph->readAccess);
         return 0;
     }
+
+    // stream_buffer can return a len that is greater than the user specified graph->len,
+    // if that happens, make sure to throw away those extra points
     if (graph->len && graph->len < len)
     {
-        xyzs += (len - graph->len);
+        buf += sz * (len - graph->len);
         len = graph->len;
     }
     counter = graph->sb->counter;
     release_access (& graph->insertAccess);
 
-    assert (pz);
-    uint32_t nBins = w * h;
-    for (uint32_t i=0; i<nBins; i++)
+    if (plotType == 'w')
     {
-        bins[i] = 0;
-        pz[i] = 0;
-    }
-
-    WorldTransform *world = & hist->world;
-
-    if (plotType == 'p')
-    {
-        for (uint32_t i=0; i<len; i++)
+        if (lastGraphCounter == 0)
         {
-            int xi, yi;
-            double zVal;
-            if (world_transform_datapos_to_bin (world, xyzs[i], w, h, & xi, & yi, & zVal) == 0)
+            // If we have data and we just changed plotType to waterfall, we want to go back
+            // in time and use more data than just from lastGraphCounter.
+            // This rewinds i0 with at most nRows
+            i0 = len - 1;
+            int nRows = 0;
+            while (i0 > 0 && nRows <= h)
             {
-                int newVal = 40 - 150*zVal;
-                if (newVal < 1)
-                    newVal = 1;
-
-                int idx = yi * w + xi;
-                int oldVal = bins [idx];
-                if (newVal > oldVal)
-                {
-                    bins [idx] = newVal;
-                    if (bins [idx] < 1)
-                        bins [idx] = 1;
-                    pz[idx] = zVal;
-                }
+                double *point = (double *) (buf + sz * i0);
+                if (isnan (point[0]) && isnan (point[1]))
+                    nRows++;
+                i0--;
             }
+            memset (bins, 0x00, w*h*sizeof (bins[0]));
         }
     }
     else
     {
-        print_error ("unknown plot type '%c'", plotType);
-    }
-
-    release_access (& graph->readAccess);
-    return counter;
-}
-
-static uint64_t make_histogram_2d_waterfall (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
-{
-    int    *bins   = hist->bins;
-    double *sums   = hist->sums;
-    double *counts = hist->counts;
-
-    uint32_t w = hist->w;
-    uint32_t h = hist->h;
-
-    double (*xys)[2];
-    uint32_t len;
-    uint64_t retCounter = 0;
-    int i0 = 0;
-
-    wait_for_access (& graph->insertAccess);
-    stream_buffer_get (graph->sb, & xys, & len);
-    if (lastGraphCounter)
-        i0 = stream_buffer_counter_to_index (graph->sb, lastGraphCounter + 1);
-    if (len)
-        retCounter = stream_buffer_index_to_counter (graph->sb, len - 1);
-    release_access (& graph->insertAccess);
-
-    if (lastGraphCounter && graph->sb->counter - lastGraphCounter > graph->sb->len)
-    {
-        lastGraphCounter = 0;
-        print_warning ("lastGraphCounter is behind, truncating");
-    }
-
-    if (i0 < 0)
-        return lastGraphCounter;
-
-    if (lastGraphCounter == 0)
-    {
-        i0 = len - 1;
-        int nRows = 0;
-        while (i0 > 0 && nRows <= h)
-        {
-            if (isnan (xys[i0][0]) || isnan (xys[i0][1]))
-                nRows++;
-            i0--;
-        }
         memset (bins, 0x00, w*h*sizeof (bins[0]));
+        memset (wz,   0x00, w*h*sizeof (wz[0]));
     }
 
-    for (int i=i0; i<len; i++)
+    WorldTransform *world = & hist->world;
+
+    int lastXi = -1;
+    int lastYi = -1;
+
+
+    if (plotType == 'p')
     {
-        double *xy = xys[i];
-
-        if (isnan (xy[0]) || isnan (xy[1]))
+        // every point is one pixel
+        for (uint32_t i=0; i<len; i++)
         {
-            // flush row
-            for (uint32_t yi=h-1; yi>0; yi--)
-                for (uint32_t xi=0; xi<w; xi++)
-                    bins[yi*w + xi] = bins[(yi-1) * w + xi];
+            int xi, yi;
+            double wzVal;
 
-            // construct new row
-            int lastNonZeroXi = -1;
-            for (uint32_t xi=0; xi<w; xi++)
+            double x[3];
+            double *point = (double *) (buf + sz * i);
+            int dim = sz / sizeof (double);
+            x[0] = point[0];
+            x[1] = point[1];
+            x[2] = (dim > 2) ? point[2] : 0;
+
+            if (logMode & 1) x[0] = LOGFUN (x[0]);
+            if (logMode & 2) x[1] = LOGFUN (x[1]);
+            if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
+                continue;
+
+            // FIXME: apply log and permute indices here, make support for n-dimensional vectors
+
+            if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
             {
-                if (hist->counts[xi] > 1e-5)
+                if (dim == 2)
                 {
-                    double avg = sums[xi] / counts[xi];
-                    double s = hist->world.scaleMtx[1][1];
-                    double ymin = hist->world.centerPos[1] - s;
-                    double ymax = hist->world.centerPos[1] + s;
-                    double w = (avg - ymin) / (ymax - ymin);
+                    bins[yi*w + xi]++;
+                }
+                else if (dim == 3)
+                {
+                    int newVal = 40 - 150*wzVal;
+                    if (newVal < 1)
+                        newVal = 1;
 
-                    if (lastNonZeroXi < 0)
-                        lastNonZeroXi = xi-1;
-                    for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
-                        bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
-
-                    //print_debug ("sums[xi]: %f counts[xi]: %f ymin: %f, ymax: %f avg: %f => w: %f => bins[%d]: %d",
-                    //sums[xi], counts[xi], ymin, ymax, avg, w, xi, bins[xi]);
-                    sums[xi]   = 0.0;
-                    counts[xi] = 0.0;
-                    lastNonZeroXi = xi;
+                    int idx = yi * w + xi;
+                    int oldVal = bins [idx];
+                    if (newVal > oldVal)
+                    {
+                        bins [idx] = newVal;
+                        if (bins [idx] < 1)
+                            bins [idx] = 1;
+                        wz[idx] = wzVal;
+                    }
                 }
             }
         }
-        else
-        {
-            double x = xy[0];
-            double y = xy[1];
-            if (logMode & 1) x = LOGFUN (x);
-            if (logMode & 2) y = LOGFUN (y);
-
-            double s = hist->world.scaleMtx[0][0];
-            double xmin = hist->world.centerPos[0] - s;
-            double xmax = hist->world.centerPos[0] + s;
-            int xi = (x - xmin) / (xmax - xmin) * (w-1);
-
-            if (xi >= 0 && xi < w)
-            {
-                sums[xi]   += y;
-                counts[xi] += 1.0;
-            }
-        }
     }
+    //else if (plotType == '+')
+    //{
+    //    // every point is a plus sign
+    //    for (uint32_t i=0; i<len; i++)
+    //    {
+    //        double *point = (double *) (buf + sz * i);
+    //        double x = point[0];
+    //        double y = point[1];
 
-    return retCounter;
-}
+    //        if (logMode & 1) x = LOGFUN (x);
+    //        if (logMode & 2) y = LOGFUN (y);
 
-static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
-{
-    if (plotType == 'w')
-        return make_histogram_2d_waterfall (hist, graph, logMode, plotType, lastGraphCounter);
+    //        if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
+    //            continue;
 
-    uint64_t counter = 0;
-    int *bins  = hist->bins;
-    uint32_t w = hist->w;
-    uint32_t h = hist->h;
+    //        int xi = (int) ((w-1) * (x - xmin) * invXRange);
+    //        int yi = (int) ((h-1) * (y - ymin) * invYRange);
+    //        int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
+    //        int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
+    //        for (int j=0; j<9; j++)
+    //        {
+    //            int xp = xi+xx[j];
+    //            int yp = yi+yy[j];
+    //            if (xp >= 0 && xp < w && yp >= 0 && yp < h)
+    //                bins[(uint32_t) yp*w + (uint32_t) xp]++;
+    //        }
+    //    }
+    //}
+    //else if (plotType == 'l')
+    //{
+    //    // line
+    //    for (uint32_t i=0; i<len-1; i++)
+    //    {
+    //        double *point0 = (double *) (buf + sz * (i  ));
+    //        double *point1 = (double *) (buf + sz * (i+1));
+    //        double x0 = point0[0];
+    //        double y0 = point0[1];
+    //        double x1 = point1[0];
+    //        double y1 = point1[1];
 
-    wait_for_access (& graph->readAccess);
+    //        if (logMode & 1)
+    //        {
+    //            x0 = LOGFUN (x0);
+    //            x1 = LOGFUN (x1);
+    //        }
+    //        if (logMode & 2)
+    //        {
+    //            y0 = LOGFUN (y0);
+    //            y1 = LOGFUN (y1);
+    //        }
 
-    double sx = hist->world.scaleMtx[0][0];
-    double sy = hist->world.scaleMtx[0][0];
-    double xmin = hist->world.centerPos[0] - sx;
-    double xmax = hist->world.centerPos[0] + sx;
-    double ymin = hist->world.centerPos[1] - sy;
-    double ymax = hist->world.centerPos[1] + sy;
+    //        if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
+    //            isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
+    //            continue;
 
-    double (*xys)[2];
-    uint32_t len;
-    wait_for_access (& graph->insertAccess);
-    stream_buffer_get (graph->sb, & xys, & len);
-    if (!len)
-    {
-        release_access (& graph->insertAccess);
-        release_access (& graph->readAccess);
-        return 0;
-    }
-    if (graph->len && graph->len < len)
-    {
-        xys += (len - graph->len);
-        len = graph->len;
-    }
-    counter = graph->sb->counter;
-    release_access (& graph->insertAccess);
+    //        // NOTE: A straight line between two points is moving through different points depending on log mode
+    //        int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+    //        int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+    //        int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+    //        int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+    //        cip_histogram_line (hist, xi0, yi0, xi1, yi1);
+    //    }
+    //}
+    //else if (plotType == 't')
+    //{
+    //    // thick line
+    //    for (uint32_t i=0; i<len-1; i++)
+    //    {
+    //        double x0 = points[i][0];
+    //        double y0 = points[i][1];
+    //        double x1 = points[i+1][0];
+    //        double y1 = points[i+1][1];
 
-    uint32_t nBins = w * h;
-    for (uint32_t i=0; i<nBins; i++)
-        bins[i] = 0;
+    //        if (logMode & 1)
+    //        {
+    //            x0 = LOGFUN (x0);
+    //            x1 = LOGFUN (x1);
+    //        }
+    //        if (logMode & 2)
+    //        {
+    //            y0 = LOGFUN (y0);
+    //            y1 = LOGFUN (y1);
+    //        }
 
-    double invXRange = 1.0 / (xmax - xmin);
-    double invYRange = 1.0 / (ymax - ymin);
-    if (plotType == 'p')
-    {
-        for (uint32_t i=0; i<len; i++)
-        {
-            double x = xys[i][0];
-            double y = xys[i][1];
+    //        if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
+    //            isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
+    //            continue;
 
-            if (logMode & 1) x = LOGFUN (x);
-            if (logMode & 2) y = LOGFUN (y);
+    //        int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+    //        int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+    //        int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+    //        int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+    //        cip_histogram_line (hist, xi0, yi0, xi1, yi1);
+    //        cip_histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
+    //        cip_histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
+    //        cip_histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
+    //        cip_histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
+    //    }
+    //}
+    //else if (plotType == 's')
+    //{
+    //    // staircase
+    //    for (uint32_t i=0; i<len-1; i++)
+    //    {
+    //        double x0 = points[i][0];
+    //        double y0 = points[i][1];
+    //        double x1 = points[i+1][0];
+    //        double y1 = points[i+1][1];
 
-            if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
-                continue;
+    //        if (logMode & 1)
+    //        {
+    //            x0 = LOGFUN (x0);
+    //            x1 = LOGFUN (x1);
+    //        }
+    //        if (logMode & 2)
+    //        {
+    //            y0 = LOGFUN (y0);
+    //            y1 = LOGFUN (y1);
+    //        }
 
-            int xi = (int) ((w-1) * (x - xmin) * invXRange);
-            int yi = (int) ((h-1) * (y - ymin) * invYRange);
-            if (xi >= 0 && xi < w && yi >= 0 && yi < h)
-                bins[(uint32_t) yi*w + (uint32_t) xi]++;
-        }
-    }
-    else if (plotType == '+')
-    {
-        for (uint32_t i=0; i<len; i++)
-        {
-            double x = xys[i][0];
-            double y = xys[i][1];
+    //        if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
+    //            isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
+    //            continue;
 
-            if (logMode & 1) x = LOGFUN (x);
-            if (logMode & 2) y = LOGFUN (y);
+    //        int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
+    //        int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
+    //        int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
+    //        int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
+    //        cip_histogram_line (hist, xi0, yi0, xi1, yi0);
+    //        cip_histogram_line (hist, xi1, yi0, xi1, yi1);
+    //    }
+    //}
+    //else if (plotType == 'w')
+    //{
+    //    // waterfall
+    //    if (i0 < 0)
+    //    {
+    //        print_warning ("truncating");
+    //        i0 = 0;
+    //    }
+    //    if (isnan (xy[0]) || isnan (xy[1]))
+    //    {
+    //        // flush row
+    //        for (uint32_t yi=h-1; yi>0; yi--)
+    //            for (uint32_t xi=0; xi<w; xi++)
+    //                bins[yi*w + xi] = bins[(yi-1) * w + xi];
 
-            if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
-                continue;
+    //        // construct new row
+    //        int lastNonZeroXi = -1;
+    //        for (uint32_t xi=0; xi<w; xi++)
+    //        {
+    //            if (hist->counts[xi] > 1e-5)
+    //            {
+    //                double avg = sums[xi] / counts[xi];
+    //                double s = hist->world.scaleMtx[1][1];
+    //                double ymin = hist->world.centerPos[1] - s;
+    //                double ymax = hist->world.centerPos[1] + s;
+    //                double w = (avg - ymin) / (ymax - ymin);
 
-            int xi = (int) ((w-1) * (x - xmin) * invXRange);
-            int yi = (int) ((h-1) * (y - ymin) * invYRange);
-            int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
-            int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
-            for (int j=0; j<9; j++)
-            {
-                int xp = xi+xx[j];
-                int yp = yi+yy[j];
-                if (xp >= 0 && xp < w && yp >= 0 && yp < h)
-                    bins[(uint32_t) yp*w + (uint32_t) xp]++;
-            }
-        }
-    }
-    else if (plotType == 'l')
-    {
-        for (uint32_t i=0; i<len-1; i++)
-        {
-            double x0 = xys[i][0];
-            double y0 = xys[i][1];
-            double x1 = xys[i+1][0];
-            double y1 = xys[i+1][1];
+    //                if (lastNonZeroXi < 0)
+    //                    lastNonZeroXi = xi-1;
+    //                for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
+    //                    bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
 
-            if (logMode & 1)
-            {
-                x0 = LOGFUN (x0);
-                x1 = LOGFUN (x1);
-            }
-            if (logMode & 2)
-            {
-                y0 = LOGFUN (y0);
-                y1 = LOGFUN (y1);
-            }
+    //                //print_debug ("sums[xi]: %f counts[xi]: %f ymin: %f, ymax: %f avg: %f => w: %f => bins[%d]: %d",
+    //                //sums[xi], counts[xi], ymin, ymax, avg, w, xi, bins[xi]);
+    //                sums[xi]   = 0.0;
+    //                counts[xi] = 0.0;
+    //                lastNonZeroXi = xi;
+    //            }
+    //        }
+    //    }
+    //    else
+    //    {
+    //        double x = xy[0];
+    //        double y = xy[1];
+    //        if (logMode & 1) x = LOGFUN (x);
+    //        if (logMode & 2) y = LOGFUN (y);
 
-            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
-                isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
-                continue;
+    //        double s = hist->world.scaleMtx[0][0];
+    //        double xmin = hist->world.centerPos[0] - s;
+    //        double xmax = hist->world.centerPos[0] + s;
+    //        int xi = (x - xmin) / (xmax - xmin) * (w-1);
 
-            // NOTE: A straight line between two points is moving through different points depending on log mode
-            int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-            int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-            int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-            int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-            cip_histogram_line (hist, xi0, yi0, xi1, yi1);
-        }
-    }
-    else if (plotType == 't')
-    {
-        for (uint32_t i=0; i<len-1; i++)
-        {
-            double x0 = xys[i][0];
-            double y0 = xys[i][1];
-            double x1 = xys[i+1][0];
-            double y1 = xys[i+1][1];
-
-            if (logMode & 1)
-            {
-                x0 = LOGFUN (x0);
-                x1 = LOGFUN (x1);
-            }
-            if (logMode & 2)
-            {
-                y0 = LOGFUN (y0);
-                y1 = LOGFUN (y1);
-            }
-
-            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
-                isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
-                continue;
-
-            int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-            int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-            int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-            int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-            cip_histogram_line (hist, xi0, yi0, xi1, yi1);
-            cip_histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
-            cip_histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
-            cip_histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
-            cip_histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
-        }
-    }
-    else if (plotType == 's')
-    {
-        for (uint32_t i=0; i<len-1; i++)
-        {
-            double x0 = xys[i][0];
-            double y0 = xys[i][1];
-            double x1 = xys[i+1][0];
-            double y1 = xys[i+1][1];
-
-            if (logMode & 1)
-            {
-                x0 = LOGFUN (x0);
-                x1 = LOGFUN (x1);
-            }
-            if (logMode & 2)
-            {
-                y0 = LOGFUN (y0);
-                y1 = LOGFUN (y1);
-            }
-
-            if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
-                isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
-                continue;
-
-            int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-            int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-            int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-            int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-            cip_histogram_line (hist, xi0, yi0, xi1, yi0);
-            cip_histogram_line (hist, xi1, yi0, xi1, yi1);
-        }
-    }
+    //        if (xi >= 0 && xi < w)
+    //        {
+    //            sums[xi]   += y;
+    //            counts[xi] += 1.0;
+    //        }
+    //    }
+    //}
     else
     {
         exit_error ("unknown plot type '%c'", plotType);
@@ -2398,6 +2344,7 @@ static uint64_t make_histogram_2d (CipHistogram *hist, CipGraph *graph, uint32_t
     release_access (& graph->readAccess);
     return counter;
 }
+
 
 enum {
     ALIGN_TL, ALIGN_TC, ALIGN_TR,
@@ -2779,7 +2726,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
                 int is3d = (attacher->graph->sb->itemSize == sizeof (double) * 3);
                 if (is3d)
-                    hist->pz = safe_calloc (hist->w * hist->h, sizeof (hist->pz[0]));
+                    hist->wz = safe_calloc (hist->w * hist->h, sizeof (hist->wz[0]));
 
                 attacher->lastGraphCounter = 0;
                 updateHistogram = 1;
@@ -2795,10 +2742,10 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
                 hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
 
-                if (hist->pz)
+                if (hist->wz)
                 {
-                    free (hist->pz);
-                    hist->pz = safe_calloc (hist->w * hist->h, sizeof (hist->pz[0]));
+                    free (hist->wz);
+                    hist->wz = safe_calloc (hist->w * hist->h, sizeof (hist->wz[0]));
                 }
 
                 attacher->lastGraphCounter = 0;
