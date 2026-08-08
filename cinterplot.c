@@ -641,36 +641,6 @@ static int cycle_selected_graph (CipSubWindow *sw, uint32_t step)
     return 1;
 }
 
-static void undo_zooming (CipSubWindow *sw)
-{
-    print_debug ("to be repaired");
-    //if (!sw)
-    //    return;
-    //if (sw->defaultDataRange.x0 == sw->defaultDataRange.x1)
-    //    return;
-    //if (sw->defaultDataRange.y0 == sw->defaultDataRange.y1)
-    //    return;
-
-    //memcpy (& sw->dataRange, & sw->defaultDataRange, sizeof (CipArea));
-}
-
-static void get_active_area (CipState *cs, CipArea *src, CipArea *dst)
-{
-    uint32_t w = cs->windowWidth;
-    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-
-    double xp = (double) (cs->bordered + cs->margin) / w;
-    double yp = (double) (cs->bordered + cs->margin) / h;
-
-    double epsw = 1.0 / cs->windowWidth;
-    double epsh = 1.0 / cs->windowHeight;
-
-    dst->x0 = src->x0 + xp;
-    dst->y0 = src->y0 + yp;
-    dst->x1 = src->x1 - xp - epsw;
-    dst->y1 = src->y1 - yp - epsh;
-}
-
 int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
 {
     if (!sw)
@@ -1125,8 +1095,8 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
                  int x1 = (swa->x1 - wa->x0);
                  int y1 = (swa->y1 - wa->y0);
 
-                 int w = wa->x1 - wa->x0 + 1;
-                 int h = wa->y1 - wa->y0 + 1;
+                 int w = wa->x1 - wa->x0;
+                 int h = wa->y1 - wa->y0;
 
                  double d0[3], d1[3];
                  world_transform_bin_to_datapos (& sw->world, w, h, x0, y0, d0);
@@ -1155,23 +1125,30 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
     return 1;
 }
 
-void screenpos_to_datapos (uint32_t screenPos[2], double dataPos[3])
+void mouse_screenpos_to_datapos (CipState *cs, double dataPos[3])
 {
-    dataPos[0] = 0;
-    dataPos[1] = 0;
-    dataPos[2] = 0;
-}
+    if (!cs->activeSw)
+    {
+        dataPos[0] = 0;
+        dataPos[1] = 0;
+        dataPos[2] = 0;
+        return;
+    }
 
-void binpos_to_screenpos (uint32_t binPos[2], uint32_t screenPos[2])
-{
-    screenPos[0] = 0;
-    screenPos[1] = 0;
-}
+    CipSubWindow *sw = cs->activeSw;
+    CipArea      *wa = & sw->windowArea;
 
-void screenpos_to_binpos (uint32_t screenPos[2], uint32_t binPos[2])
-{
-    binPos[0] = 0;
-    binPos[1] = 0;
+    int xi = cs->mouseScreenPos[0];
+    int yi = cs->mouseScreenPos[1];
+    int x0 = cs->margin + (cs->zoomEnabled == 0) * wa->x0;
+    int y0 = cs->margin + (cs->zoomEnabled == 0) * wa->y0;
+    int binx = xi - x0;
+    int biny = yi - y0;
+
+    int binw = wa->x1 - wa->x0;
+    int binh = wa->y1 - wa->y0;
+
+    world_transform_bin_to_datapos (& sw->world, binw, binh, binx, biny, dataPos);
 }
 
 static int on_mouse_wheel (CipState *cs, float xf, float yf)
@@ -1190,7 +1167,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
                 1
             };
             double fixedPos[3];
-            screenpos_to_datapos (cs->mouseScreenPos, fixedPos);
+            mouse_screenpos_to_datapos (cs, fixedPos);
             world_transform_scale_world (& sw->world, fixedPos, scales);
             return 1;
         }
@@ -1207,7 +1184,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         {
             // rotating z
             double fixedPos[3];
-            screenpos_to_datapos (cs->mouseScreenPos, fixedPos);
+            mouse_screenpos_to_datapos (cs, fixedPos);
             world_transform_rotate_world (& sw->world, fixedPos, 2, -yf * 0.02);
             return 1;
         }
@@ -1215,7 +1192,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         {
             // rotating
             double fixedPos[3];
-            screenpos_to_datapos (cs->mouseScreenPos, fixedPos);
+            mouse_screenpos_to_datapos (cs, fixedPos);
             world_transform_rotate_world (& sw->world, fixedPos, 2,  yf * 0.02);
             world_transform_rotate_world (& sw->world, fixedPos, 2, -xf * 0.02);
             return 1;
@@ -1332,153 +1309,121 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
     {
      case MOUSE_STATE_NONE:
          {
-             //uint32_t w = cs->windowWidth;
-             //uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
-             CipArea activeArea;
+             cs->mouseScreenPos[0] = xi;
+             cs->mouseScreenPos[1] = yi;
 
              if (!cs->zoomEnabled)
+             {
                  cs->activeSw = NULL;
-
-             for (int i=0; i<cs->numSubWindows; i++)
-             {
-                 CipSubWindow *sw;
-                 if (cs->zoomEnabled)
+                 for (int i=0; i<cs->numSubWindows; i++)
                  {
-                     sw = cs->activeSw;
-                     CipArea zoomWindowArea = {0,0,1,1};
-                     get_active_area (cs, & zoomWindowArea, & activeArea);
+                     CipSubWindow *sw = & cs->subWindows[i];
+                     int x0 = sw->windowArea.x0 + (cs->margin + cs->bordered);
+                     int x1 = sw->windowArea.x1 - (cs->margin + cs->bordered);
+                     int y0 = sw->windowArea.y0 + (cs->margin + cs->bordered);
+                     int y1 = sw->windowArea.y1 - (cs->margin + cs->bordered);
+
+                     if (x0 <= xi && xi <= x1 && y0 <= yi && yi <= y1)
+                         cs->activeSw = sw;
                  }
-                 else
-                 {
-                     sw = & cs->subWindows[i];
-                     get_active_area (cs, & sw->windowArea, & activeArea);
-                 }
-
-                 cs->mouseScreenPos[0] = xi;
-                 cs->mouseScreenPos[1] = yi;
-
-                 if (activeArea.x0 <= cs->mouseScreenPos[0] && cs->mouseScreenPos[0] <= activeArea.x1 &&
-                     activeArea.y0 <= cs->mouseScreenPos[1] && cs->mouseScreenPos[1] <= activeArea.y1)
-                     cs->activeSw = sw;
-
-                 if (cs->zoomEnabled)
-                     break;
              }
 
-             if (cs->trackingMode && cs->activeSw && cs->activeSw->numAttachedGraphs > 0)
+             if (cs->activeSw)
              {
                  CipSubWindow *sw = cs->activeSw;
-                 if (cs->zoomEnabled)
+
+                 int x0 = cs->margin + (cs->zoomEnabled == 0) * sw->windowArea.x0;
+                 int y0 = cs->margin + (cs->zoomEnabled == 0) * sw->windowArea.y0;
+                 int binx = xi - x0;
+                 int biny = yi - y0;
+
+                 if (cs->trackingMode && cs->activeSw->numAttachedGraphs > 0)
                  {
-                     CipArea zoomWindowArea = {0,0,1,1};
-                     get_active_area (cs, & zoomWindowArea, & activeArea);
-                 }
-                 else
-                 {
-                     get_active_area (cs, & sw->windowArea, & activeArea);
-                 }
+                     if (sw->selectedGraph > sw->numAttachedGraphs - 1)
+                         sw->selectedGraph = sw->numAttachedGraphs - 1;
 
-                 if (sw->selectedGraph > sw->numAttachedGraphs - 1)
-                     sw->selectedGraph = sw->numAttachedGraphs - 1;
+                     CipHistogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
+                     int w = (int) hist->w;
+                     int h = (int) hist->h;
+                     int  *bins = hist->bins;
 
-                 CipHistogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
-                 uint32_t w = hist->w;
-                 uint32_t h = hist->h;
-                 int  *bins = hist->bins;
-
-                 if (!bins)
-                 {
-                     // if mouse is moved before bins has been alloc'd, this may happen
-                     return 0;
-                 }
-
-                 uint32_t binPos[2];
-                 screenpos_to_binpos (cs->mouseScreenPos, binPos);
-
-                 uint32_t x0 = binPos[0];
-                 uint32_t y0 = binPos[1];
-
-                 if (cs->trackingMode == 1)
-                 {
-                     if (x0 < w && y0 < h)
+                     if (!bins)
                      {
-                         int _y0 = (int) y0;
-                         int bestY = -1;
-                         for (int dy=0; dy<h; dy++)
+                         // if mouse is moved before bins has been alloc'd, this may happen
+                         return 0;
+                     }
+
+                     if (cs->trackingMode == 1)
+                     {
+                         // trackingMode 1: x is tied to mouse position, y is computed as closest point on graph
+                         if (binx < w && biny < h)
                          {
-                             int yy0 = _y0 + dy;
-                             int yy1 = _y0 - dy;
-                             if (yy0 >= 0 && yy0 < h && bins[w * (uint32_t) yy0 + x0])
+                             int bestY = -1;
+                             for (int dy=0; dy<h; dy++)
                              {
-                                 bestY = yy0;
-                                 break;
+                                 int yy0 = biny + dy;
+                                 int yy1 = biny - dy;
+                                 if (yy0 >= 0 && yy0 < h && bins[w * yy0 + binx])
+                                 {
+                                     bestY = yy0;
+                                     break;
+                                 }
+                                 else if (yy1 >= 0 && yy1 < h && bins[w * yy1 + binx])
+                                 {
+                                     bestY = yy1;
+                                     break;
+                                 }
                              }
-                             else if (yy1 >= 0 && yy1 < h && bins[w * (uint32_t) yy1 + x0])
-                             {
-                                 bestY = yy1;
-                                 break;
-                             }
-                         }
-                         if (bestY >= 0)
-                         {
-                             binPos[1] = bestY;
-                             binpos_to_screenpos (binPos, cs->mouseScreenPos);
+
+                             if (bestY >= 0)
+                                 cs->mouseScreenPos[1] = y0 + bestY;
                          }
                      }
-                 }
-                 else if (cs->trackingMode == 2)
-                 {
-                     if (x0 < w && y0 < h)
+                     else if (cs->trackingMode == 2)
                      {
-                         int _x0 = (int) x0;
-                         int bestX = -1;
-                         for (int dx=0; dx<w; dx++)
+                         // trackingMode 2: y is tied to mouse position, x is computed as closest point on graph
+                         if (binx < w && biny < h)
                          {
-                             int xx0 = _x0 + dx;
-                             int xx1 = _x0 - dx;
-                             if (xx0 >= 0 && xx0 < w && bins[w * y0 + (uint32_t) xx0])
+                             int bestX = -1;
+                             for (int dx=0; dx<w; dx++)
                              {
-                                 bestX = xx0;
-                                 break;
+                                 int xx0 = binx + dx;
+                                 int xx1 = binx - dx;
+                                 if (xx0 >= 0 && xx0 < w && bins[w * biny + xx0])
+                                 {
+                                     bestX = xx0;
+                                     break;
+                                 }
+                                 else if (xx1 >= 0 && xx1 < w && bins[w * biny + xx1])
+                                 {
+                                     bestX = xx1;
+                                     break;
+                                 }
                              }
-                             else if (xx1 >= 0 && xx1 < w && bins[w * y0 + (uint32_t) xx1])
-                             {
-                                 bestX = xx1;
-                                 break;
-                             }
-                         }
-                         if (bestX >= 0)
-                         {
-                             binPos[0] = bestX;
-                             binpos_to_screenpos (binPos, cs->mouseScreenPos);
+                             if (bestX >= 0)
+                                 cs->mouseScreenPos[0] = x0 + bestX;
                          }
                      }
-                 }
-                 else if (cs->trackingMode == 3)
-                 {
-                     uint32_t xi, yi;
-                     if (find_closest_point (hist, x0, y0, & xi, & yi) >= 0)
+                     else if (cs->trackingMode == 3)
                      {
-                         binPos[0] = xi;
-                         binPos[1] = yi;
-                         binpos_to_screenpos (binPos, cs->mouseScreenPos);
+                         // trackingMode 3: mouse position is used to get the closest coordinate on the graph
+                         find_closest_point (hist, binx, biny, & cs->mouseScreenPos[0], & cs->mouseScreenPos[1]);
                      }
+                     else
+                         exit_error ("bug: %d", cs->trackingMode);
                  }
-                 else
-                     exit_error ("bug: %d", cs->trackingMode);
-             }
 
-             if (cs->app_on_mouse_motion && cs->activeSw)
-             {
-                 CipSubWindow *sw = cs->activeSw;
-                 int windowIndex = 0;
-                 for (windowIndex=0; windowIndex<cs->numSubWindows; windowIndex++)
-                     if (& cs->subWindows[windowIndex] == sw)
-                         break;
+                 if (cs->app_on_mouse_motion)
+                 {
+                     int windowIndex = 0;
+                     for (windowIndex=0; windowIndex<cs->numSubWindows; windowIndex++)
+                         if (& cs->subWindows[windowIndex] == sw)
+                             break;
 
-                 double mouseDataPos[3];
-                 screenpos_to_datapos (cs->mouseScreenPos, mouseDataPos);
-                 cs->app_on_mouse_motion (cs, windowIndex, mouseDataPos[0], mouseDataPos[1]);
+                     double mouseDataPos[3];
+                     mouse_screenpos_to_datapos (cs, mouseDataPos);
+                     cs->app_on_mouse_motion (cs, windowIndex, mouseDataPos[0], mouseDataPos[1]);
+                 }
              }
 
              break;
@@ -1634,7 +1579,6 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
         return cs->app_on_keyboard (cs, key, mod, pressed, repeat);
     }
 
-
     // FIXME: If both the left and right key of the same modifier gets pressed at
     // the same time and then one gets released, the state of pressedModifiers
     // gets zeroed out
@@ -1691,7 +1635,6 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
                 case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); break;
                 case 'q': cip_quit (cs); break;
-                case 'u': undo_zooming (cs->activeSw); break;
                 case 'e': cip_force_refresh (cs); break;
                 case 't': cip_set_tracking_mode (cs, cs->trackingMode + 1); cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);break;
                 case 'l': cycle_line_type (cs->activeSw, 1); break;
@@ -2784,10 +2727,10 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             if (sw->windowArea.x0 > sw->windowArea.x1) exit_error ("bug");
             if (sw->windowArea.y0 > sw->windowArea.y1) exit_error ("bug");
 
-            x0 = (uint32_t) (sw->windowArea.x0 * w) + cs->margin;
-            y0 = (uint32_t) (sw->windowArea.y0 * h) + cs->margin;
-            x1 = (uint32_t) (sw->windowArea.x1 * w) - cs->margin;
-            y1 = (uint32_t) (sw->windowArea.y1 * h) - cs->margin;
+            x0 = (uint32_t) sw->windowArea.x0 + cs->margin;
+            y0 = (uint32_t) sw->windowArea.y0 + cs->margin;
+            x1 = (uint32_t) sw->windowArea.x1 - cs->margin;
+            y1 = (uint32_t) sw->windowArea.y1 - cs->margin;
 
             if (x0 > w) exit_error ("bug %u >= %u m: %u", x0, w, cs->margin);
             if (x1 > w) exit_error ("bug %u >= %u m: %u", x1, w, cs->margin);
@@ -2937,7 +2880,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         {
             CipSubWindow *sw = cs->activeSw;
             double mouseDataPos[3];
-            screenpos_to_datapos (cs->mouseScreenPos, mouseDataPos);
+            mouse_screenpos_to_datapos (cs, mouseDataPos);
 
             char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
@@ -3058,9 +3001,8 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
     cs->margin   = margin   & 0xff;
     cs->numSubWindows = numSubWindows;
 
-    // FIXME: Dessa får nog bli i pixlar också.
-    double dy = 1.0 / nRows;
-    double dx = 1.0 / nCols;
+    int dy = (int) (cs->windowWidth / nRows);
+    int dx = (int) (cs->windowHeight / nCols);
 
     for (uint32_t ri=0; ri<nRows; ri++)
     {
