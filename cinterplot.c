@@ -47,6 +47,7 @@ typedef struct CipState
     float bgShade;
 
     uint32_t numSubWindows;
+    uint32_t nCols;
     CipSubWindow *subWindows;
     CipSubWindow *activeSw;
 
@@ -839,6 +840,95 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
         print_error ("failed to allocate iconData buffer");
 }
 
+static void recompute_sub_window_areas (CipState *cs)
+{
+    if (!cs->subWindows)
+    {
+        print_error ("recompute called before subWindows were defined");
+        return;
+    }
+
+    uint32_t nCols    = cs->nCols;
+    uint32_t nRows    = cs->numSubWindows / nCols;
+    print_debug ("nCols: %u nRows: %u", nCols, nRows);
+
+    uint32_t w = cs->windowWidth;
+    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+
+    int dx = (int) (w / nCols);
+    int dy = (int) (h / nRows);
+
+    if (cs->zoomEnabled)
+    {
+        for (uint32_t ri=0; ri<nRows; ri++)
+        {
+            for (uint32_t ci=0; ci<nCols; ci++)
+            {
+                CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+                if (sw == cs->activeSw)
+                {
+                    sw->windowArea.x0 = 0;
+                    sw->windowArea.x1 = w;
+                    sw->windowArea.y0 = 0;
+                    sw->windowArea.y1 = h;
+                }
+                else
+                {
+                    sw->windowArea.x0 = 0;
+                    sw->windowArea.x1 = 0;
+                    sw->windowArea.y0 = 0;
+                    sw->windowArea.y1 = 0;
+                }
+            }
+        }
+    }
+    else
+    {
+        for (uint32_t ri=0; ri<nRows; ri++)
+        {
+            for (uint32_t ci=0; ci<nCols; ci++)
+            {
+                CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+                sw->windowArea.x0 = (ci    ) * dx;
+                sw->windowArea.x1 = (ci + 1) * dx;
+                sw->windowArea.y0 = (ri    ) * dy;
+                sw->windowArea.y1 = (ri + 1) * dy;
+            }
+        }
+    }
+}
+
+int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin)
+{
+    uint32_t numSubWindows = nRows * nCols;
+    cs->subWindows = safe_calloc (numSubWindows, sizeof (cs->subWindows[0]));
+    cs->bordered = bordered & 1;
+    cs->margin   = margin   & 0xff;
+    cs->numSubWindows = numSubWindows;
+    cs->nCols = nCols;
+
+    for (uint32_t ri=0; ri<nRows; ri++)
+    {
+        for (uint32_t ci=0; ci<nCols; ci++)
+        {
+            CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+            sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
+            sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
+            sw->numAttachedGraphs = 0;
+            sw->logMode = 0;
+            sw->gridMode = 0;
+            sw->selectedGraph = 0;
+            bzero (& sw->selectedArea, sizeof (sw->selectedArea));
+
+            world_transform_set_default_values (& sw->world);
+            for (int i=0; i<10; i++)
+                world_transform_set_default_values (& storedWorldTransforms[i]);
+        }
+    }
+
+    recompute_sub_window_areas (cs);
+    return 0;
+}
 
 int cip_set_fullscreen (CipState *cs, uint32_t fullscreen)
 {
@@ -861,6 +951,7 @@ int cip_set_fullscreen (CipState *cs, uint32_t fullscreen)
     }
 
     reinitialise_sdl_context (cs, 1);
+    recompute_sub_window_areas (cs);
     return 1;
 }
 
@@ -1027,8 +1118,8 @@ static int on_mouse_pressed (CipState *cs, int xi, int yi, int button, int click
          case KMOD_NONE:
              {
                  cs->mouseState = MOUSE_STATE_SELECTING;
-                 cs->mouseScreenPos[0] = (double) xi;
-                 cs->mouseScreenPos[1] = (double) yi;
+                 cs->mouseScreenPos[0] = (double) xi-1;
+                 cs->mouseScreenPos[1] = (double) yi-1;
                  CipArea *swa  = & cs->activeSw->selectedArea;
                  CipArea *swar = & cs->activeSw->selectedAreaRaw;
 
@@ -1075,7 +1166,10 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
              CipArea *swa = & cs->activeSw->selectedArea;
              CipArea *wa  = & cs->activeSw->windowArea;
              if (swa->x0 == swa->x1 && swa->y0 == swa->y1)
+             {
                  cs->zoomEnabled ^= 1;
+                 recompute_sub_window_areas (cs);
+             }
              else
              {
                  CipSubWindow *sw = cs->activeSw;
@@ -1087,19 +1181,27 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
                  int w = wa->x1 - wa->x0;
                  int h = wa->y1 - wa->y0;
 
-                 double d0[3], d1[3];
+                 double fixedPos[3];
                  double wzVal = 0;
-                 world_transform_bin_to_datapos (& sw->world, w, h, x0, y0, wzVal, d0);
-                 world_transform_bin_to_datapos (& sw->world, w, h, x1, y1, wzVal, d1);
 
-                 double ranges[3][2] =
+                 int xc = (x0 + x1) / 2;
+                 int yc = (y0 + y1) / 2;
+
+                 world_transform_bin_to_datapos (& sw->world, w, h, xc, yc, wzVal, fixedPos);
+                 double scales[3] =
                  {
-                     {d0[0], d1[0]},
-                     {d0[1], d1[1]},
-                     {d0[2], d1[2]},
+                     (double) w / (x1 - x0),
+                     (double) h / (y1 - y0),
+                     1
                  };
+                 print_debug ("fixedPos      (%f,%f,%f)", fixedPos[0], fixedPos[1], fixedPos[2]);
+                 print_debug ("scaling world (%f,%f,%f)", scales[0], scales[1], scales[2]);
 
-                 world_transform_set_ranges (& sw->world, ranges, 0.0);
+                 world_dump (& sw->world);
+                 print_debug ("scaling world");
+
+                 world_transform_scale_world (& sw->world, fixedPos, scales);
+                 world_dump (& sw->world);
              }
              bzero (swa, sizeof (*swa));
              break;
@@ -1130,8 +1232,8 @@ void mouse_screenpos_to_datapos (CipState *cs, double dataPos[3])
 
     int xi = cs->mouseScreenPos[0];
     int yi = cs->mouseScreenPos[1];
-    int x0 = cs->margin + (cs->zoomEnabled == 0) * wa->x0;
-    int y0 = cs->margin + (cs->zoomEnabled == 0) * wa->y0;
+    int x0 = cs->margin + wa->x0;
+    int y0 = cs->margin + wa->y0;
     int binx = xi - x0;
     int biny = yi - y0;
 
@@ -1327,8 +1429,8 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
              {
                  CipSubWindow *sw = cs->activeSw;
 
-                 int x0 = cs->margin + (cs->zoomEnabled == 0) * sw->windowArea.x0;
-                 int y0 = cs->margin + (cs->zoomEnabled == 0) * sw->windowArea.y0;
+                 int x0 = cs->margin + sw->windowArea.x0;
+                 int y0 = cs->margin + sw->windowArea.y0;
                  int binx = xi - x0;
                  int biny = yi - y0;
 
@@ -1454,13 +1556,13 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
 
              if (dx < dxMin)
              {
-                 swa->y0 = wa->y0;
-                 swa->y1 = wa->y1;
-             }
-             if (dy < dyMin)
-             {
                  swa->x0 = wa->x0;
                  swa->x1 = wa->x1;
+             }
+             else if (dy < dyMin)
+             {
+                 swa->y0 = wa->y0;
+                 swa->y1 = wa->y1;
              }
 
              break;
@@ -1631,7 +1733,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 case 'm': cip_set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
                 case 'o': if (cs->activeSw) {cip_set_log_mode_sw (cs, cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
                 case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
-                case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); break;
+                case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); recompute_sub_window_areas (cs); break;
                 case 'q': cip_quit (cs); break;
                 case 'e': cip_force_refresh (cs); break;
                 case 't': cip_set_tracking_mode (cs, cs->trackingMode + 1); cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);break;
@@ -1924,7 +2026,7 @@ int cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex)
 
 CipGraph *cip_graph_new (int dim, uint32_t len)
 {
-    if (dim < 2 || dim > 3)
+    if (dim < 1 || dim > 4)
         exit_error ("dimension not supported");
 
     CipGraph *graph = safe_calloc (1, sizeof (*graph));
@@ -1957,6 +2059,32 @@ void cip_graph_delete (CipGraph *graph)
     if (graph->name)
         free (graph->name);
     free (graph);
+}
+
+void cip_graph_add_1d_point (CipGraph *graph, double x)
+{
+    while (paused)
+        usleep (10000);
+
+    StreamBuffer *sb = graph->sb;
+    assert (sb);
+
+    if (sb->itemSize != sizeof (double) * 1)
+        exit_error ("function can only be used for one dimensional graphs");
+
+    if (graph->len == 0 &&
+        sb->counter == sb->len &&
+        sb->len <= MAX_VARIABLE_LENGTH)
+    {
+
+        wait_for_access (& graph->readAccess);
+        stream_buffer_resize (sb, sb->len << 1);
+        release_access (& graph->readAccess);
+    }
+
+    wait_for_access (& graph->insertAccess);
+    stream_buffer_insert (sb, & x);
+    release_access (& graph->insertAccess);
 }
 
 void cip_graph_add_2d_point (CipGraph *graph, double x, double y)
@@ -2013,6 +2141,34 @@ void cip_graph_add_3d_point (CipGraph *graph, double x, double y, double z)
     release_access (& graph->insertAccess);
 }
 
+void cip_graph_add_4d_point (CipGraph *graph, double x, double y, double z, double u)
+{
+    while (paused)
+        usleep (10000);
+
+    StreamBuffer *sb = graph->sb;
+    assert (sb);
+
+    if (sb->itemSize != sizeof (double) * 4)
+        exit_error ("function can only be used for four dimensional graphs");
+
+    if (graph->len == 0 &&
+        sb->counter == sb->len &&
+        sb->len <= MAX_VARIABLE_LENGTH)
+    {
+
+        wait_for_access (& graph->readAccess);
+        stream_buffer_resize (sb, sb->len << 1);
+        release_access (& graph->readAccess);
+    }
+
+    double xyzu[4] = {x,y,z,u};
+    wait_for_access (& graph->insertAccess);
+    stream_buffer_insert (sb, xyzu);
+    release_access (& graph->insertAccess);
+}
+
+
 void cip_graph_remove_points (CipGraph *graph)
 {
     while (paused)
@@ -2026,17 +2182,31 @@ void cip_graph_remove_points (CipGraph *graph)
     release_access (& graph->readAccess);
 }
 
+void make_histogram_1d (WorldTransform *world, void *points, size_t len, CipHistogram *hist)
+{
+    int      *bins   = hist->bins;
+    int      w       = hist->w;
+    int      h       = hist->h;
+
+    for (int yi=0; yi<h; yi+=2)
+    {
+        for (int xi=40; xi<w-40; xi+=8)
+            bins[yi*w + xi] = 20;
+
+    }
+}
+
 static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     // FIXME: rename: make_histogram -> render_canvas, CipHistogram -> CipCanvas *hist -> *canvas cip_histogram_line -> cip_canvas_line
 
     uint64_t counter = 0;
-    int *bins  = hist->bins;
-    double *wz = hist->wz;
-    int w = hist->w;
-    int h = hist->h;
-    double *sums   = hist->sums;
-    double *counts = hist->counts;
+    int      *bins   = hist->bins;
+    double   *wz     = hist->wz;
+    int      w       = hist->w;
+    int      h       = hist->h;
+    //double   *sums   = hist->sums;
+    //double   *counts = hist->counts;
 
     uint8_t *buf;
     uint32_t len;
@@ -2047,7 +2217,7 @@ static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t lo
     size_t sz = graph->sb->itemSize;
 
     int i0 = 0;
-    if (plotType == 'p' && lastGraphCounter)
+    if (plotType == 'w' && lastGraphCounter)
         i0 = stream_buffer_counter_to_index (graph->sb, lastGraphCounter + 1);
 
     if (!len)
@@ -2094,252 +2264,154 @@ static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t lo
 
     WorldTransform *world = & hist->world;
 
-    int lastXi = -1;
-    int lastYi = -1;
+#define MAX_DIM 5
+    typedef void (*PlotFun) (WorldTransform *world, void *buf, size_t len, CipHistogram *hist);
+    PlotFun plotFunctions[MAX_DIM][256] = {{0}};
+    plotFunctions[1]['h'] = make_histogram_1d;
 
-
-    if (plotType == 'p')
-    {
-        // every point is one pixel
-        for (uint32_t i=0; i<len; i++)
-        {
-            int xi, yi;
-            double wzVal;
-
-            double x[3];
-            double *point = (double *) (buf + sz * i);
-            int dim = sz / sizeof (double);
-            x[0] = point[0];
-            x[1] = point[1];
-            x[2] = (dim > 2) ? point[2] : 0;
-
-            if (logMode & 1) x[0] = LOGFUN (x[0]);
-            if (logMode & 2) x[1] = LOGFUN (x[1]);
-            if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
-                continue;
-
-            // FIXME: apply log and permute indices here, make support for n-dimensional vectors
-
-            if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
-            {
-                if (dim == 2)
-                {
-                    bins[yi*w + xi]++;
-                }
-                else if (dim == 3)
-                {
-                    int newVal = 40 - 150*wzVal;
-                    if (newVal < 1)
-                        newVal = 1;
-
-                    int idx = yi * w + xi;
-                    int oldVal = bins [idx];
-                    if (newVal > oldVal)
-                    {
-                        bins [idx] = newVal;
-                        if (bins [idx] < 1)
-                            bins [idx] = 1;
-                        wz[idx] = wzVal;
-                    }
-                }
-            }
-        }
-    }
-    //else if (plotType == '+')
-    //{
-    //    // every point is a plus sign
-    //    for (uint32_t i=0; i<len; i++)
-    //    {
-    //        double *point = (double *) (buf + sz * i);
-    //        double x = point[0];
-    //        double y = point[1];
-
-    //        if (logMode & 1) x = LOGFUN (x);
-    //        if (logMode & 2) y = LOGFUN (y);
-
-    //        if (isnan (x) || isnan (y) || isinf (x) || isinf (y))
-    //            continue;
-
-    //        int xi = (int) ((w-1) * (x - xmin) * invXRange);
-    //        int yi = (int) ((h-1) * (y - ymin) * invYRange);
-    //        int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
-    //        int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
-    //        for (int j=0; j<9; j++)
-    //        {
-    //            int xp = xi+xx[j];
-    //            int yp = yi+yy[j];
-    //            if (xp >= 0 && xp < w && yp >= 0 && yp < h)
-    //                bins[(uint32_t) yp*w + (uint32_t) xp]++;
-    //        }
-    //    }
-    //}
-    //else if (plotType == 'l')
-    //{
-    //    // line
-    //    for (uint32_t i=0; i<len-1; i++)
-    //    {
-    //        double *point0 = (double *) (buf + sz * (i  ));
-    //        double *point1 = (double *) (buf + sz * (i+1));
-    //        double x0 = point0[0];
-    //        double y0 = point0[1];
-    //        double x1 = point1[0];
-    //        double y1 = point1[1];
-
-    //        if (logMode & 1)
-    //        {
-    //            x0 = LOGFUN (x0);
-    //            x1 = LOGFUN (x1);
-    //        }
-    //        if (logMode & 2)
-    //        {
-    //            y0 = LOGFUN (y0);
-    //            y1 = LOGFUN (y1);
-    //        }
-
-    //        if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
-    //            isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
-    //            continue;
-
-    //        // NOTE: A straight line between two points is moving through different points depending on log mode
-    //        int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-    //        int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-    //        int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-    //        int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-    //        cip_histogram_line (hist, xi0, yi0, xi1, yi1);
-    //    }
-    //}
-    //else if (plotType == 't')
-    //{
-    //    // thick line
-    //    for (uint32_t i=0; i<len-1; i++)
-    //    {
-    //        double x0 = points[i][0];
-    //        double y0 = points[i][1];
-    //        double x1 = points[i+1][0];
-    //        double y1 = points[i+1][1];
-
-    //        if (logMode & 1)
-    //        {
-    //            x0 = LOGFUN (x0);
-    //            x1 = LOGFUN (x1);
-    //        }
-    //        if (logMode & 2)
-    //        {
-    //            y0 = LOGFUN (y0);
-    //            y1 = LOGFUN (y1);
-    //        }
-
-    //        if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
-    //            isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
-    //            continue;
-
-    //        int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-    //        int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-    //        int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-    //        int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-    //        cip_histogram_line (hist, xi0, yi0, xi1, yi1);
-    //        cip_histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
-    //        cip_histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
-    //        cip_histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
-    //        cip_histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
-    //    }
-    //}
-    //else if (plotType == 's')
-    //{
-    //    // staircase
-    //    for (uint32_t i=0; i<len-1; i++)
-    //    {
-    //        double x0 = points[i][0];
-    //        double y0 = points[i][1];
-    //        double x1 = points[i+1][0];
-    //        double y1 = points[i+1][1];
-
-    //        if (logMode & 1)
-    //        {
-    //            x0 = LOGFUN (x0);
-    //            x1 = LOGFUN (x1);
-    //        }
-    //        if (logMode & 2)
-    //        {
-    //            y0 = LOGFUN (y0);
-    //            y1 = LOGFUN (y1);
-    //        }
-
-    //        if (isnan (x0) || isnan (y0) || isnan (x1) || isnan (y1) ||
-    //            isinf (x0) || isinf (y0) || isinf (x1) || isinf (y1))
-    //            continue;
-
-    //        int xi0 = (int) ((w-1) * (x0 - xmin) * invXRange);
-    //        int yi0 = (int) ((h-1) * (y0 - ymin) * invYRange);
-    //        int xi1 = (int) ((w-1) * (x1 - xmin) * invXRange);
-    //        int yi1 = (int) ((h-1) * (y1 - ymin) * invYRange);
-    //        cip_histogram_line (hist, xi0, yi0, xi1, yi0);
-    //        cip_histogram_line (hist, xi1, yi0, xi1, yi1);
-    //    }
-    //}
-    //else if (plotType == 'w')
-    //{
-    //    // waterfall
-    //    if (i0 < 0)
-    //    {
-    //        print_warning ("truncating");
-    //        i0 = 0;
-    //    }
-    //    if (isnan (xy[0]) || isnan (xy[1]))
-    //    {
-    //        // flush row
-    //        for (uint32_t yi=h-1; yi>0; yi--)
-    //            for (uint32_t xi=0; xi<w; xi++)
-    //                bins[yi*w + xi] = bins[(yi-1) * w + xi];
-
-    //        // construct new row
-    //        int lastNonZeroXi = -1;
-    //        for (uint32_t xi=0; xi<w; xi++)
-    //        {
-    //            if (hist->counts[xi] > 1e-5)
-    //            {
-    //                double avg = sums[xi] / counts[xi];
-    //                double s = hist->world.scaleMtx[1][1];
-    //                double ymin = hist->world.centerPos[1] - s;
-    //                double ymax = hist->world.centerPos[1] + s;
-    //                double w = (avg - ymin) / (ymax - ymin);
-
-    //                if (lastNonZeroXi < 0)
-    //                    lastNonZeroXi = xi-1;
-    //                for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
-    //                    bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
-
-    //                //print_debug ("sums[xi]: %f counts[xi]: %f ymin: %f, ymax: %f avg: %f => w: %f => bins[%d]: %d",
-    //                //sums[xi], counts[xi], ymin, ymax, avg, w, xi, bins[xi]);
-    //                sums[xi]   = 0.0;
-    //                counts[xi] = 0.0;
-    //                lastNonZeroXi = xi;
-    //            }
-    //        }
-    //    }
-    //    else
-    //    {
-    //        double x = xy[0];
-    //        double y = xy[1];
-    //        if (logMode & 1) x = LOGFUN (x);
-    //        if (logMode & 2) y = LOGFUN (y);
-
-    //        double s = hist->world.scaleMtx[0][0];
-    //        double xmin = hist->world.centerPos[0] - s;
-    //        double xmax = hist->world.centerPos[0] + s;
-    //        int xi = (x - xmin) / (xmax - xmin) * (w-1);
-
-    //        if (xi >= 0 && xi < w)
-    //        {
-    //            sums[xi]   += y;
-    //            counts[xi] += 1.0;
-    //        }
-    //    }
-    //}
+    int dim = sz / sizeof (double);
+    PlotFun fun = plotFunctions[dim][(uint8_t) plotType];
+    if (fun)
+        fun (world, buf, len / sz, hist);
     else
-    {
-        exit_error ("unknown plot type '%c'", plotType);
-    }
+        print_error ("unknown plotType '%c' for dim %d", plotType, dim);
+
+    // every point is one pixel
+    //for (int i=0; i<len; i++)
+    //{
+    //    int xi, yi;
+    //    double wzVal;
+
+    //    double x[3];
+    //    double *point = (double *) (buf + sz * i);
+    //    x[0] = point[0];
+    //    x[1] = point[1];
+    //    x[2] = (dim > 2) ? point[2] : 0;
+
+    //    if (logMode & 1) x[0] = LOGFUN (x[0]);
+    //    if (logMode & 2) x[1] = LOGFUN (x[1]);
+    //    if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
+    //        continue;
+
+    //    // FIXME: apply log and permute indices here, make support for n-dimensional vectors
+
+    //    if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
+    //    {
+    //        int xi0 = lastXi;
+    //        int yi0 = lastYi;
+    //        int xi1 = xi;
+    //        int yi1 = yi;
+    //        lastXi = xi;
+    //        lastYi = yi;
+
+    //        if (plotType == 'p')
+    //        {
+    //            int idx = yi*w + xi;
+    //            bins[idx]++;
+    //            if (wz[idx] < wzVal)
+    //                wz[idx] = wzVal;
+    //        }
+    //        //else if (plotType == '+')
+    //        //{
+    //        //    // every point is a plus sign
+    //        //    double *point = (double *) (buf + sz * i);
+    //        //    double x = point[0];
+    //        //    double y = point[1];
+
+    //        //    int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
+    //        //    int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
+    //        //    for (int j=0; j<9; j++)
+    //        //    {
+    //        //        int xp = xi+xx[j];
+    //        //        int yp = yi+yy[j];
+    //        //        if (xp >= 0 && xp < w && yp >= 0 && yp < h)
+    //        //            bins[(uint32_t) yp*w + (uint32_t) xp]++;
+    //        //    }
+    //        //}
+    //        //else if (plotType == 'l')
+    //        //{
+    //        //    // line
+    //        //    // NOTE: A straight line between two points is moving through different points depending on log mode
+    //        //    cip_histogram_line (hist, xi0, yi0, xi1, yi1);
+    //        //}
+    //        //else if (plotType == 't')
+    //        //{
+    //        //    // thick line
+    //        //    cip_histogram_line (hist, xi0, yi0, xi1, yi1);
+    //        //    cip_histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
+    //        //    cip_histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
+    //        //    cip_histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
+    //        //    cip_histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
+    //        //}
+    //        //else if (plotType == 's')
+    //        //{
+    //        //    // staircase
+    //        //    cip_histogram_line (hist, xi0, yi0, xi1, yi0);
+    //        //    cip_histogram_line (hist, xi1, yi0, xi1, yi1);
+    //        //}
+    //        //else if (plotType == 'w')
+    //        //{
+    //        //    // waterfall
+    //        //    if (i0 < 0)
+    //        //    {
+    //        //        print_warning ("truncating");
+    //        //        i0 = 0;
+    //        //    }
+    //        //    if (isnan (xy[0]) || isnan (xy[1]))
+    //        //    {
+    //        //        // flush row
+    //        //        for (uint32_t yi=h-1; yi>0; yi--)
+    //        //            for (uint32_t xi=0; xi<w; xi++)
+    //        //                bins[yi*w + xi] = bins[(yi-1) * w + xi];
+
+    //        //        // construct new row
+    //        //        int lastNonZeroXi = -1;
+    //        //        for (uint32_t xi=0; xi<w; xi++)
+    //        //        {
+    //        //            if (hist->counts[xi] > 1e-5)
+    //        //            {
+    //        //                double avg = sums[xi] / counts[xi];
+    //        //                double s = hist->world.scaleMtx[1][1];
+    //        //                double ymin = hist->world.centerPos[1] - s;
+    //        //                double ymax = hist->world.centerPos[1] + s;
+    //        //                double w = (avg - ymin) / (ymax - ymin);
+
+    //        //                if (lastNonZeroXi < 0)
+    //        //                    lastNonZeroXi = xi-1;
+    //        //                for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
+    //        //                    bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
+
+    //        //                //print_debug ("sums[xi]: %f counts[xi]: %f ymin: %f, ymax: %f avg: %f => w: %f => bins[%d]: %d",
+    //        //                //sums[xi], counts[xi], ymin, ymax, avg, w, xi, bins[xi]);
+    //        //                sums[xi]   = 0.0;
+    //        //                counts[xi] = 0.0;
+    //        //                lastNonZeroXi = xi;
+    //        //            }
+    //        //        }
+    //        //    }
+    //        //    else
+    //        //    {
+    //        //        double x = xy[0];
+    //        //        double y = xy[1];
+
+    //        //        double s = hist->world.scaleMtx[0][0];
+    //        //        double xmin = hist->world.centerPos[0] - s;
+    //        //        double xmax = hist->world.centerPos[0] + s;
+    //        //        int xi = (x - xmin) / (xmax - xmin) * (w-1);
+
+    //        //        if (xi >= 0 && xi < w)
+    //        //        {
+    //        //            sums[xi]   += y;
+    //        //            counts[xi] += 1.0;
+    //        //        }
+    //        //    }
+    //        //}
+    //        else
+    //        {
+    //            exit_error ("unknown plot type '%c'", plotType);
+    //        }
+    //    }
+    //}
 
     release_access (& graph->readAccess);
     return counter;
@@ -2544,8 +2616,12 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 int xi0, yi0, xi1, yi1;
                 double dataPos0[3] = {xmin, y + i*0.2, 0};
                 double dataPos1[3] = {xmax, y + i*0.2, 0};
-                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0, NULL);
-                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1, NULL);
+                world_transform_datapos_to_bin (& sw->world, dataPos0, subWidth, subHeight, & xi0, & yi0, NULL);
+                world_transform_datapos_to_bin (& sw->world, dataPos1, subWidth, subHeight, & xi1, & yi1, NULL);
+                xi0 += sw->windowArea.x0;
+                yi0 += sw->windowArea.y0;
+                xi1 += sw->windowArea.x0;
+                yi1 += sw->windowArea.y0;
 
                 if (i == 0)
                 {
@@ -2610,11 +2686,11 @@ static void plot_data (CipState *cs, uint32_t *pixels)
     cs->forceRefresh = 0;
 
     uint32_t w = cs->windowWidth;
-    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+    uint32_t h = cs->windowHeight;
+    print_debug ("w:%u h:%u", w, h);
 
-    for (uint32_t y=0; y<cs->windowWidth; y++)
-        for (uint32_t x=0; x<cs->windowHeight;  x++)
-            pixels[y*w + x] = bgColor;
+    for (uint32_t i=0; i<w*h; i++)
+        pixels[i] = bgColor;
 
     for (uint32_t wi=0; wi < (cs->numSubWindows); wi++)
     {
@@ -2659,37 +2735,43 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         //    //    }
         //}
 
+        if (sw->windowArea.x0 > sw->windowArea.x1) exit_error ("bug");
+        if (sw->windowArea.y0 > sw->windowArea.y1) exit_error ("bug");
+
+        if (sw->windowArea.x0 + 4*cs->margin > sw->windowArea.x1 ||
+            sw->windowArea.y0 + 4*cs->margin > sw->windowArea.y1)
+            continue;
+
+        x0 = (uint32_t) sw->windowArea.x0 + cs->margin;
+        y0 = (uint32_t) sw->windowArea.y0 + cs->margin;
+        x1 = (uint32_t) sw->windowArea.x1 - cs->margin;
+        y1 = (uint32_t) sw->windowArea.y1 - cs->margin;
+
+        if (x0 > w) exit_error ("bug %u >= %u m: %u", x0, w, cs->margin);
+        if (x1 > w) exit_error ("bug %u >= %u m: %u", x1, w, cs->margin);
+        if (y0 > h) exit_error ("bug %u >= %u m: %u", y0, h, cs->margin);
+        if (y1 > h) exit_error ("bug %u >= %u m: %u", y1, h, cs->margin);
+
         if (cs->zoomEnabled)
         {
             if (cs->activeSw != sw)
                 continue;
-
-            x0 = cs->margin;
-            y0 = cs->margin;
-            x1 = w - cs->margin;
-            y1 = h - cs->margin;
         }
         else
         {
-            if (sw->windowArea.x0 > sw->windowArea.x1) exit_error ("bug");
-            if (sw->windowArea.y0 > sw->windowArea.y1) exit_error ("bug");
-
-            x0 = (uint32_t) sw->windowArea.x0 + cs->margin;
-            y0 = (uint32_t) sw->windowArea.y0 + cs->margin;
-            x1 = (uint32_t) sw->windowArea.x1 - cs->margin;
-            y1 = (uint32_t) sw->windowArea.y1 - cs->margin;
-
-            if (x0 > w) exit_error ("bug %u >= %u m: %u", x0, w, cs->margin);
-            if (x1 > w) exit_error ("bug %u >= %u m: %u", x1, w, cs->margin);
-            if (y0 > h) exit_error ("bug %u >= %u m: %u", y0, h, cs->margin);
-            if (y1 > h) exit_error ("bug %u >= %u m: %u", y1, h, cs->margin);
-
             if (cs->bordered)
             {
-                draw_rect (pixels, w, h, x0, y0, x1, y1, (sw == cs->activeSw && cs->crosshairEnabled) ? activeColor : inactiveColor);
+                uint32_t borderColor;
+                if (sw == cs->activeSw && cs->crosshairEnabled)
+                    borderColor = activeColor;
+                else
+                    borderColor = inactiveColor;
+
+                draw_rect (pixels, w, h, x0, y0, x1-1, y1-1, borderColor);
                 x0++; y0++; x1--; y1--;
             }
         }
+
         uint32_t subWidth  = x1 - x0;
         uint32_t subHeight = y1 - y0;
         if (subWidth > w || subHeight > h)
@@ -2723,10 +2805,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 hist->bins   = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
                 hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
                 hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
-
-                int is3d = (attacher->graph->sb->itemSize == sizeof (double) * 3);
-                if (is3d)
-                    hist->wz = safe_calloc (hist->w * hist->h, sizeof (hist->wz[0]));
+                hist->wz     = safe_calloc (hist->w * hist->h, sizeof (hist->wz[0]));
 
                 attacher->lastGraphCounter = 0;
                 updateHistogram = 1;
@@ -2773,7 +2852,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
             for (uint32_t yi=0; yi<subHeight; yi++)
             {
-                for (uint32_t xi=0; xi<subWidth;  xi++)
+                for (uint32_t xi=0; xi<subWidth; xi++)
                 {
                     uint32_t x = x0 + xi;
                     uint32_t y = y0 + yi;
@@ -2798,21 +2877,13 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             int sy0 = sw->selectedArea.y0;
             int sx1 = sw->selectedArea.x1;
             int sy1 = sw->selectedArea.y1;
+            uint32_t mousePosX = cs->mouseScreenPos[0];
+            uint32_t mousePosY = cs->mouseScreenPos[1];
 
-            for (int yi=sy0; yi<=sy1; yi++)
-            {
-                for (int xi=sx0; xi<=sx1;  xi++)
-                {
-                    int x = x0 + xi;
-                    int y = y0 + yi;
-
-                    if (x < 0 || x >= w || y < 0 || y >= h)
-                        continue;
-
-                    uint32_t *pixel = & pixels[y*w + x];
-                    lighten_pixel (pixel, 0.2);
-                }
-            }
+            for (int y=sy0; y<=sy1; y++)
+                for (int x=sx0; x<=sx1;  x++)
+                    if (x >= x0 && x < x1 && y >= y0 && y < y1)
+                        lighten_pixel (& pixels[y*w + x], 0.2);
         }
     }
     if (cs->statuslineEnabled)
@@ -2934,50 +3005,6 @@ static void plot_data (CipState *cs, uint32_t *pixels)
     }
 }
 
-int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin)
-{
-    if (cs->subWindows)
-    {
-        print_error ("cs->subWindows must not have been set previously");
-        return -1;
-    }
-
-    uint32_t numSubWindows = nRows * nCols;
-    cs->subWindows = safe_calloc (numSubWindows, sizeof (cs->subWindows[0]));
-    cs->bordered = bordered & 1;
-    cs->margin   = margin   & 0xff;
-    cs->numSubWindows = numSubWindows;
-
-    int dy = (int) (cs->windowWidth / nRows);
-    int dx = (int) (cs->windowHeight / nCols);
-
-    for (uint32_t ri=0; ri<nRows; ri++)
-    {
-        for (uint32_t ci=0; ci<nCols; ci++)
-        {
-            CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
-            sw->maxNumAttachedGraphs = MAX_NUM_ATTACHED_GRAPHS;
-            sw->attachedGraphs = safe_calloc (sw->maxNumAttachedGraphs, sizeof (*sw->attachedGraphs));
-            sw->numAttachedGraphs = 0;
-            sw->logMode = 0;
-            sw->gridMode = 0;
-            sw->selectedGraph = 0;
-            bzero (& sw->selectedArea, sizeof (sw->selectedArea));
-
-            world_transform_set_default_values (& sw->world);
-            for (int i=0; i<10; i++)
-                world_transform_set_default_values (& storedWorldTransforms[i]);
-
-            sw->windowArea.x0 = (ci    ) * dx;
-            sw->windowArea.x1 = (ci + 1) * dx;
-            sw->windowArea.y0 = (ri    ) * dy;
-            sw->windowArea.y1 = (ri + 1) * dy;
-        }
-    }
-
-    return 0;
-}
-
 void cip_remove_attached_graphs (CipState *cs, uint32_t wi)
 {
     CipSubWindow *sw = & cs->subWindows[wi];
@@ -3091,7 +3118,7 @@ static void update_image (CipState *cs, SDL_Texture *texture, int init)
     if (iconData && processIconData == 0)
     {
         memcpy (iconData, pixels, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
-        iconWidth = cs->windowWidth;
+        iconWidth  = cs->windowWidth;
         iconHeight = cs->windowHeight;
         iconWb     = wb;
         processIconData = 1;
@@ -3151,7 +3178,7 @@ static CipState *cip_init (void)
 
     cs->crosshairEnabled  = 1;
     cs->trackingMode      = 0;
-    cs->statuslineEnabled = 1;
+    cs->statuslineEnabled = 0;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;
     cs->redraw            = 0;
@@ -3182,6 +3209,7 @@ static CipState *cip_init (void)
     SDL_EnableScreenSaver ();
 
     reinitialise_sdl_context (cs, 1);
+    recompute_sub_window_areas (cs);
 
     update_image (cs, cs->texture, 1);
 
@@ -3210,13 +3238,13 @@ static int cinterplot_run_until_quit (CipState *cs)
              case SDL_QUIT:
                  return 0;
              case SDL_MOUSEBUTTONDOWN:
-                 redraw |= cs->on_mouse_pressed (cs, event.button.x, event.button.y, event.button.button, event.button.clicks);
+                 redraw |= cs->on_mouse_pressed (cs, event.button.x-1, event.button.y-2, event.button.button, event.button.clicks);
                  break;
              case SDL_MOUSEBUTTONUP:
-                 redraw |= cs->on_mouse_released (cs, event.button.x, event.button.y);
+                 redraw |= cs->on_mouse_released (cs, event.button.x-1, event.button.y-2);
                  break;
              case SDL_MOUSEMOTION:
-                 redraw |= cs->on_mouse_motion (cs, event.motion.x, event.motion.y);
+                 redraw |= cs->on_mouse_motion (cs, event.motion.x-1, event.motion.y-2);
                  break;
              case SDL_MOUSEWHEEL:
                  redraw |= cs->on_mouse_wheel (cs, event.wheel.preciseX, event.wheel.preciseY);
@@ -3243,6 +3271,7 @@ static int cinterplot_run_until_quit (CipState *cs)
                               cs->windowWidth  = (uint32_t) newWidth;
                               cs->windowHeight = (uint32_t) newHeight;
                               reinitialise_sdl_context (cs, 0);
+                              recompute_sub_window_areas (cs);
                               redraw = 1;
                               break;
                           }

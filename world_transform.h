@@ -109,6 +109,7 @@ void world_transform_set_range (WorldTransform *world, int axis, double range[2]
 void world_transform_set_ranges (WorldTransform *world, double ranges[3][2], double margin);
 void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], double x[3]);
 void world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3]);
+void world_dump (WorldTransform *world);
 
 #ifdef __cplusplus
 } /* end extern C */

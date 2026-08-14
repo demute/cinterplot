@@ -138,8 +138,10 @@ void cip_graph_set_name (CipGraph *graph, char *name);
 
 CipGraph *cip_graph_new (int dim, uint32_t len);
 void cip_graph_delete (CipGraph *graph);
+void cip_graph_add_1d_point (CipGraph *graph, double x);
 void cip_graph_add_2d_point (CipGraph *graph, double x, double y);
 void cip_graph_add_3d_point (CipGraph *graph, double x, double y, double z);
+void cip_graph_add_4d_point (CipGraph *graph, double x, double y, double z, double u);
 GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors);
 int  cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex);
 void cip_graph_remove_points (CipGraph *graph);
