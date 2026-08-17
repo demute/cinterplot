@@ -857,6 +857,7 @@ static void recompute_sub_window_areas (CipState *cs)
 
     int dx = (int) (w / nCols);
     int dy = (int) (h / nRows);
+    int subWindowOffset = cs->margin + cs->bordered;
 
     if (cs->zoomEnabled)
     {
@@ -865,12 +866,12 @@ static void recompute_sub_window_areas (CipState *cs)
             for (uint32_t ci=0; ci<nCols; ci++)
             {
                 CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
-                if (sw == cs->activeSw)
+                if (sw == cs->activeSw && w > subWindowOffset && h > subWindowOffset)
                 {
-                    sw->windowArea.x0 = 0;
-                    sw->windowArea.x1 = w;
-                    sw->windowArea.y0 = 0;
-                    sw->windowArea.y1 = h;
+                    sw->windowArea.x0 = 0 + subWindowOffset;
+                    sw->windowArea.x1 = w - subWindowOffset;
+                    sw->windowArea.y0 = 0 + subWindowOffset;
+                    sw->windowArea.y1 = h - subWindowOffset;
                 }
                 else
                 {
@@ -888,11 +889,22 @@ static void recompute_sub_window_areas (CipState *cs)
         {
             for (uint32_t ci=0; ci<nCols; ci++)
             {
-                CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
-                sw->windowArea.x0 = (ci    ) * dx;
-                sw->windowArea.x1 = (ci + 1) * dx;
-                sw->windowArea.y0 = (ri    ) * dy;
-                sw->windowArea.y1 = (ri + 1) * dy;
+                if (dx > subWindowOffset && dy > subWindowOffset)
+                {
+                    CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+                    sw->windowArea.x0 = (ci    ) * dx + subWindowOffset;
+                    sw->windowArea.x1 = (ci + 1) * dx - subWindowOffset;
+                    sw->windowArea.y0 = (ri    ) * dy + subWindowOffset;
+                    sw->windowArea.y1 = (ri + 1) * dy - subWindowOffset;
+                }
+                else
+                {
+                    CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+                    sw->windowArea.x0 = 0;
+                    sw->windowArea.x1 = 0;
+                    sw->windowArea.y0 = 0;
+                    sw->windowArea.y1 = 0;
+                }
             }
         }
     }
@@ -955,7 +967,7 @@ int cip_set_fullscreen (CipState *cs, uint32_t fullscreen)
     return 1;
 }
 
-static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, uint32_t _y0, uint32_t _x1, uint32_t _y1, uint32_t color)
+static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, CipArea *wa, uint32_t _x0, uint32_t _y0, uint32_t _x1, uint32_t _y1, uint32_t color)
 {
     if (!pixels)
         return;
@@ -970,6 +982,11 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
     int xabs = (x1 > x0) ? x1 - x0 : x0 - x1;
     int yabs = (y1 > y0) ? y1 - y0 : y0 - y1;
 
+    int xMin = wa->x0;
+    int xMax = wa->x1;
+    int yMin = wa->y0;
+    int yMax = wa->y1;
+
     if (xabs > yabs)
     {
         int xstart = ((x0 < x1) ? x0 : x1);
@@ -983,7 +1000,7 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
         for (int x=xstart; x<=xstop; x++)
         {
             int y = (int) (y0 + ((double) (x - x0) / (x1 - x0) * (y1 - y0) + 0.5));
-            if (x>=0 && y>=0 && x<w && y<h)
+            if (x>=xMin && y>=yMin && x<xMax && y<yMax)
                 pixels[y*w+x] = color;
         }
     }
@@ -1000,7 +1017,7 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
         for (int y=ystart; y<=ystop; y++)
         {
             int x = (int) (x0 + ((double) (y - y0) / (y1 - y0) * (x1 - x0) + 0.5));
-            if (x>=0 && y>=0 && x<w && y<h)
+            if (x>=xMin && y>=yMin && x<xMax && y<yMax)
                 pixels[y*w+x] = color;
         }
     }
@@ -1008,7 +1025,7 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, uint32_t _x0, 
     {
         int x = x0;
         int y = y0;
-        if (x>=0 && y>=0 && x<w && y<h)
+        if (x>=xMin && y>=yMin && x<xMax && y<yMax)
             pixels[y*w+x] = color;
     }
 }
@@ -1197,11 +1214,11 @@ static int on_mouse_released (CipState *cs, int xi, int yi)
                  print_debug ("fixedPos      (%f,%f,%f)", fixedPos[0], fixedPos[1], fixedPos[2]);
                  print_debug ("scaling world (%f,%f,%f)", scales[0], scales[1], scales[2]);
 
-                 world_dump (& sw->world);
-                 print_debug ("scaling world");
+                 //world_dump (& sw->world);
+                 //print_debug ("scaling world");
 
                  world_transform_scale_world (& sw->world, fixedPos, scales);
-                 world_dump (& sw->world);
+                 //world_dump (& sw->world);
              }
              bzero (swa, sizeof (*swa));
              break;
@@ -1232,8 +1249,8 @@ void mouse_screenpos_to_datapos (CipState *cs, double dataPos[3])
 
     int xi = cs->mouseScreenPos[0];
     int yi = cs->mouseScreenPos[1];
-    int x0 = cs->margin + wa->x0;
-    int y0 = cs->margin + wa->y0;
+    int x0 = wa->x0;
+    int y0 = wa->y0;
     int binx = xi - x0;
     int biny = yi - y0;
 
@@ -1262,8 +1279,8 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             CipSubWindow *sw = cs->activeSw;
             double scales[3] =
             {
-                1 + 0.05*xf,
-                1 + 0.05*yf,
+                1 - 0.05*xf,
+                1 - 0.05*yf,
                 1
             };
             double fixedPos[3];
@@ -1276,6 +1293,8 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             sw->world.perspectiveFactor -= 0.01 * xf;
             if (sw->world.perspectiveFactor < 0)
                 sw->world.perspectiveFactor = 0;
+            if (sw->world.perspectiveFactor > 0.75)
+                sw->world.perspectiveFactor = 0.75;
 
             print_debug ("perspectiveFactor: %f", sw->world.perspectiveFactor);
             return 1;
@@ -1293,15 +1312,15 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             // rotating
             double fixedPos[3];
             mouse_screenpos_to_datapos (cs, fixedPos);
-            world_transform_rotate_world (& sw->world, fixedPos, 2,  yf * 0.02);
-            world_transform_rotate_world (& sw->world, fixedPos, 2, -xf * 0.02);
+            world_transform_rotate_world (& sw->world, fixedPos, 0,  yf * 0.02);
+            world_transform_rotate_world (& sw->world, fixedPos, 1,  xf * 0.02);
             return 1;
         }
         else
         {
             // moving
             CipSubWindow *sw = cs->activeSw;
-            double wd[3] = {0.01*xf, 0.01*yf, 0};
+            double wd[3] = {0.01*xf, -0.01*yf, 0};
             world_transform_adjust_centerpos_using_world_diff (& sw->world, wd);
             return 1;
         }
@@ -1415,10 +1434,10 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  for (int i=0; i<cs->numSubWindows; i++)
                  {
                      CipSubWindow *sw = & cs->subWindows[i];
-                     int x0 = sw->windowArea.x0 + (cs->margin + cs->bordered);
-                     int x1 = sw->windowArea.x1 - (cs->margin + cs->bordered);
-                     int y0 = sw->windowArea.y0 + (cs->margin + cs->bordered);
-                     int y1 = sw->windowArea.y1 - (cs->margin + cs->bordered);
+                     int x0 = sw->windowArea.x0;
+                     int x1 = sw->windowArea.x1;
+                     int y0 = sw->windowArea.y0;
+                     int y1 = sw->windowArea.y1;
 
                      if (x0 <= xi && xi <= x1 && y0 <= yi && yi <= y1)
                          cs->activeSw = sw;
@@ -1429,8 +1448,8 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
              {
                  CipSubWindow *sw = cs->activeSw;
 
-                 int x0 = cs->margin + sw->windowArea.x0;
-                 int y0 = cs->margin + sw->windowArea.y0;
+                 int x0 = sw->windowArea.x0;
+                 int y0 = sw->windowArea.y0;
                  int binx = xi - x0;
                  int biny = yi - y0;
 
@@ -1792,9 +1811,11 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                           if (cs->activeSw)
                           {
                               double (*mtx)[3] = cs->activeSw->world.rotMtx;
+                              double (*inv)[3] = cs->activeSw->world.rotMtxInv;
                               mtx[0][0] =  0; mtx[0][1] = -1; mtx[0][2] =  0;
                               mtx[1][0] =  0; mtx[1][1] =  0; mtx[1][2] =  1;
                               mtx[2][0] = -1; mtx[2][1] =  0; mtx[2][2] =  0;
+                              for (int i=0; i<3; i++) for (int j=0; j<3; j++) inv[i][j] = mtx[j][i];
                           }
                           break;
 
@@ -1802,9 +1823,11 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                           if (cs->activeSw)
                           {
                               double (*mtx)[3] = cs->activeSw->world.rotMtx;
+                              double (*inv)[3] = cs->activeSw->world.rotMtxInv;
                               mtx[0][0] =  0; mtx[0][1] =  0; mtx[0][2] = -1;
                               mtx[1][0] = -1; mtx[1][1] =  0; mtx[1][2] =  0;
                               mtx[2][0] =  0; mtx[2][1] =  1; mtx[2][2] =  0;
+                              for (int i=0; i<3; i++) for (int j=0; j<3; j++) inv[i][j] = mtx[j][i];
                           }
                           break;
 
@@ -1812,9 +1835,11 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                           if (cs->activeSw)
                           {
                               double (*mtx)[3] = cs->activeSw->world.rotMtx;
+                              double (*inv)[3] = cs->activeSw->world.rotMtxInv;
                               mtx[0][0] =  1; mtx[0][1] =  0; mtx[0][2] =  0;
                               mtx[1][0] =  0; mtx[1][1] =  1; mtx[1][2] =  0;
                               mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
+                              for (int i=0; i<3; i++) for (int j=0; j<3; j++) inv[i][j] = mtx[j][i];
                           }
                           break;
 
@@ -1822,21 +1847,29 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                           if (cs->activeSw)
                           {
                               double (*mtx)[3] = cs->activeSw->world.rotMtx;
+                              double (*inv)[3] = cs->activeSw->world.rotMtxInv;
                               double a = 1.0 / sqrt(2);
                               mtx[0][0] =  a; mtx[0][1] = -a; mtx[0][2] =  0;
                               mtx[1][0] =  a; mtx[1][1] =  a; mtx[1][2] =  0;
                               mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
+                              for (int i=0; i<3; i++) for (int j=0; j<3; j++) inv[i][j] = mtx[j][i];
                           }
+                          break;
+                case 'd':
+                          if (cs->activeSw)
+                              world_transform_set_default_values (& cs->activeSw->world);
                           break;
 
                 case 'v':
                           if (cs->activeSw)
                           {
                               double (*mtx)[3] = cs->activeSw->world.rotMtx;
+                              double (*inv)[3] = cs->activeSw->world.rotMtxInv;
                               double a = 1.0 / sqrt(2);
                               mtx[0][0] =  a; mtx[0][1] =  a; mtx[0][2] =  0;
                               mtx[1][0] = -a; mtx[1][1] =  a; mtx[1][2] =  0;
                               mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
+                              for (int i=0; i<3; i++) for (int j=0; j<3; j++) inv[i][j] = mtx[j][i];
                           }
                           break;
 
@@ -2184,16 +2217,16 @@ void cip_graph_remove_points (CipGraph *graph)
 
 void make_histogram_1d (WorldTransform *world, void *points, size_t len, CipHistogram *hist)
 {
-    int      *bins   = hist->bins;
-    int      w       = hist->w;
-    int      h       = hist->h;
+    //int      *bins   = hist->bins;
+    //int      w       = hist->w;
+    //int      h       = hist->h;
 
-    for (int yi=0; yi<h; yi+=2)
-    {
-        for (int xi=40; xi<w-40; xi+=8)
-            bins[yi*w + xi] = 20;
+    //for (int yi=0; yi<h; yi+=2)
+    //{
+    //    for (int xi=40; xi<w-40; xi+=8)
+    //        bins[yi*w + xi] = 20;
 
-    }
+    //}
 }
 
 static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
@@ -2593,15 +2626,21 @@ static void get_grid_conf (double x0, double x1, double *xStart, double *xStop, 
 static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_t w, uint32_t h, uint32_t subWidth, uint32_t subHeight)
 {
     double sx = sw->world.scaleMtx[0][0];
-    double sy = sw->world.scaleMtx[0][0];
-    double xmin = sw->world.centerPos[0] - sx;
-    double xmax = sw->world.centerPos[0] + sx;
-    double ymin = sw->world.centerPos[1] - sy;
-    double ymax = sw->world.centerPos[1] + sy;
+    double sy = sw->world.scaleMtx[1][1];
+    double xmin = sw->world.centerPos[0] - 0.95/sx;
+    double xmax = sw->world.centerPos[0] + 0.95/sx;
+    double ymin = sw->world.centerPos[1] - 0.95/sy;
+    double ymax = sw->world.centerPos[1] + 0.95/sy;
+    double cz   = sw->world.centerPos[2];
+    //print_debug ("sx  /  sy: %f/%f", sx, sy);
+    //print_debug ("xmin/xmax: %f/%f", xmin, xmax);
+    //print_debug ("ymin/ymax: %f/%f", ymin, ymax);
+    //world_dump (& sw->world);
 
-    uint32_t gridColorFine   = make_gray (0.2f);
-    uint32_t gridColorCoarse = make_gray (0.4f);
-    uint32_t textColor       = make_gray (0.9f);
+    uint32_t gridColorFine    = make_gray (0.2f);
+    uint32_t gridColorCoarseX = MAKE_COLOR (160,10,10);
+    uint32_t gridColorCoarseY = MAKE_COLOR (10,130,10);
+    uint32_t textColor        = make_gray (0.9f);
     int useTransparentBg = 1;
 
     if (sw->gridMode & 1)
@@ -2609,15 +2648,25 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
         double dy, yStart, yStop;
         get_grid_conf (ymin, ymax, & yStart, & yStop, & dy);
 
-        for (double y=yStart; y<yStop; y+=dy)
+        for (double y=yStart-dy; y<yStop+dy; y+=dy)
         {
             for (int i=0; i<5; i++)
             {
+                double yLine = y + i * 0.2 * dy;
+                if (yLine < ymin || yLine > ymax)
+                    continue;
+
                 int xi0, yi0, xi1, yi1;
-                double dataPos0[3] = {xmin, y + i*0.2, 0};
-                double dataPos1[3] = {xmax, y + i*0.2, 0};
-                world_transform_datapos_to_bin (& sw->world, dataPos0, subWidth, subHeight, & xi0, & yi0, NULL);
-                world_transform_datapos_to_bin (& sw->world, dataPos1, subWidth, subHeight, & xi1, & yi1, NULL);
+                double dataPos0[3] = {xmin, yLine, cz};
+                double dataPos1[3] = {xmax, yLine, cz};
+                int r1 = world_transform_datapos_to_bin (
+                  & sw->world, dataPos0, subWidth, subHeight, & xi0, & yi0, NULL);
+                int r2 = world_transform_datapos_to_bin (
+                  & sw->world, dataPos1, subWidth, subHeight, & xi1, & yi1, NULL);
+
+                if (r1 || r2)
+                    continue;
+
                 xi0 += sw->windowArea.x0;
                 yi0 += sw->windowArea.y0;
                 xi1 += sw->windowArea.x0;
@@ -2628,12 +2677,15 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                     uint32_t scale = 1;
                     char text[32];
                     snprintf (text, sizeof (text), "%g", y);
-                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorCoarse);
-                    draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BC);
+                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, gridColorCoarseX);
+
+                    if (sw->windowArea.x0 < xi0 && xi0 < sw->windowArea.x1 &&
+                        sw->windowArea.y0 < yi0 && yi0 < sw->windowArea.y1)
+                        draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BC);
                 }
                 else
                 {
-                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorFine);
+                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, gridColorFine);
                 }
             }
         }
@@ -2644,27 +2696,44 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
         double dx, xStart, xStop;
         get_grid_conf (xmin, xmax, & xStart, & xStop, & dx);
 
-        for (double x=xStart; x<xStop; x+=dx)
+        for (double x=xStart-dx; x<xStop+dx; x+=dx)
         {
             for (int i=0; i<5; i++)
             {
+                double xLine = x + i * 0.2 * dx;
+                if (xLine < xmin || xLine > xmax)
+                    continue;
+
                 int xi0, yi0, xi1, yi1;
-                double dataPos0[3] = {x + i*0.2, ymin, 0};
-                double dataPos1[3] = {x + i*0.2, ymax, 0};
-                world_transform_datapos_to_bin (& sw->world, dataPos0, w, h, & xi0, & yi0, NULL);
-                world_transform_datapos_to_bin (& sw->world, dataPos1, w, h, & xi1, & yi1, NULL);
+                double dataPos0[3] = {xLine, ymin, cz};
+                double dataPos1[3] = {xLine, ymax, cz};
+                int r1 = world_transform_datapos_to_bin (
+                  & sw->world, dataPos0, subWidth, subHeight, & xi0, & yi0, NULL);
+                int r2 = world_transform_datapos_to_bin (
+                  & sw->world, dataPos1, subWidth, subHeight, & xi1, & yi1, NULL);
+
+                if (r1 || r2)
+                    continue;
+
+                xi0 += sw->windowArea.x0;
+                yi0 += sw->windowArea.y0;
+                xi1 += sw->windowArea.x0;
+                yi1 += sw->windowArea.y0;
 
                 if (i == 0)
                 {
                     uint32_t scale = 1;
                     char text[32];
                     snprintf (text, sizeof (text), "%g", x);
-                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorCoarse);
-                    draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BC);
+                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, gridColorCoarseY);
+
+                    if (sw->windowArea.x0 < xi1 && xi1 < sw->windowArea.x1 &&
+                        sw->windowArea.y0 < yi1 && yi1 < sw->windowArea.y1)
+                        draw_text (pixels, w, h, xi1, yi1, textColor, useTransparentBg, text, scale, ALIGN_BC);
                 }
                 else
                 {
-                    lineRGBA (pixels, w, h, xi0, yi0, xi1, yi1, gridColorFine);
+                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, gridColorFine);
                 }
             }
         }
@@ -2678,7 +2747,6 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 {
     uint32_t activeColor    = make_gray (1.0f);
     uint32_t inactiveColor  = make_gray (0.4f);
-    uint32_t crossHairColor = MAKE_COLOR (0,255,255);
     uint32_t bgColor        = make_gray (cs->bgShade);
     //uint32_t selectColor    = make_gray (cs->bgShade + (cs->bgShade < 0.5f ? 0.2f : -0.2f));
 
@@ -2687,7 +2755,6 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
     uint32_t w = cs->windowWidth;
     uint32_t h = cs->windowHeight;
-    print_debug ("w:%u h:%u", w, h);
 
     for (uint32_t i=0; i<w*h; i++)
         pixels[i] = bgColor;
@@ -2698,59 +2765,23 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
         uint32_t x0, y0, x1, y1;
 
-        // fading for fun
-        //if (0)
-        //{
-        //    uint32_t *p2 = cs->pixelCache2;
-        //    memcpy (p2, pixels, w * h * sizeof (pixels[0]));
-
-        //    double a = 0.707;
-        //    double cw = 0.3;
-        //    double nw = (a - cw) / 4;
-
-        //    for (uint32_t y=y0+1; y<y1-1; y++)
-        //        for (uint32_t x=x0+1; x<x1-1;  x++)
-        //        {
-        //            uint8_t *c = (uint8_t *) & p2[(y    )*w + (x    )];
-        //            uint8_t *l = (uint8_t *) & p2[(y    )*w + (x - 1)];
-        //            uint8_t *r = (uint8_t *) & p2[(y    )*w + (x + 1)];
-        //            uint8_t *u = (uint8_t *) & p2[(y - 1)*w + (x    )];
-        //            uint8_t *d = (uint8_t *) & p2[(y + 1)*w + (x    )];
-        //            uint8_t *p = (uint8_t *) & pixels[y*w + x];
-
-
-        //            for (int i=0; i<4; i++)
-        //                p[i] = cw * c[i] + nw * ((uint32_t) l[i] + (uint32_t) r[i] + (uint32_t) u[i] + (uint32_t) d[i]);
-        //        }
-
-        //    //for (uint32_t y=y0; y<y1; y++)
-        //    //    for (uint32_t x=x0; x<x1;  x++)
-        //    //    {
-        //    //        double a = 0.97;
-        //    //        uint8_t *p = (uint8_t *) & pixels[y*w + x];
-        //    //        p[0] *= a;
-        //    //        p[1] *= a;
-        //    //        p[2] *= a;
-        //    //        p[3] *= a;
-        //    //    }
-        //}
-
         if (sw->windowArea.x0 > sw->windowArea.x1) exit_error ("bug");
         if (sw->windowArea.y0 > sw->windowArea.y1) exit_error ("bug");
 
-        if (sw->windowArea.x0 + 4*cs->margin > sw->windowArea.x1 ||
-            sw->windowArea.y0 + 4*cs->margin > sw->windowArea.y1)
+        if (sw->windowArea.x0 == sw->windowArea.x1 ||
+            sw->windowArea.y0 == sw->windowArea.y1 ||
+            sw->windowArea.x0 == 0 || sw->windowArea.y0 == 0)
             continue;
 
-        x0 = (uint32_t) sw->windowArea.x0 + cs->margin;
-        y0 = (uint32_t) sw->windowArea.y0 + cs->margin;
-        x1 = (uint32_t) sw->windowArea.x1 - cs->margin;
-        y1 = (uint32_t) sw->windowArea.y1 - cs->margin;
+        x0 = (uint32_t) sw->windowArea.x0;
+        y0 = (uint32_t) sw->windowArea.y0;
+        x1 = (uint32_t) sw->windowArea.x1;
+        y1 = (uint32_t) sw->windowArea.y1;
 
-        if (x0 > w) exit_error ("bug %u >= %u m: %u", x0, w, cs->margin);
-        if (x1 > w) exit_error ("bug %u >= %u m: %u", x1, w, cs->margin);
-        if (y0 > h) exit_error ("bug %u >= %u m: %u", y0, h, cs->margin);
-        if (y1 > h) exit_error ("bug %u >= %u m: %u", y1, h, cs->margin);
+        if (x0 > w) exit_error ("bug %u >= %u", x0, w);
+        if (x1 > w) exit_error ("bug %u >= %u", x1, w);
+        if (y0 > h) exit_error ("bug %u >= %u", y0, h);
+        if (y1 > h) exit_error ("bug %u >= %u", y1, h);
 
         if (cs->zoomEnabled)
         {
@@ -2767,8 +2798,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 else
                     borderColor = inactiveColor;
 
-                draw_rect (pixels, w, h, x0, y0, x1-1, y1-1, borderColor);
-                x0++; y0++; x1--; y1--;
+                draw_rect (pixels, w, h, x0-1, y0-1, x1, y1, borderColor);
             }
         }
 
@@ -2847,26 +2877,58 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             uint32_t *colors = attacher->colorScheme->colors;
             uint32_t nLevels = attacher->colorScheme->nLevels;
 
-            uint32_t mousePosX = cs->mouseScreenPos[0];
-            uint32_t mousePosY = cs->mouseScreenPos[1];
-
             for (uint32_t yi=0; yi<subHeight; yi++)
             {
                 for (uint32_t xi=0; xi<subWidth; xi++)
                 {
                     uint32_t x = x0 + xi;
                     uint32_t y = y0 + yi;
-
-                    uint32_t *pixel = & pixels[y*w + x];
                     int cnt = bins[yi * subWidth + xi];
-                    if (cs->crosshairEnabled && sw == cs->activeSw && (x == mousePosX || y == mousePosY))
-                        *pixel = crossHairColor;
-                    else if (cnt > 0)
-                    {
-                        uint32_t color = colors[MIN (nLevels, (uint32_t) cnt) - 1];
-                        *pixel = color;
-                    }
+                    if (cnt > 0)
+                        pixels[y*w + x] = colors[MIN (nLevels, (uint32_t) cnt) - 1];
                 }
+            }
+
+            if (sw == cs->activeSw && cs->crosshairEnabled)
+            {
+                double mx[3];
+                int xi0, yi0, xi1, yi1;
+
+                mouse_screenpos_to_datapos (cs, mx);
+
+                double sx = sw->world.scaleMtx[0][0];
+                double sy = sw->world.scaleMtx[1][1];
+                double dataPosX0[3] = {mx[0]-1.0/sx, mx[1],        mx[2]};
+                double dataPosX1[3] = {mx[0]+1.0/sx, mx[1],        mx[2]};
+                double dataPosY0[3] = {mx[0],        mx[1]-1.0/sy, mx[2]};
+                double dataPosY1[3] = {mx[0],        mx[1]+1.0/sy, mx[2]};
+
+                int r1, r2;
+                r1 = world_transform_datapos_to_bin (
+                  & sw->world, dataPosX0, subWidth, subHeight, & xi0, & yi0, NULL);
+                r2 = world_transform_datapos_to_bin (
+                  & sw->world, dataPosX1, subWidth, subHeight, & xi1, & yi1, NULL);
+
+                xi0 += sw->windowArea.x0;
+                yi0 += sw->windowArea.y0;
+                xi1 += sw->windowArea.x0;
+                yi1 += sw->windowArea.y0;
+
+                if (!r1 && !r2)
+                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, MAKE_COLOR (255,0,0));
+
+                r1 = world_transform_datapos_to_bin (
+                  & sw->world, dataPosY0, subWidth, subHeight, & xi0, & yi0, NULL);
+                r2 = world_transform_datapos_to_bin (
+                  & sw->world, dataPosY1, subWidth, subHeight, & xi1, & yi1, NULL);
+
+                xi0 += sw->windowArea.x0;
+                yi0 += sw->windowArea.y0;
+                xi1 += sw->windowArea.x0;
+                yi1 += sw->windowArea.y0;
+
+                if (!r1 && !r2)
+                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, MAKE_COLOR (0,255,0));
             }
         }
 
@@ -2877,8 +2939,6 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             int sy0 = sw->selectedArea.y0;
             int sx1 = sw->selectedArea.x1;
             int sy1 = sw->selectedArea.y1;
-            uint32_t mousePosX = cs->mouseScreenPos[0];
-            uint32_t mousePosY = cs->mouseScreenPos[1];
 
             for (int y=sy0; y<=sy1; y++)
                 for (int x=sx0; x<=sx1;  x++)

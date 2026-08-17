@@ -162,7 +162,7 @@ void world_transform_datapos_to_worldpos (WorldTransform *world, double x[3], do
 
     matrix_vector_multiply (world->scaleMtx, localx, scaledx);
     matrix_vector_multiply (world->rotMtx,   scaledx, w);
-    print_debug ("w[3] = (%f,%f,%f)", w[0], w[1], w[2]);
+    //print_debug ("w[3] = (%f,%f,%f)", w[0], w[1], w[2]);
 }
 
 void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], double x[3])
@@ -175,15 +175,19 @@ void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], do
     x[0] = localx[0] + world->centerPos[0];
     x[1] = localx[1] + world->centerPos[1];
     x[2] = localx[2] + world->centerPos[2];
-    print_debug ("x[3] = (%f,%f,%f)", x[0], x[1], x[2]);
+    //print_debug ("x[3] = (%f,%f,%f)", x[0], x[1], x[2]);
 }
 
-void world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3])
+int world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3])
 {
+    if (w[2] * world->perspectiveFactor < -0.99)
+        return -1;
+
     p[0] = w[0] / (w[2] * world->perspectiveFactor + 1);
     p[1] = w[1] / (w[2] * world->perspectiveFactor + 1);
     p[2] = w[2];
-    print_debug ("p[3] = (%f,%f,%f)", p[0], p[1], p[2]);
+    //print_debug ("p[3] = (%f,%f,%f)", p[0], p[1], p[2]);
+    return 0;
 }
 
 void world_transform_projected_to_worldpos (WorldTransform *world, double p[3], double w[3])
@@ -191,7 +195,7 @@ void world_transform_projected_to_worldpos (WorldTransform *world, double p[3], 
     w[0] = p[0] * (p[2] * world->perspectiveFactor + 1);
     w[1] = p[1] * (p[2] * world->perspectiveFactor + 1);
     w[2] = p[2];
-    print_debug ("w[3] = (%f,%f,%f)", w[0], w[1], w[2]);
+    //print_debug ("w[3] = (%f,%f,%f)", w[0], w[1], w[2]);
 }
 
 void world_transform_projected_to_datapos (WorldTransform *world, double p[3], double d[3])
@@ -199,23 +203,26 @@ void world_transform_projected_to_datapos (WorldTransform *world, double p[3], d
     double w[3];
     world_transform_projected_to_worldpos (world, p, w);
     world_transform_worldpos_to_datapos (world, w, d);
-    print_debug ("d[3] = (%f,%f,%f)", d[0], d[1], d[2]);
+    //print_debug ("d[3] = (%f,%f,%f)", d[0], d[1], d[2]);
 }
 
-void world_transform_datapos_to_projected (WorldTransform *world, double x[3], double p[3])
+int world_transform_datapos_to_projected (WorldTransform *world, double x[3], double p[3])
 {
-    double w;
+    double w[3];
 
-    world_transform_datapos_to_worldpos (world, x, & w);
-    world_transform_worldpos_to_projected (world, & w, p);
-    print_debug ("p[3] = (%f,%f,%f)", p[0], p[1], p[2]);
+    world_transform_datapos_to_worldpos (world, x, w);
+    if (world_transform_worldpos_to_projected (world, w, p))
+        return -1;
+
+    //print_debug ("p[3] = (%f,%f,%f)", p[0], p[1], p[2]);
+    return 0;
 }
 
 int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, int h, int *xi, int *yi, double *wz)
 {
     double p[3];
-    world_transform_datapos_to_projected (world, x, p);
-    if (isinf (p[0]) || isinf (p[1]) || isnan (p[0]) || isnan (p[1]))
+    int ret = world_transform_datapos_to_projected (world, x, p);
+    if (ret || isinf (p[0]) || isinf (p[1]) || isnan (p[0]) || isnan (p[1]))
         return -1;
 
     *xi = (0.5 * p[0] + 0.5) * (w-1);
@@ -223,8 +230,9 @@ int  world_transform_datapos_to_bin (WorldTransform *world, double x[3], int w, 
     if (wz)
         *wz = p[2];
 
-    print_debug ("b[2] = (%d,%d)", *xi, *yi);
-    return (*xi >= 0 && *yi >= 0 && *xi < w && *yi < h) ? 0 : 1;
+    //print_debug ("b[2] = (%d,%d)", *xi, *yi);
+    return 0;
+    //return (*xi >= 0 && *yi >= 0 && *xi < w && *yi < h) ? 0 : 1;
 }
 
 void world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi, int yi, double wzVal, double x[3])
@@ -237,7 +245,7 @@ void world_transform_bin_to_datapos (WorldTransform *world, int w, int h, int xi
     };
 
     world_transform_projected_to_datapos (world, p, x);
-    print_debug ("x[3] = (%f,%f,%f)", x[0], x[1], x[2]);
+    //print_debug ("x[3] = (%f,%f,%f)", x[0], x[1], x[2]);
 }
 
 void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, double wd[3])
@@ -344,6 +352,17 @@ void world_transform_scale_world (WorldTransform *world, double datapos[3], doub
     matrix_chain_multiply (world->scaleMtxInv,
                            world->scaleMtxInv, world->rotMtxInv, worldScaleFactorsInv, world->rotMtx, NULL);
 
+    // force orthogonal coordinate system
+    for (int i=0; i<3; i++)
+        for (int j=0; j<3; j++)
+            if (i==j)
+                world->scaleMtxInv[i][i] = 1.0 / world->scaleMtx[i][i];
+            else
+            {
+                world->scaleMtx[i][j] = 0;
+                world->scaleMtxInv[i][j] = 0;
+            }
+
     world_transform_datapos_to_worldpos (world, datapos, w1);
     vector_subtract (w0, w0, w1);
     world_transform_adjust_centerpos_using_world_diff (world, w0);
@@ -351,7 +370,15 @@ void world_transform_scale_world (WorldTransform *world, double datapos[3], doub
 
 void world_transform_scale_orthogonal (WorldTransform *world, double scaling[3])
 {
-    make_diagonal_matrix (world->scaleMtx, scaling);
+    double invScaling[3] =
+    {
+        1.0 / scaling[0],
+        1.0 / scaling[1],
+        1.0 / scaling[2]
+    };
+
+    make_diagonal_matrix (world->scaleMtx,    scaling);
+    make_diagonal_matrix (world->scaleMtxInv, invScaling);
 }
 
 void world_transform_set_range (WorldTransform *world, int axis, double range[2], double margin)
