@@ -49,28 +49,28 @@ typedef struct CipPosition
     int z;
 } CipPosition;
 
-typedef struct CipHistogram
+typedef struct CipCanvas
 {
     WorldTransform world;
-    int  w;
-    int  h;
-    int      *bins;
-    double   *counts;
-    double   *sums;
-    double   *wz;
-} CipHistogram;
+    int    w;
+    int    h;
+    int    *bins;
+    double *counts;
+    double *sums;
+    double *wz;
+} CipCanvas;
 
-typedef uint64_t (*HistogramFun) (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
+typedef uint64_t (*RenderCanvasFun) (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 
 typedef struct GraphAttacher
 {
-    CipGraph       *graph;
-    CipColorScheme *colorScheme;
-    CipHistogram    hist;
+    CipGraph        *graph;
+    CipColorScheme  *colorScheme;
+    CipCanvas       canvas;
     uint64_t        lastGraphCounter;
     char            plotType;
     char            lastPlotType;
-    HistogramFun    histogramFun;
+    RenderCanvasFun renderCanvasFun;
 } GraphAttacher;
 
 typedef struct CipSubWindow
@@ -130,7 +130,7 @@ int  cip_set_grid_mode_sw (CipSubWindow *sw, uint32_t mode);
 int  cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode);
 int  cip_set_log_mode (CipState *cs, uint32_t windowIndex, uint32_t mode);
 int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled);
-void cip_histogram_line (CipHistogram *hist, int x0, int y0, int x1, int y1);
+void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1);
 void cip_recursive_free_sub_windows (CipState *cs);
 void cip_remove_attached_graphs (CipState *cs, uint32_t wi);
 int  cip_force_refresh (CipState *cs);
@@ -142,7 +142,7 @@ void cip_graph_add_1d_point (CipGraph *graph, double x);
 void cip_graph_add_2d_point (CipGraph *graph, double x, double y);
 void cip_graph_add_3d_point (CipGraph *graph, double x, double y, double z);
 void cip_graph_add_4d_point (CipGraph *graph, double x, double y, double z, double u);
-GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors);
+GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, RenderCanvasFun renderCanvasFun, char plotType, char *colorSpec, uint32_t numColors);
 int  cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex);
 void cip_graph_remove_points (CipGraph *graph);
 CipColorScheme *cip_make_color_scheme (char *spec, uint32_t nLevels);

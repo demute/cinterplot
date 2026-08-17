@@ -1030,12 +1030,12 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, CipArea *wa, u
     }
 }
 
-void cip_histogram_line (CipHistogram *hist, int x0, int y0, int x1, int y1)
+void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1)
 {
-    int *bins = hist->bins;
+    int *bins = canvas->bins;
 
-    int w = (int) hist->w;
-    int h = (int) hist->h;
+    int w = (int) canvas->w;
+    int h = (int) canvas->h;
 
     if ((x0 < 0 && x1 < 0) ||
         (y0 < 0 && y1 < 0) ||
@@ -1260,9 +1260,9 @@ void mouse_screenpos_to_datapos (CipState *cs, double dataPos[3])
     double wzVal = 0;
     if (sw->selectedGraph < sw->numAttachedGraphs)
     {
-        CipHistogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
-        if (hist->wz)
-            wzVal = hist->wz[binw * biny + binx];
+        CipCanvas *canvas = & sw->attachedGraphs[sw->selectedGraph]->canvas;
+        if (canvas->wz)
+            wzVal = canvas->wz[binw * biny + binx];
     }
 
     world_transform_bin_to_datapos (& sw->world, binw, binh, binx, biny, wzVal, dataPos);
@@ -1328,10 +1328,10 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
     return 0;
 }
 
-static int find_closest_point (CipHistogram *hist, int x0, int y0, int *_x, int *_y)
+static int find_closest_point (CipCanvas *canvas, int x0, int y0, int *_x, int *_y)
 {
     // this algorithm takes a point (x0,y0) and spirals around it with a rectangular
-    // spiral until it finds a point in the histogram that is set. When it is found,
+    // spiral until it finds a point in the canvas that is set. When it is found,
     // it will make sure it will stop the loop after it is sure no other point can
     // be closer. The spiral looks like this:
     //   >>>>>>>>>|
@@ -1347,9 +1347,9 @@ static int find_closest_point (CipHistogram *hist, int x0, int y0, int *_x, int 
     int dirx[4] = {1, 0, -1,  0};
     int diry[4] = {0, 1,  0, -1};
 
-    int w = (int) hist->w;
-    int h = (int) hist->h;
-    int *bins = hist->bins;
+    int w = (int) canvas->w;
+    int h = (int) canvas->h;
+    int *bins = canvas->bins;
 
     int x = x0;
     int y = y0;
@@ -1458,10 +1458,10 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      if (sw->selectedGraph > sw->numAttachedGraphs - 1)
                          sw->selectedGraph = sw->numAttachedGraphs - 1;
 
-                     CipHistogram *hist = & sw->attachedGraphs[sw->selectedGraph]->hist;
-                     int w = (int) hist->w;
-                     int h = (int) hist->h;
-                     int  *bins = hist->bins;
+                     CipCanvas *canvas = & sw->attachedGraphs[sw->selectedGraph]->canvas;
+                     int w = (int) canvas->w;
+                     int h = (int) canvas->h;
+                     int  *bins = canvas->bins;
 
                      if (!bins)
                      {
@@ -1524,7 +1524,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      {
                          // trackingMode 3: mouse position is used to get the closest coordinate on the graph
                          int newx, newy;
-                         find_closest_point (hist, binx, biny, & newx, & newy);
+                         find_closest_point (canvas, binx, biny, & newx, & newy);
                          cs->mouseScreenPos[0] = x0 + newx;
                          cs->mouseScreenPos[1] = y0 + newy;
                      }
@@ -1982,9 +1982,9 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
     return 1;
 }
 
-static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
+static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 
-GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, HistogramFun histogramFun, char plotType, char *colorSpec, uint32_t numColors)
+GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, RenderCanvasFun renderCanvasFun, char plotType, char *colorSpec, uint32_t numColors)
 {
     if (windowIndex >= cs->numSubWindows)
     {
@@ -2002,11 +2002,11 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
     GraphAttacher *attacher = safe_calloc (1, sizeof (*attacher));
     attacher->graph = graph;
     attacher->plotType = plotType;
-    attacher->hist.w = 0;
-    attacher->hist.h = 0;
-    attacher->hist.bins = NULL;
-    attacher->hist.wz = NULL;
-    attacher->histogramFun = histogramFun ? histogramFun : make_histogram;
+    attacher->canvas.w = 0;
+    attacher->canvas.h = 0;
+    attacher->canvas.bins = NULL;
+    attacher->canvas.wz = NULL;
+    attacher->renderCanvasFun = renderCanvasFun ? renderCanvasFun : render_canvas;
     attacher->colorScheme = cip_make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
@@ -2215,11 +2215,11 @@ void cip_graph_remove_points (CipGraph *graph)
     release_access (& graph->readAccess);
 }
 
-void make_histogram_1d (WorldTransform *world, void *points, size_t len, CipHistogram *hist)
+void make_canvas_1d (WorldTransform *world, void *points, size_t len, CipCanvas *canvas)
 {
-    //int      *bins   = hist->bins;
-    //int      w       = hist->w;
-    //int      h       = hist->h;
+    //int      *bins   = canvas->bins;
+    //int      w       = canvas->w;
+    //int      h       = canvas->h;
 
     //for (int yi=0; yi<h; yi+=2)
     //{
@@ -2229,17 +2229,15 @@ void make_histogram_1d (WorldTransform *world, void *points, size_t len, CipHist
     //}
 }
 
-static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
+static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
-    // FIXME: rename: make_histogram -> render_canvas, CipHistogram -> CipCanvas *hist -> *canvas cip_histogram_line -> cip_canvas_line
-
     uint64_t counter = 0;
-    int      *bins   = hist->bins;
-    double   *wz     = hist->wz;
-    int      w       = hist->w;
-    int      h       = hist->h;
-    //double   *sums   = hist->sums;
-    //double   *counts = hist->counts;
+    int      *bins   = canvas->bins;
+    double   *wz     = canvas->wz;
+    int      w       = canvas->w;
+    int      h       = canvas->h;
+    //double   *sums   = canvas->sums;
+    //double   *counts = canvas->counts;
 
     uint8_t *buf;
     uint32_t len;
@@ -2295,17 +2293,17 @@ static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t lo
         memset (wz,   0x00, w*h*sizeof (wz[0]));
     }
 
-    WorldTransform *world = & hist->world;
+    WorldTransform *world = & canvas->world;
 
 #define MAX_DIM 5
-    typedef void (*PlotFun) (WorldTransform *world, void *buf, size_t len, CipHistogram *hist);
+    typedef void (*PlotFun) (WorldTransform *world, void *buf, size_t len, CipCanvas *canvas);
     PlotFun plotFunctions[MAX_DIM][256] = {{0}};
-    plotFunctions[1]['h'] = make_histogram_1d;
+    plotFunctions[1]['h'] = make_canvas_1d;
 
     int dim = sz / sizeof (double);
     PlotFun fun = plotFunctions[dim][(uint8_t) plotType];
     if (fun)
-        fun (world, buf, len / sz, hist);
+        fun (world, buf, len / sz, canvas);
     else
         print_error ("unknown plotType '%c' for dim %d", plotType, dim);
 
@@ -2365,22 +2363,22 @@ static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t lo
     //        //{
     //        //    // line
     //        //    // NOTE: A straight line between two points is moving through different points depending on log mode
-    //        //    cip_histogram_line (hist, xi0, yi0, xi1, yi1);
+    //        //    cip_canvas_line (canvas, xi0, yi0, xi1, yi1);
     //        //}
     //        //else if (plotType == 't')
     //        //{
     //        //    // thick line
-    //        //    cip_histogram_line (hist, xi0, yi0, xi1, yi1);
-    //        //    cip_histogram_line (hist, xi0+1, yi0, xi1+1, yi1);
-    //        //    cip_histogram_line (hist, xi0-1, yi0, xi1-1, yi1);
-    //        //    cip_histogram_line (hist, xi0, yi0+1, xi1, yi1+1);
-    //        //    cip_histogram_line (hist, xi0, yi0-1, xi1, yi1-1);
+    //        //    cip_canvas_line (canvas, xi0, yi0, xi1, yi1);
+    //        //    cip_canvas_line (canvas, xi0+1, yi0, xi1+1, yi1);
+    //        //    cip_canvas_line (canvas, xi0-1, yi0, xi1-1, yi1);
+    //        //    cip_canvas_line (canvas, xi0, yi0+1, xi1, yi1+1);
+    //        //    cip_canvas_line (canvas, xi0, yi0-1, xi1, yi1-1);
     //        //}
     //        //else if (plotType == 's')
     //        //{
     //        //    // staircase
-    //        //    cip_histogram_line (hist, xi0, yi0, xi1, yi0);
-    //        //    cip_histogram_line (hist, xi1, yi0, xi1, yi1);
+    //        //    cip_canvas_line (canvas, xi0, yi0, xi1, yi0);
+    //        //    cip_canvas_line (canvas, xi1, yi0, xi1, yi1);
     //        //}
     //        //else if (plotType == 'w')
     //        //{
@@ -2401,12 +2399,12 @@ static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t lo
     //        //        int lastNonZeroXi = -1;
     //        //        for (uint32_t xi=0; xi<w; xi++)
     //        //        {
-    //        //            if (hist->counts[xi] > 1e-5)
+    //        //            if (canvas->counts[xi] > 1e-5)
     //        //            {
     //        //                double avg = sums[xi] / counts[xi];
-    //        //                double s = hist->world.scaleMtx[1][1];
-    //        //                double ymin = hist->world.centerPos[1] - s;
-    //        //                double ymax = hist->world.centerPos[1] + s;
+    //        //                double s = canvas->world.scaleMtx[1][1];
+    //        //                double ymin = canvas->world.centerPos[1] - s;
+    //        //                double ymax = canvas->world.centerPos[1] + s;
     //        //                double w = (avg - ymin) / (ymax - ymin);
 
     //        //                if (lastNonZeroXi < 0)
@@ -2427,9 +2425,9 @@ static uint64_t make_histogram (CipHistogram *hist, CipGraph *graph, uint32_t lo
     //        //        double x = xy[0];
     //        //        double y = xy[1];
 
-    //        //        double s = hist->world.scaleMtx[0][0];
-    //        //        double xmin = hist->world.centerPos[0] - s;
-    //        //        double xmax = hist->world.centerPos[0] + s;
+    //        //        double s = canvas->world.scaleMtx[0][0];
+    //        //        double xmin = canvas->world.centerPos[0] - s;
+    //        //        double xmax = canvas->world.centerPos[0] + s;
     //        //        int xi = (x - xmin) / (xmax - xmin) * (w-1);
 
     //        //        if (xi >= 0 && xi < w)
@@ -2816,56 +2814,56 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
         {
             GraphAttacher *attacher = sw->attachedGraphs[(gi + cs->graphOrder) % (sw->numAttachedGraphs)];
-            CipHistogram *hist = & attacher->hist;
+            CipCanvas *canvas = & attacher->canvas;
 
-            int updateHistogram =
+            int updateCanvas =
                 (forceRefresh) ||
                 (attacher->lastPlotType != attacher->plotType) ||
-                (memcmp (& hist->world, & sw->world, sizeof (sw->world)));
+                (memcmp (& canvas->world, & sw->world, sizeof (sw->world)));
 
-            if (updateHistogram)
+            if (updateCanvas)
                 attacher->lastGraphCounter = 0;
 
-            updateHistogram |= (attacher->lastGraphCounter != attacher->graph->sb->counter);
+            updateCanvas |= (attacher->lastGraphCounter != attacher->graph->sb->counter);
 
-            if (hist->bins == NULL)
+            if (canvas->bins == NULL)
             {
-                hist->w = subWidth;
-                hist->h = subHeight;
-                hist->bins   = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
-                hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
-                hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
-                hist->wz     = safe_calloc (hist->w * hist->h, sizeof (hist->wz[0]));
+                canvas->w      = subWidth;
+                canvas->h      = subHeight;
+                canvas->bins   = safe_calloc (canvas->w * canvas->h, sizeof (canvas->bins[0]));
+                canvas->sums   = safe_calloc (canvas->w, sizeof (canvas->sums[0]));
+                canvas->counts = safe_calloc (canvas->w, sizeof (canvas->counts[0]));
+                canvas->wz     = safe_calloc (canvas->w * canvas->h, sizeof (canvas->wz[0]));
 
                 attacher->lastGraphCounter = 0;
-                updateHistogram = 1;
+                updateCanvas = 1;
             }
-            else if (hist->w != subWidth || hist->h != subHeight)
+            else if (canvas->w != subWidth || canvas->h != subHeight)
             {
-                free (hist->bins);
+                free (canvas->bins);
                 // FIXME: if mouse is moved at this point right after the window has been resized,
-                // we will be using hist->bins after free.
-                hist->w = subWidth;
-                hist->h = subHeight;
-                hist->bins   = safe_calloc (hist->w * hist->h, sizeof (hist->bins[0]));
-                hist->sums   = safe_calloc (hist->w, sizeof (hist->sums[0]));
-                hist->counts = safe_calloc (hist->w, sizeof (hist->counts[0]));
+                // we will be using canvas->bins after free.
+                canvas->w      = subWidth;
+                canvas->h      = subHeight;
+                canvas->bins   = safe_calloc (canvas->w * canvas->h, sizeof (canvas->bins[0]));
+                canvas->sums   = safe_calloc (canvas->w, sizeof (canvas->sums[0]));
+                canvas->counts = safe_calloc (canvas->w, sizeof (canvas->counts[0]));
 
-                if (hist->wz)
+                if (canvas->wz)
                 {
-                    free (hist->wz);
-                    hist->wz = safe_calloc (hist->w * hist->h, sizeof (hist->wz[0]));
+                    free (canvas->wz);
+                    canvas->wz = safe_calloc (canvas->w * canvas->h, sizeof (canvas->wz[0]));
                 }
 
                 attacher->lastGraphCounter = 0;
-                updateHistogram = 1;
+                updateCanvas = 1;
             }
 
-            if (updateHistogram)
+            if (updateCanvas)
             {
-                memcpy (& hist->world, & sw->world, sizeof (sw->world));
-                attacher->lastGraphCounter = attacher->histogramFun (
-                  hist, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
+                memcpy (& canvas->world, & sw->world, sizeof (sw->world));
+                attacher->lastGraphCounter = attacher->renderCanvasFun (
+                  canvas, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
                 attacher->lastPlotType = attacher->plotType;
             }
             else
@@ -2873,7 +2871,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 //foobar;
             }
 
-            int *bins = hist->bins;
+            int *bins = canvas->bins;
             uint32_t *colors = attacher->colorScheme->colors;
             uint32_t nLevels = attacher->colorScheme->nLevels;
 
