@@ -60,17 +60,16 @@ typedef struct CipCanvas
     double *wz;
 } CipCanvas;
 
-typedef uint64_t (*RenderCanvasFun) (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
+typedef void (*CanvasFun) (WorldTransform *world, void *buf, size_t len, uint32_t logMode, CipCanvas *canvas);
 
 typedef struct GraphAttacher
 {
-    CipGraph        *graph;
-    CipColorScheme  *colorScheme;
-    CipCanvas       canvas;
-    uint64_t        lastGraphCounter;
-    char            plotType;
-    char            lastPlotType;
-    RenderCanvasFun renderCanvasFun;
+    CipGraph       *graph;
+    CipColorScheme *colorScheme;
+    CipCanvas      canvas;
+    uint64_t       lastGraphCounter;
+    char           plotType;
+    char           lastPlotType;
 } GraphAttacher;
 
 typedef struct CipSubWindow
@@ -142,7 +141,7 @@ void cip_graph_add_1d_point (CipGraph *graph, double x);
 void cip_graph_add_2d_point (CipGraph *graph, double x, double y);
 void cip_graph_add_3d_point (CipGraph *graph, double x, double y, double z);
 void cip_graph_add_4d_point (CipGraph *graph, double x, double y, double z, double u);
-GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, RenderCanvasFun renderCanvasFun, char plotType, char *colorSpec, uint32_t numColors);
+GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors);
 int  cip_graph_detach (CipState *cs, CipGraph *graph, uint32_t windowIndex);
 void cip_graph_remove_points (CipGraph *graph);
 CipColorScheme *cip_make_color_scheme (char *spec, uint32_t nLevels);
@@ -161,6 +160,7 @@ void cip_save_png (CipState* cs, char* imageDir, int frameCounter, int format);
 
 void cip_set_app_keyboard_callback (CipState *cs, int (*app_on_keyboard) (CipState *cs, int key, int mod, int pressed, int repeat));
 void cip_set_app_mouse_motion (CipState *cs, int (*app_on_mouse_motion) (CipState *cs, int windowIndex, double x, double y));
+void cip_register_canvas_fun (int dim, char plotType, CanvasFun canvasFun);
 
 //void wait_for_access (atomic_flag* accessFlag);
 //void release_access (atomic_flag* accessFlag);

@@ -352,16 +352,19 @@ void world_transform_scale_world (WorldTransform *world, double datapos[3], doub
     matrix_chain_multiply (world->scaleMtxInv,
                            world->scaleMtxInv, world->rotMtxInv, worldScaleFactorsInv, world->rotMtx, NULL);
 
-    // force orthogonal coordinate system
-    for (int i=0; i<3; i++)
-        for (int j=0; j<3; j++)
-            if (i==j)
-                world->scaleMtxInv[i][i] = 1.0 / world->scaleMtx[i][i];
-            else
-            {
-                world->scaleMtx[i][j] = 0;
-                world->scaleMtxInv[i][j] = 0;
-            }
+    int forceOrthogonalCoordinateSystem = 1;
+    if (forceOrthogonalCoordinateSystem)
+    {
+        for (int i=0; i<3; i++)
+            for (int j=0; j<3; j++)
+                if (i==j)
+                    world->scaleMtxInv[i][i] = 1.0 / world->scaleMtx[i][i];
+                else
+                {
+                    world->scaleMtx[i][j] = 0;
+                    world->scaleMtxInv[i][j] = 0;
+                }
+    }
 
     world_transform_datapos_to_worldpos (world, datapos, w1);
     vector_subtract (w0, w0, w1);

@@ -72,6 +72,8 @@ typedef struct CipState
 
 } CipState;
 
+#define MAX_DIM 5
+    static CanvasFun canvasFuns[MAX_DIM][256] = {{0}};
 
 #define STATUSLINE_HEIGHT 20
 
@@ -843,14 +845,10 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
 static void recompute_sub_window_areas (CipState *cs)
 {
     if (!cs->subWindows)
-    {
-        print_error ("recompute called before subWindows were defined");
         return;
-    }
 
     uint32_t nCols    = cs->nCols;
     uint32_t nRows    = cs->numSubWindows / nCols;
-    print_debug ("nCols: %u nRows: %u", nCols, nRows);
 
     uint32_t w = cs->windowWidth;
     uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
@@ -1984,7 +1982,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
 
 static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter);
 
-GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, RenderCanvasFun renderCanvasFun, char plotType, char *colorSpec, uint32_t numColors)
+GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowIndex, char plotType, char *colorSpec, uint32_t numColors)
 {
     if (windowIndex >= cs->numSubWindows)
     {
@@ -2006,7 +2004,6 @@ GraphAttacher *cip_graph_attach (CipState *cs, CipGraph *graph, uint32_t windowI
     attacher->canvas.h = 0;
     attacher->canvas.bins = NULL;
     attacher->canvas.wz = NULL;
-    attacher->renderCanvasFun = renderCanvasFun ? renderCanvasFun : render_canvas;
     attacher->colorScheme = cip_make_color_scheme (colorSpec, numColors);
     attacher->lastGraphCounter = 0;
 
@@ -2215,18 +2212,89 @@ void cip_graph_remove_points (CipGraph *graph)
     release_access (& graph->readAccess);
 }
 
-void make_canvas_1d (WorldTransform *world, void *points, size_t len, CipCanvas *canvas)
+void cip_register_canvas_fun (int dim, char plotType, CanvasFun canvasFun)
 {
-    //int      *bins   = canvas->bins;
-    //int      w       = canvas->w;
-    //int      h       = canvas->h;
+    canvasFuns[dim][(uint8_t) plotType] = canvasFun;
+}
 
-    //for (int yi=0; yi<h; yi+=2)
-    //{
-    //    for (int xi=40; xi<w-40; xi+=8)
-    //        bins[yi*w + xi] = 20;
+void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+{
+    //double *points = _points;
+    int    *bins   = canvas->bins;
+    int    w       = canvas->w;
+    int    h       = canvas->h;
 
-    //}
+    print_debug ("len: %lu", len);
+    for (int yi=0; yi<h; yi+=2)
+    {
+        for (int xi=40; xi<w-40; xi+=8)
+            bins[yi*w + xi] = 20;
+
+    }
+}
+
+void canvas_fun_2d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+{
+    double (*points)[2] = _points;
+    int    *bins        = canvas->bins;
+    double *wz          = canvas->wz;
+    int    w            = canvas->w;
+    int    h            = canvas->h;
+
+    for (size_t i=0; i<len; i++)
+    {
+        double x[3] = {points[i][0], points[i][1], 0};
+
+        if (logMode & 1) x[0] = LOGFUN (x[0]);
+        if (logMode & 2) x[1] = LOGFUN (x[1]);
+        if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
+            continue;
+
+        int xi, yi;
+        double wzVal;
+        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
+        {
+            if (xi < 0 || xi >= w || yi < 0 || yi >= h)
+                continue;
+
+            int idx = yi*w + xi;
+            bins[idx]++;
+            if (wz[idx] < wzVal)
+                wz[idx] = wzVal;
+        }
+    }
+}
+
+void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+{
+    double (*points)[3] = _points;
+    int    *bins        = canvas->bins;
+    double *wz          = canvas->wz;
+    int    w            = canvas->w;
+    int    h            = canvas->h;
+
+    for (size_t i=0; i<len; i++)
+    {
+        double x[3] = {points[i][0], points[i][1], points[i][2]};
+
+        if (logMode & 1) x[0] = LOGFUN (x[0]);
+        if (logMode & 2) x[1] = LOGFUN (x[1]);
+        if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
+            continue;
+
+        int xi, yi;
+        double wzVal;
+        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
+        {
+            if (xi < 0 || xi >= w || yi < 0 || yi >= h)
+                continue;
+
+            int idx = yi*w + xi;
+            bins[idx]++;
+            if (wz[idx] < wzVal)
+                wz[idx] = wzVal;
+        }
+    }
 }
 
 static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
@@ -2294,16 +2362,10 @@ static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logM
     }
 
     WorldTransform *world = & canvas->world;
-
-#define MAX_DIM 5
-    typedef void (*PlotFun) (WorldTransform *world, void *buf, size_t len, CipCanvas *canvas);
-    PlotFun plotFunctions[MAX_DIM][256] = {{0}};
-    plotFunctions[1]['h'] = make_canvas_1d;
-
     int dim = sz / sizeof (double);
-    PlotFun fun = plotFunctions[dim][(uint8_t) plotType];
+    CanvasFun fun = canvasFuns[dim][(uint8_t) plotType];
     if (fun)
-        fun (world, buf, len / sz, canvas);
+        fun (world, buf, len, logMode, canvas);
     else
         print_error ("unknown plotType '%c' for dim %d", plotType, dim);
 
@@ -2862,7 +2924,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             if (updateCanvas)
             {
                 memcpy (& canvas->world, & sw->world, sizeof (sw->world));
-                attacher->lastGraphCounter = attacher->renderCanvasFun (
+                attacher->lastGraphCounter = render_canvas (
                   canvas, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
                 attacher->lastPlotType = attacher->plotType;
             }
@@ -3257,6 +3319,10 @@ static CipState *cip_init (void)
     cs->windowHeight      = CINTERPLOT_INIT_HEIGHT;
 
     cs->mouseState = MOUSE_STATE_NONE;
+
+    cip_register_canvas_fun (1, 'h', canvas_fun_1d_histogram);
+    cip_register_canvas_fun (2, 'h', canvas_fun_2d_histogram);
+    cip_register_canvas_fun (3, 'h', canvas_fun_3d_histogram);
 
     signal (SIGINT, signal_handler);
 
