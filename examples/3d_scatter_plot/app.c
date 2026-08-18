@@ -2,9 +2,6 @@
 #include "randlib.h"
 #include "cinterplot.h"
 
-void rotate_x (double mtx[3][3], double theta, int order);
-void rotate_y (double mtx[3][3], double theta, int order);
-void rotate_z (double mtx[3][3], double theta, int order);
 int user_main (int argc, char **argv, CipState *cs)
 {
     randlib_init (0);
@@ -24,39 +21,19 @@ int user_main (int argc, char **argv, CipState *cs)
     CipGraph *graph4 = cip_graph_new (3, 0);
     CipGraph *graph5 = cip_graph_new (3, 40000);
 
-    cip_graph_attach (cs, graph1, 0, NULL, 'p', "red yellow white", 32);
-    cip_graph_attach (cs, graph2, 0, NULL, 'p', "maroon indigo beige", 32);
-    cip_graph_attach (cs, graph3, 0, NULL, 'p', "navy cyan white", 32);
-    cip_graph_attach (cs, graph4, 0, NULL, 'p', "gold white", 32);
+    cip_graph_attach (cs, graph1, 0, 'h', "red yellow white", 32);
+    cip_graph_attach (cs, graph2, 0, 'h', "maroon indigo beige", 32);
+    cip_graph_attach (cs, graph3, 0, 'h', "navy cyan white", 32);
+    cip_graph_attach (cs, graph4, 0, 'h', "gold white", 32);
 
-    cip_graph_attach (cs, graph2, 1, NULL, 'p', "red yellow white", 32);
-    cip_graph_attach (cs, graph3, 2, NULL, 'p', "red yellow white", 32);
-    cip_graph_attach (cs, graph4, 3, NULL, 'p', "red yellow white", 32);
-    cip_graph_attach (cs, graph5, 5, NULL, 'p', "maroon indigo beige", 8);
+    cip_graph_attach (cs, graph2, 1, 'h', "red yellow white", 32);
+    cip_graph_attach (cs, graph3, 2, 'h', "red yellow white", 32);
+    cip_graph_attach (cs, graph4, 3, 'h', "red yellow white", 32);
+    cip_graph_attach (cs, graph5, 5, 'h', "maroon indigo beige", 8);
 
     CipGraph *graph2d = cip_graph_new (2, 500000);
     cip_continuous_scroll_enable (cs, 4);
-    cip_graph_attach (cs, graph2d, 4, NULL, 'p', "red yellow white", 32);
-
-    int addCoordinates = 0;
-    if (addCoordinates)
-    {
-        for (int ui=0; ui<3; ui++)
-        {
-            CipGraph *unitVectorGraph = cip_graph_new (3, 0);
-            double xyz[3] = {0};
-            for (int i=0; i<10000; i++)
-            {
-                xyz[ui] = i * (100.0 / 10000.0);
-                cip_graph_add_3d_point (unitVectorGraph, xyz[0], xyz[1], xyz[2]);
-            }
-
-            char *color[] = {"red", "green", "blue"};
-            for (int wi=0; wi<nRows*nCols; wi++)
-                cip_graph_attach (cs, unitVectorGraph, wi, NULL, 'p', color[ui], 1);
-        }
-    }
-
+    cip_graph_attach (cs, graph2d, 4, 'h', "red yellow white", 32);
 
     int nIter = 400000;
     for (int i=0; i<nIter; i++)
@@ -150,11 +127,12 @@ int user_main (int argc, char **argv, CipState *cs)
         int nn = sizeof (si) / sizeof (si[0]);
         for (int i=0; i<nn; i++)
         {
+            double datapos[3] = {0};
             CipSubWindow *sw = cip_get_sub_window (cs, si[i]);
-            rotate_x (sw->rotMatrix, 0.01011, 0);
-            rotate_y (sw->rotMatrix, 0.01110, 1);
-            rotate_z (sw->rotMatrix, 0.01003, 0);
-            rotate_y (sw->rotMatrix, 0.012,   1);
+            world_transform_rotate_data  (& sw->world, datapos, 0, 0.01011);
+            world_transform_rotate_world (& sw->world, datapos, 1, 0.01110);
+            world_transform_rotate_data  (& sw->world, datapos, 2, 0.01003);
+            world_transform_rotate_world (& sw->world, datapos, 1, 0.01200);
         }
 
         cip_force_refresh (cs);

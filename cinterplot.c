@@ -894,8 +894,8 @@ static void recompute_sub_window_areas (CipState *cs)
                     CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
                     sw->windowArea.x0 = (ci    ) * dx + subWindowOffset;
                     sw->windowArea.x1 = (ci + 1) * dx - subWindowOffset;
-                    sw->windowArea.y0 = (ri    ) * dy + subWindowOffset + h0;
-                    sw->windowArea.y1 = (ri + 1) * dy - subWindowOffset + h0;
+                    sw->windowArea.y0 = (nRows - ri - 1) * dy + subWindowOffset + h0;
+                    sw->windowArea.y1 = (nRows - ri    ) * dy - subWindowOffset + h0;
                 }
                 else
                 {
@@ -1643,37 +1643,21 @@ static void cycle_line_type (CipSubWindow *sw, int dir)
     if (!sw)
         return;
 
-    if (dir > 0)
+    for (int i=0; i<sw->numAttachedGraphs; i++)
     {
-        for (int i=0; i<sw->numAttachedGraphs; i++)
+        GraphAttacher *attacher = sw->attachedGraphs[i];
+        int dim = (int) (attacher->graph->sb->itemSize / sizeof (double));
+        if (dim < 0 || dim >= MAX_DIM)
+            exit_error ("bug");
+
+        for (int i=1; i<256; i++)
         {
-            GraphAttacher *attacher = sw->attachedGraphs[i];
-            switch (attacher->plotType)
+            int testIdx = (attacher->plotType + (256 + i*dir)) % 256;
+            if (canvasFuns[dim][testIdx])
             {
-             case 'p': attacher->plotType = '+'; break;
-             case '+': attacher->plotType = 'l'; break;
-             case 'l': attacher->plotType = 't'; break;
-             case 't': attacher->plotType = 's'; break;
-             case 's': attacher->plotType = 'w'; break;
-             case 'w': attacher->plotType = 'p'; break;
-             default: print_error ("unknown line type '%c'", attacher->plotType); break;
-            }
-        }
-    }
-    else
-    {
-        for (int i=0; i<sw->numAttachedGraphs; i++)
-        {
-            GraphAttacher *attacher = sw->attachedGraphs[i];
-            switch (attacher->plotType)
-            {
-             case 'w': attacher->plotType = 's'; break;
-             case 'p': attacher->plotType = 'w'; break;
-             case '+': attacher->plotType = 'p'; break;
-             case 'l': attacher->plotType = '+'; break;
-             case 't': attacher->plotType = 'l'; break;
-             case 's': attacher->plotType = 't'; break;
-             default: print_error ("unknown line type '%c'", attacher->plotType); break;
+                attacher->plotType = testIdx;
+                print_debug ("plotType: %c", attacher->plotType);
+                break;
             }
         }
     }
@@ -2350,6 +2334,45 @@ void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, 
     }
 }
 
+void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+{
+    double (*points)[3] = _points;
+    int    w            = canvas->w;
+    int    h            = canvas->h;
+
+    int lastXi = -1;
+    int lastYi = -1;
+
+    for (size_t i=0; i<len; i++)
+    {
+        double x[3] = {points[i][0], points[i][1], points[i][2]};
+
+        if (logMode & 1) x[0] = LOGFUN (x[0]);
+        if (logMode & 2) x[1] = LOGFUN (x[1]);
+        if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
+        {
+            lastXi = -1;
+            lastYi = -1;
+            continue;
+        }
+
+        int xi, yi;
+        double wzVal;
+        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) != 0)
+        {
+            lastXi = -1;
+            lastYi = -1;
+            continue;
+        }
+
+        if (lastXi >= 0 && lastYi >= 0)
+            cip_canvas_line (canvas, lastXi, lastYi, xi, yi, wzVal);
+
+        lastXi = xi;
+        lastYi = yi;
+    }
+}
+
 static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     uint64_t counter = 0;
@@ -2729,7 +2752,7 @@ static void get_grid_conf (double x0, double x1, double *xStart, double *xStop, 
 
     double step = biggestPowerTenStep / numDivisions;
     if (step <= 0)
-        exit_error ("bug");
+        exit_error ("bug: step:%f bi:%f numd:%d diff:%f x0:%f x1:%f", step, biggestPowerTenStep, numDivisions, diff, x0, x1);
 
     *xStart   = ceil  (x0 / step) * step;
     *xStop    = floor (x1 / step) * step;
@@ -3386,6 +3409,7 @@ static CipState *cip_init (void)
     cip_register_canvas_fun (1, 'h', canvas_fun_1d_histogram);
     cip_register_canvas_fun (2, 'h', canvas_fun_2d_histogram);
     cip_register_canvas_fun (3, 'h', canvas_fun_3d_histogram);
+    cip_register_canvas_fun (3, 'l', canvas_fun_3d_line);
 
     signal (SIGINT, signal_handler);
 

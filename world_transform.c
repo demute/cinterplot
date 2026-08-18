@@ -444,6 +444,9 @@ void world_transform_set_default_values (WorldTransform *world)
 
 void world_apply_constraints (WorldTransform *world)
 {
+    //world->centerPos[0]   = 0.0;
+    //world->centerPos[1]   = 0.0;
+    //world->centerPos[2]   = 0.0;
 //    // FIXME: Constraints should be conditional
 //    double sy   = world->scaleMtx[1][1];
 //    double ymax = world->centerPos[1] + 1.0/sy;
