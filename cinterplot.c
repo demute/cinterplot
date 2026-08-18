@@ -3042,37 +3042,54 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
                 double sx = sw->world.scaleMtx[0][0];
                 double sy = sw->world.scaleMtx[1][1];
-                double dataPosX0[3] = {mx[0]-1.0/sx, mx[1],        mx[2]};
-                double dataPosX1[3] = {mx[0]+1.0/sx, mx[1],        mx[2]};
-                double dataPosY0[3] = {mx[0],        mx[1]-1.0/sy, mx[2]};
-                double dataPosY1[3] = {mx[0],        mx[1]+1.0/sy, mx[2]};
+                double sz = sw->world.scaleMtx[2][2];
 
-                int r1, r2;
-                r1 = world_transform_datapos_to_bin (
-                  & sw->world, dataPosX0, subWidth, subHeight, & xi0, & yi0, NULL);
-                r2 = world_transform_datapos_to_bin (
-                  & sw->world, dataPosX1, subWidth, subHeight, & xi1, & yi1, NULL);
+                uint32_t colors[3] =
+                {
+                    MAKE_COLOR (255,0,0),
+                    MAKE_COLOR (0,255,0),
+                    MAKE_COLOR (0,0,255),
+                };
 
-                xi0 += sw->windowArea.x0;
-                yi0 += sw->windowArea.y0;
-                xi1 += sw->windowArea.x0;
-                yi1 += sw->windowArea.y0;
+                double dataPos[3][2][3] =
+                {
+                    // x axis
+                    {
+                        {mx[0] - 1.0 / sx, mx[1], mx[2]},
+                        {mx[0] + 1.0 / sx, mx[1], mx[2]}
+                    },
 
-                if (!r1 && !r2)
-                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, MAKE_COLOR (255,0,0));
+                    // y axis
+                    {
+                        {mx[0], mx[1] - 1.0 / sy, mx[2]},
+                        {mx[0], mx[1] + 1.0 / sy, mx[2]}
+                    },
 
-                r1 = world_transform_datapos_to_bin (
-                  & sw->world, dataPosY0, subWidth, subHeight, & xi0, & yi0, NULL);
-                r2 = world_transform_datapos_to_bin (
-                  & sw->world, dataPosY1, subWidth, subHeight, & xi1, & yi1, NULL);
+                    // z axis
+                    {
+                        {mx[0], mx[1], mx[2] - 1.0 / sz},
+                        {mx[0], mx[1], mx[2] + 1.0 / sz}
+                    },
+                };
 
-                xi0 += sw->windowArea.x0;
-                yi0 += sw->windowArea.y0;
-                xi1 += sw->windowArea.x0;
-                yi1 += sw->windowArea.y0;
+                for (int axis=0; axis<3; axis++)
+                {
+                    int r1, r2;
+                    r1 = world_transform_datapos_to_bin (
+                      & sw->world, dataPos[axis][0], subWidth, subHeight, & xi0, & yi0, NULL);
+                    r2 = world_transform_datapos_to_bin (
+                      & sw->world, dataPos[axis][1], subWidth, subHeight, & xi1, & yi1, NULL);
 
-                if (!r1 && !r2)
-                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, MAKE_COLOR (0,255,0));
+                    if (r1 || r2)
+                        continue;
+
+                    xi0 += sw->windowArea.x0;
+                    yi0 += sw->windowArea.y0;
+                    xi1 += sw->windowArea.x0;
+                    yi1 += sw->windowArea.y0;
+
+                    lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, colors[axis]);
+                }
             }
         }
 
