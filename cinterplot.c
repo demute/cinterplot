@@ -2219,17 +2219,44 @@ void cip_register_canvas_fun (int dim, char plotType, CanvasFun canvasFun)
 
 void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
 {
-    //double *points = _points;
-    int    *bins   = canvas->bins;
+    double *points = _points;
+    double *sums   = canvas->sums;
     int    w       = canvas->w;
     int    h       = canvas->h;
 
-    print_debug ("len: %lu", len);
-    for (int yi=0; yi<h; yi+=2)
-    {
-        for (int xi=40; xi<w-40; xi+=8)
-            bins[yi*w + xi] = 20;
+    for (int xi=0; xi<w; xi++)
+        sums[xi] = 0;
 
+    for (size_t i=0; i<len; i++)
+    {
+        double x[3] = {points[i], 0, 0};
+
+        if (logMode & 1) x[0] = LOGFUN (x[0]);
+        if (isnan (x[0]) || isinf (x[0]))
+            continue;
+
+        int xi, yi;
+        double wzVal;
+        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
+        {
+            if (xi >= 0 && xi < w)
+                sums[xi] += 1.0;
+        }
+    }
+
+    double x[3] = {0,1,0};
+    double wpos[3];
+    world_transform_datapos_to_worldpos (world, x, wpos);
+
+    int lastXi = 0;
+    int lastYi = 0;
+
+    for (int xi=0; xi<w; xi++)
+    {
+        int yi = (int) (sums[xi] / wpos[1]);
+        cip_canvas_line (canvas, lastXi, lastYi, xi, yi);
+        lastXi = xi;
+        lastYi = yi;
     }
 }
 
