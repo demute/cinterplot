@@ -129,7 +129,7 @@ int  cip_set_grid_mode_sw (CipSubWindow *sw, uint32_t mode);
 int  cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode);
 int  cip_set_log_mode (CipState *cs, uint32_t windowIndex, uint32_t mode);
 int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled);
-void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1);
+void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1, double wzVal);
 void cip_recursive_free_sub_windows (CipState *cs);
 void cip_remove_attached_graphs (CipState *cs, uint32_t wi);
 int  cip_force_refresh (CipState *cs);

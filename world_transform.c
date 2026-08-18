@@ -258,6 +258,8 @@ void world_transform_adjust_centerpos_using_world_diff (WorldTransform *world, d
     world->centerPos[0] += localx[0];
     world->centerPos[1] += localx[1];
     world->centerPos[2] += localx[2];
+
+    world_apply_constraints (world);
 }
 
 void world_transform_adjust_centerpos_using_scaled_diff (WorldTransform *world, double sd[3])
@@ -271,6 +273,7 @@ void world_transform_adjust_centerpos_using_scaled_diff (WorldTransform *world, 
     world->centerPos[0] += localx[0] * sd[0];
     world->centerPos[1] += localx[1] * sd[1];
     world->centerPos[2] += localx[2] * sd[2];
+    world_apply_constraints (world);
 }
 
 static void dump_matrix (double mtx[3][3])
@@ -315,6 +318,7 @@ void world_transform_rotate_world (WorldTransform *world, double datapos[3], int
     world_transform_datapos_to_worldpos (world, datapos, w1);
     vector_subtract (w0, w0, w1);
     world_transform_adjust_centerpos_using_world_diff (world, w0);
+    world_apply_constraints (world);
 }
 
 void world_transform_rotate_data (WorldTransform *world, double datapos[3], int axis, double theta)
@@ -332,6 +336,7 @@ void world_transform_rotate_data (WorldTransform *world, double datapos[3], int 
     world_transform_datapos_to_worldpos (world, datapos, w1);
     vector_subtract (w0, w0, w1);
     world_transform_adjust_centerpos_using_world_diff (world, w0);
+    world_apply_constraints (world);
 }
 
 void world_transform_scale_world (WorldTransform *world, double datapos[3], double scale[3])
@@ -369,6 +374,7 @@ void world_transform_scale_world (WorldTransform *world, double datapos[3], doub
     world_transform_datapos_to_worldpos (world, datapos, w1);
     vector_subtract (w0, w0, w1);
     world_transform_adjust_centerpos_using_world_diff (world, w0);
+    world_apply_constraints (world);
 }
 
 void world_transform_scale_orthogonal (WorldTransform *world, double scaling[3])
@@ -382,6 +388,7 @@ void world_transform_scale_orthogonal (WorldTransform *world, double scaling[3])
 
     make_diagonal_matrix (world->scaleMtx,    scaling);
     make_diagonal_matrix (world->scaleMtxInv, invScaling);
+    world_apply_constraints (world);
 }
 
 void world_transform_set_range (WorldTransform *world, int axis, double range[2], double margin)
@@ -408,6 +415,7 @@ void world_transform_set_range (WorldTransform *world, int axis, double range[2]
 
     for (int i=0; i<3; i++)
         world->scaleMtxInv[i][i] = 1.0 / world->scaleMtx[i][i];
+    world_apply_constraints (world);
 }
 
 void world_transform_set_ranges (WorldTransform *world, double ranges[3][2], double margin)
@@ -415,6 +423,7 @@ void world_transform_set_ranges (WorldTransform *world, double ranges[3][2], dou
     world_transform_set_range (world, 0, ranges[0], margin);
     world_transform_set_range (world, 1, ranges[1], margin);
     world_transform_set_range (world, 2, ranges[2], margin);
+    world_apply_constraints (world);
 }
 
 void world_transform_set_default_values (WorldTransform *world)
@@ -430,4 +439,15 @@ void world_transform_set_default_values (WorldTransform *world)
         world->centerPos[i] = 0.0;
     }
     world->perspectiveFactor = 0;
+    world_apply_constraints (world);
+}
+
+void world_apply_constraints (WorldTransform *world)
+{
+//    // FIXME: Constraints should be conditional
+//    double sy   = world->scaleMtx[1][1];
+//    double ymax = world->centerPos[1] + 1.0/sy;
+//    world->centerPos[1]   = 0.5 * ymax;
+//    world->scaleMtx[1][1] = 2.0 / ymax;
+//    world->scaleMtxInv[1][1] = 1.0 / world->scaleMtx[1][1];
 }

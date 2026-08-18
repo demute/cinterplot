@@ -41,6 +41,7 @@ typedef struct CipState
 
     int mouseState;
     uint32_t mouseScreenPos[2];
+    double pivot[3];
 
     CipMouse mouse;
 
@@ -850,8 +851,9 @@ static void recompute_sub_window_areas (CipState *cs)
     uint32_t nCols    = cs->nCols;
     uint32_t nRows    = cs->numSubWindows / nCols;
 
-    uint32_t w = cs->windowWidth;
-    uint32_t h = cs->windowHeight - cs->statuslineEnabled * STATUSLINE_HEIGHT;
+    uint32_t w  = cs->windowWidth;
+    uint32_t h0 = cs->statuslineEnabled * STATUSLINE_HEIGHT;
+    uint32_t h  = cs->windowHeight - h0;
 
     int dx = (int) (w / nCols);
     int dy = (int) (h / nRows);
@@ -868,8 +870,8 @@ static void recompute_sub_window_areas (CipState *cs)
                 {
                     sw->windowArea.x0 = 0 + subWindowOffset;
                     sw->windowArea.x1 = w - subWindowOffset;
-                    sw->windowArea.y0 = 0 + subWindowOffset;
-                    sw->windowArea.y1 = h - subWindowOffset;
+                    sw->windowArea.y0 = h0 + 0 + subWindowOffset;
+                    sw->windowArea.y1 = h0 + h - subWindowOffset;
                 }
                 else
                 {
@@ -892,8 +894,8 @@ static void recompute_sub_window_areas (CipState *cs)
                     CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
                     sw->windowArea.x0 = (ci    ) * dx + subWindowOffset;
                     sw->windowArea.x1 = (ci + 1) * dx - subWindowOffset;
-                    sw->windowArea.y0 = (ri    ) * dy + subWindowOffset;
-                    sw->windowArea.y1 = (ri + 1) * dy - subWindowOffset;
+                    sw->windowArea.y0 = (ri    ) * dy + subWindowOffset + h0;
+                    sw->windowArea.y1 = (ri + 1) * dy - subWindowOffset + h0;
                 }
                 else
                 {
@@ -1028,9 +1030,10 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, CipArea *wa, u
     }
 }
 
-void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1)
+void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1, double wzVal)
 {
-    int *bins = canvas->bins;
+    int    *bins = canvas->bins;
+    double *wz   = canvas->wz;
 
     int w = (int) canvas->w;
     int h = (int) canvas->h;
@@ -1059,7 +1062,10 @@ void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1)
         {
             int y = (int) (y0 + ((double) (x - x0) / (x1 - x0) * (y1 - y0) + 0.5));
             if (x>=0 && y>=0 && x<w && y<h)
+            {
                 bins[y*w+x]++;
+                wz[y*w+x] = wzVal;
+            }
         }
     }
     else if (yabs >= xabs && y0 != y1)
@@ -1076,7 +1082,10 @@ void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1)
         {
             int x = (int) (x0 + ((double) (y - y0) / (y1 - y0) * (x1 - x0) + 0.5));
             if (x>=0 && y>=1 && x<w && y<h)
+            {
                 bins[y*w+x]++;
+                wz[y*w+x] = wzVal;
+            }
         }
     }
     else
@@ -1084,7 +1093,10 @@ void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1)
         int x = x0;
         int y = y0;
         if (x>=0 && y>=0 && x<w && y<h)
+        {
             bins[y*w+x]++;
+            wz[y*w+x] = wzVal;
+        }
     }
 }
 
@@ -1277,8 +1289,8 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             CipSubWindow *sw = cs->activeSw;
             double scales[3] =
             {
-                1 - 0.05*xf,
-                1 - 0.05*yf,
+                1 + 0.05*xf,
+                1 + 0.05*yf,
                 1
             };
             double fixedPos[3];
@@ -1288,7 +1300,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         }
         else if (cs->pressedModifiers == KMOD_ALT)
         {
-            sw->world.perspectiveFactor -= 0.01 * xf;
+            sw->world.perspectiveFactor += 0.01 * xf;
             if (sw->world.perspectiveFactor < 0)
                 sw->world.perspectiveFactor = 0;
             if (sw->world.perspectiveFactor > 0.75)
@@ -1308,18 +1320,17 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         else if (cs->pressedModifiers == KMOD_SHIFT)
         {
             // rotating
-            double fixedPos[3];
-            mouse_screenpos_to_datapos (cs, fixedPos);
-            world_transform_rotate_world (& sw->world, fixedPos, 0,  yf * 0.02);
-            world_transform_rotate_world (& sw->world, fixedPos, 1,  xf * 0.02);
+            world_transform_rotate_world (& sw->world, cs->pivot, 0, yf * 0.02);
+            world_transform_rotate_world (& sw->world, cs->pivot, 1, -xf * 0.02);
             return 1;
         }
         else
         {
             // moving
             CipSubWindow *sw = cs->activeSw;
-            double wd[3] = {0.01*xf, -0.01*yf, 0};
+            double wd[3] = {-0.02*xf, -0.02*yf, 0};
             world_transform_adjust_centerpos_using_world_diff (& sw->world, wd);
+
             return 1;
         }
     }
@@ -1419,6 +1430,7 @@ static int find_closest_point (CipCanvas *canvas, int x0, int y0, int *_x, int *
 
 static int on_mouse_motion (CipState *cs, int xi, int yi)
 {
+    //print_debug ("xi: %d yi: %d", xi, yi);
     switch (cs->mouseState)
     {
      case MOUSE_STATE_NONE:
@@ -1528,6 +1540,8 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      }
                      else
                          exit_error ("bug: %d", cs->trackingMode);
+
+                     mouse_screenpos_to_datapos (cs, cs->pivot);
                  }
 
                  if (cs->app_on_mouse_motion)
@@ -2224,39 +2238,51 @@ void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, 
     int    w       = canvas->w;
     int    h       = canvas->h;
 
+    double sx   = world->scaleMtx[0][0];
+    double xmin = world->centerPos[0] - 1.0/sx;
+    double xmax = world->centerPos[0] + 1.0/sx;
+
     for (int xi=0; xi<w; xi++)
         sums[xi] = 0;
 
     for (size_t i=0; i<len; i++)
     {
-        double x[3] = {points[i], 0, 0};
-
-        if (logMode & 1) x[0] = LOGFUN (x[0]);
-        if (isnan (x[0]) || isinf (x[0]))
+        double x = points[i];
+        if (logMode & 1) x = LOGFUN (x);
+        if (isnan (x) || isinf (x))
             continue;
 
-        int xi, yi;
-        double wzVal;
-        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
-        {
-            if (xi >= 0 && xi < w)
-                sums[xi] += 1.0;
-        }
+        int xi = (int) (w * (x - xmin) / (xmax - xmin));
+        if (xi >= 0 && xi < w)
+            sums[xi] += 1.0;
     }
 
-    double x[3] = {0,1,0};
-    double wpos[3];
-    world_transform_datapos_to_worldpos (world, x, wpos);
 
-    int lastXi = 0;
-    int lastYi = 0;
+    int lastXi = -1;
+    int lastYi = -1;
 
     for (int xi=0; xi<w; xi++)
     {
-        int yi = (int) (sums[xi] / wpos[1]);
-        cip_canvas_line (canvas, lastXi, lastYi, xi, yi);
-        lastXi = xi;
-        lastYi = yi;
+        double y = sums[xi];
+        double x = xmin + (xi * (1.0 / w)) * (xmax - xmin);
+        if (logMode & 2) y = LOGFUN (y);
+
+        int binx, biny;
+        double datapos[3] = {x,y,0};
+        double wzVal;
+        if (world_transform_datapos_to_bin (world, datapos, w, h, & binx, & biny, & wzVal) != 0)
+        {
+            lastXi = -1;
+            lastYi = -1;
+            continue;
+        }
+
+        if (lastXi >= 0 && lastYi >= 0)
+        {
+            cip_canvas_line (canvas, lastXi, lastYi, binx, biny, wzVal);
+        }
+        lastXi = binx;
+        lastYi = biny;
     }
 }
 
@@ -2610,13 +2636,13 @@ static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0
      case ALIGN_ML:
      case ALIGN_MC:
      case ALIGN_MR:
-         y0 -= boxHeight >> 1;
+         y0 += boxHeight >> 1;
          break;
 
      case ALIGN_BL:
      case ALIGN_BC:
      case ALIGN_BR:
-         y0 -= boxHeight;
+         y0 += boxHeight;
          break;
     }
 
@@ -2667,10 +2693,10 @@ static uint32_t draw_text (uint32_t* pixels, uint32_t w, uint32_t h, uint32_t x0
                 for (uint32_t yi=0; yi<fh; yi++)
                     for (uint32_t xi=0; xi<fw; xi++)
                         if (!((font[(int)(*p)][yi/scale] >> (11-(xi/scale))) & 1))
-                            pixels[(y+yi)*w + (x+xi)] = color;
+                            pixels[(y-yi)*w + (x+xi)] = color;
                         else if (!transparent)
                         {
-                            uint32_t *pixel = & pixels[(y+yi)*w + (x+xi)];
+                            uint32_t *pixel = & pixels[(y-yi)*w + (x+xi)];
                             darken_pixel (pixel, 0.5);
                         }
             }
@@ -2714,11 +2740,11 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
 {
     double sx = sw->world.scaleMtx[0][0];
     double sy = sw->world.scaleMtx[1][1];
-    double xmin = sw->world.centerPos[0] - 0.95/sx;
-    double xmax = sw->world.centerPos[0] + 0.95/sx;
-    double ymin = sw->world.centerPos[1] - 0.95/sy;
-    double ymax = sw->world.centerPos[1] + 0.95/sy;
-    double cz   = sw->world.centerPos[2];
+    double xmin = sw->world.centerPos[0] - 1.0/sx;
+    double xmax = sw->world.centerPos[0] + 1.0/sx;
+    double ymin = sw->world.centerPos[1] - 1.0/sy;
+    double ymax = sw->world.centerPos[1] + 1.0/sy;
+    //double cz   = sw->world.centerPos[2];
     //print_debug ("sx  /  sy: %f/%f", sx, sy);
     //print_debug ("xmin/xmax: %f/%f", xmin, xmax);
     //print_debug ("ymin/ymax: %f/%f", ymin, ymax);
@@ -2744,8 +2770,8 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                     continue;
 
                 int xi0, yi0, xi1, yi1;
-                double dataPos0[3] = {xmin, yLine, cz};
-                double dataPos1[3] = {xmax, yLine, cz};
+                double dataPos0[3] = {xmin, yLine, 0};
+                double dataPos1[3] = {xmax, yLine, 0};
                 int r1 = world_transform_datapos_to_bin (
                   & sw->world, dataPos0, subWidth, subHeight, & xi0, & yi0, NULL);
                 int r2 = world_transform_datapos_to_bin (
@@ -2763,12 +2789,16 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 {
                     uint32_t scale = 1;
                     char text[32];
-                    snprintf (text, sizeof (text), "%g", y);
+                    if (fabs (y) < 0.01 * dy)
+                        snprintf (text, sizeof (text), "%g", 0.0);
+                    else
+                        snprintf (text, sizeof (text), "%g", y);
+
                     lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, gridColorCoarseX);
 
-                    if (sw->windowArea.x0 < xi0 && xi0 < sw->windowArea.x1 &&
-                        sw->windowArea.y0 < yi0 && yi0 < sw->windowArea.y1)
-                        draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BC);
+                    if (sw->windowArea.x0 <= xi0 && xi0 < sw->windowArea.x1 &&
+                        sw->windowArea.y0 <= yi0 && yi0 < sw->windowArea.y1)
+                        draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BL);
                 }
                 else
                 {
@@ -2792,8 +2822,8 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                     continue;
 
                 int xi0, yi0, xi1, yi1;
-                double dataPos0[3] = {xLine, ymin, cz};
-                double dataPos1[3] = {xLine, ymax, cz};
+                double dataPos0[3] = {xLine, ymin, 0};
+                double dataPos1[3] = {xLine, ymax, 0};
                 int r1 = world_transform_datapos_to_bin (
                   & sw->world, dataPos0, subWidth, subHeight, & xi0, & yi0, NULL);
                 int r2 = world_transform_datapos_to_bin (
@@ -2811,12 +2841,15 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
                 {
                     uint32_t scale = 1;
                     char text[32];
-                    snprintf (text, sizeof (text), "%g", x);
+                    if (fabs (x) < 0.01 * dx)
+                        snprintf (text, sizeof (text), "%g", 0.0);
+                    else
+                        snprintf (text, sizeof (text), "%g", x);
                     lineRGBA (pixels, w, h, & sw->windowArea, xi0, yi0, xi1, yi1, gridColorCoarseY);
 
-                    if (sw->windowArea.x0 < xi1 && xi1 < sw->windowArea.x1 &&
-                        sw->windowArea.y0 < yi1 && yi1 < sw->windowArea.y1)
-                        draw_text (pixels, w, h, xi1, yi1, textColor, useTransparentBg, text, scale, ALIGN_BC);
+                    if (sw->windowArea.x0 <= xi0 && xi0 < sw->windowArea.x1 &&
+                        sw->windowArea.y0 <= yi0 && yi0 < sw->windowArea.y1)
+                        draw_text (pixels, w, h, xi0, yi0, textColor, useTransparentBg, text, scale, ALIGN_BC);
                 }
                 else
                 {
@@ -2828,7 +2861,7 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
 }
 
 #define HELP_TEXT(text) \
-draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL); y0+=16
+draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL); y0-=16
 
 static void plot_data (CipState *cs, uint32_t *pixels)
 {
@@ -2954,6 +2987,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 attacher->lastGraphCounter = render_canvas (
                   canvas, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
                 attacher->lastPlotType = attacher->plotType;
+                memcpy (& sw->world, & canvas->world, sizeof (sw->world)); // FIXME: Perhaps remove world from canvas?
             }
             else
             {
@@ -3038,7 +3072,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         uint32_t textColor = make_gray (0.9f);
         int transparent = 0;
         uint32_t x0 = 10;
-        uint32_t y0 = cs->windowHeight - STATUSLINE_HEIGHT / 2;
+        uint32_t y0 = STATUSLINE_HEIGHT / 2;
         char text[256];
 
         if (cs->activeSw)
@@ -3114,7 +3148,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         uint32_t textColor = make_gray (0.9f);
         int transparent = 0;
         uint32_t x0 = 10;
-        uint32_t y0 = 20;
+        uint32_t y0 = h-20;
         HELP_TEXT (" Keyboard bindings:");
         HELP_TEXT ("   a        - autoscale");
         HELP_TEXT ("   c        - cycle graph order");
@@ -3260,7 +3294,9 @@ static void update_image (CipState *cs, SDL_Texture *texture, int init)
     if (status)
         exit_error ("texture: %p, status: %d: %s\n", (void*) texture, status, SDL_GetError());
 
-    memcpy (pixels, cs->pixelCache, w * h * sizeof (cs->pixelCache[0]));
+    for (int yi=0; yi<h; yi++)
+        for (int xi=0; xi<w; xi++)
+            pixels[yi*w + xi] = cs->pixelCache[(h-1-yi)*w + xi];
 
     if (iconData && processIconData == 0)
     {
@@ -3382,6 +3418,7 @@ static int cinterplot_run_until_quit (CipState *cs)
         cs->frameCounter++;
         SDL_Event event;
         int redraw = 0;
+        int h = cs->windowHeight;
         while (SDL_PollEvent (& event))
         {
             switch(event.type)
@@ -3389,16 +3426,16 @@ static int cinterplot_run_until_quit (CipState *cs)
              case SDL_QUIT:
                  return 0;
              case SDL_MOUSEBUTTONDOWN:
-                 redraw |= cs->on_mouse_pressed (cs, event.button.x-1, event.button.y-2, event.button.button, event.button.clicks);
+                 redraw |= cs->on_mouse_pressed (cs, event.button.x-1, h-1-(event.button.y-2), event.button.button, event.button.clicks);
                  break;
              case SDL_MOUSEBUTTONUP:
-                 redraw |= cs->on_mouse_released (cs, event.button.x-1, event.button.y-2);
+                 redraw |= cs->on_mouse_released (cs, event.button.x-1, h-1-(event.button.y-2));
                  break;
              case SDL_MOUSEMOTION:
-                 redraw |= cs->on_mouse_motion (cs, event.motion.x-1, event.motion.y-2);
+                 redraw |= cs->on_mouse_motion (cs, event.motion.x-1, h-1-(event.motion.y-2));
                  break;
              case SDL_MOUSEWHEEL:
-                 redraw |= cs->on_mouse_wheel (cs, event.wheel.preciseX, event.wheel.preciseY);
+                 redraw |= cs->on_mouse_wheel (cs, -event.wheel.preciseX, -event.wheel.preciseY);
                  break;
              case SDL_KEYDOWN:
              case SDL_KEYUP:
