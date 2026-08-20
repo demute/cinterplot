@@ -514,6 +514,24 @@ int cip_autoscale_sw (CipSubWindow *sw)
         {zmin, zmax},
     };
 
+    double maxRange = 0;
+    for (int i=0; i<3; i++)
+    {
+        double range = ranges[i][1] - ranges[i][0];
+        if (maxRange < range)
+            maxRange = range;
+    }
+
+    for (int i=0; i<3; i++)
+    {
+        double range = ranges[i][1] - ranges[i][0];
+        if (range < 1e-10 * maxRange)
+        {
+            ranges[i][0] = -1;
+            ranges[i][1] =  1;
+        }
+    }
+
     world_transform_set_ranges (& sw->world, ranges, 0.0);
     return 1;
 }
@@ -1217,9 +1235,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
                 1 + 0.05*yf,
                 1
             };
-            double fixedPos[3];
-            mouse_screenpos_to_datapos (cs, fixedPos);
-            world_transform_scale_world (& sw->world, fixedPos, scales);
+            world_transform_scale_world (& sw->world, cs->pivot, scales);
             return 1;
         }
         else if (cs->pressedModifiers == KMOD_ALT)
@@ -1236,9 +1252,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         else if (cs->pressedModifiers == (KMOD_ALT | KMOD_SHIFT))
         {
             // rotating z
-            double fixedPos[3];
-            mouse_screenpos_to_datapos (cs, fixedPos);
-            world_transform_rotate_world (& sw->world, fixedPos, 2, -yf * 0.02);
+            world_transform_rotate_world (& sw->world, cs->pivot, 2, -yf * 0.02);
             return 1;
         }
         else if (cs->pressedModifiers == KMOD_SHIFT)
@@ -1342,7 +1356,7 @@ static int find_closest_point (CipCanvas *canvas, int x0, int y0, int *_x, int *
     }
     if (bestX < 0 || bestY < 0)
     {
-        print_debug ("no point found");
+        //print_debug ("no point found");
         return -1;
     }
 
@@ -1396,6 +1410,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                      int w = (int) canvas->w;
                      int h = (int) canvas->h;
                      int  *bins = canvas->bins;
+                     double  *wz = canvas->wz;
 
                      if (!bins)
                      {
@@ -1426,7 +1441,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                              }
 
                              if (bestY >= 0)
-                                 cs->mouseScreenPos[1] = y0 + bestY;
+                                 biny = bestY;
                          }
                      }
                      else if (cs->trackingMode == 2)
@@ -1451,21 +1466,21 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                                  }
                              }
                              if (bestX >= 0)
-                                 cs->mouseScreenPos[0] = x0 + bestX;
+                                 binx = bestX;
                          }
                      }
                      else if (cs->trackingMode == 3)
                      {
                          // trackingMode 3: mouse position is used to get the closest coordinate on the graph
-                         int newx, newy;
-                         find_closest_point (canvas, binx, biny, & newx, & newy);
-                         cs->mouseScreenPos[0] = x0 + newx;
-                         cs->mouseScreenPos[1] = y0 + newy;
+                         find_closest_point (canvas, binx, biny, & binx, & biny);
                      }
                      else
                          exit_error ("bug: %d", cs->trackingMode);
 
-                     mouse_screenpos_to_datapos (cs, cs->pivot);
+                     double wzVal = wz[biny * w + binx];
+                     world_transform_bin_to_datapos (& sw->world, w, h, binx, biny, wzVal, cs->pivot);
+                     cs->mouseScreenPos[0] = x0 + binx;
+                     cs->mouseScreenPos[1] = y0 + biny;
                  }
 
                  if (cs->app_on_mouse_motion)
@@ -1475,9 +1490,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          if (& cs->subWindows[windowIndex] == sw)
                              break;
 
-                     double mouseDataPos[3];
-                     mouse_screenpos_to_datapos (cs, mouseDataPos);
-                     cs->app_on_mouse_motion (cs, windowIndex, mouseDataPos[0], mouseDataPos[1]);
+                     cs->app_on_mouse_motion (cs, windowIndex, 0.0, 0.0);
                  }
              }
 
@@ -2672,8 +2685,7 @@ static void plot_data (CipState *cs, uint32_t *restrict pixels)
             if (sw == cs->activeSw && cs->crosshairEnabled)
             {
                 BENCHMARK_ADD_CHECKPOINT ("draw crosshair");
-                double mx[3];
-                mouse_screenpos_to_datapos (cs, mx);
+                double *mx = cs->pivot;
 
                 double sx = sw->world.scaleMtx[0][0];
                 double sy = sw->world.scaleMtx[1][1];
@@ -2758,15 +2770,13 @@ static void plot_data (CipState *cs, uint32_t *restrict pixels)
         if (cs->activeSw)
         {
             CipSubWindow *sw = cs->activeSw;
-            double mouseDataPos[3];
-            mouse_screenpos_to_datapos (cs, mouseDataPos);
 
             char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
             char *trackingModeStr = tm[cs->trackingMode];
             char *logModeStr      = lm[sw->logMode];
-            snprintf (text, sizeof (text), "(x,y) = (%0.8g, %0.8g) tracking:%s logMode:%s",
-                      mouseDataPos[0], mouseDataPos[1], trackingModeStr, logModeStr);
+            snprintf (text, sizeof (text), "(x,y,z) = (%0.6g, %0.6g, %0.6g) tracking:%s logMode:%s",
+                      cs->pivot[0], cs->pivot[1], cs->pivot[2], trackingModeStr, logModeStr);
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
 
             char *title = sw->title;
@@ -3042,8 +3052,8 @@ static CipState *cip_init (void)
     cs->plot_data         = plot_data;
 
     cs->crosshairEnabled  = 1;
-    cs->trackingMode      = 0;
-    cs->statuslineEnabled = 0;
+    cs->trackingMode      = 3;
+    cs->statuslineEnabled = 1;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;
     cs->redraw            = 0;

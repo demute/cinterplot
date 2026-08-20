@@ -138,9 +138,10 @@ void world_apply_constraints (WorldTransform *world);
     const double m10 = mtx[1][0];                            \
     const double m11 = mtx[1][1];                            \
     const double m12 = mtx[1][2];                            \
-    const double m20 = mtx[2][0] * world->perspectiveFactor; \
-    const double m21 = mtx[2][1] * world->perspectiveFactor; \
-    const double m22 = mtx[2][2] * world->perspectiveFactor
+    const double m20 = mtx[2][0];                            \
+    const double m21 = mtx[2][1];                            \
+    const double m22 = mtx[2][2];                            \
+    const double pf  = world->perspectiveFactor
 
 
 #define WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE(datapos,xi,yi,z) \
@@ -150,7 +151,7 @@ void world_apply_constraints (WorldTransform *world);
         const double x = m00*lx + m01*ly + m02*lz; \
         const double y = m10*lx + m11*ly + m12*lz; \
         const double z = m20*lx + m21*ly + m22*lz; \
-        const double iz = 1.0 / (z + 1.0);         \
+        const double iz = 1.0 / (z*pf + 1.0);      \
         const int xi = (int)((x * iz + 1.0) * sx); \
         const int yi = (int)((y * iz + 1.0) * sy)
 
