@@ -11,6 +11,7 @@ int user_main (int argc, char **argv, CipState *cs)
     uint32_t margin = 4;
 
     cip_set_crosshair_enabled (cs, 0);
+    cip_set_bg_shade (cs, 0.0);
 
     if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
@@ -129,10 +130,13 @@ int user_main (int argc, char **argv, CipState *cs)
         {
             double datapos[3] = {0};
             CipSubWindow *sw = cip_get_sub_window (cs, si[i]);
-            world_transform_rotate_data  (& sw->world, datapos, 0, 0.01011);
-            world_transform_rotate_world (& sw->world, datapos, 1, 0.01110);
-            world_transform_rotate_data  (& sw->world, datapos, 2, 0.01003);
-            world_transform_rotate_world (& sw->world, datapos, 1, 0.01200);
+            world_transform_rotate_world (& sw->world, datapos, 0, 0.01011);
+            world_transform_rotate_data  (& sw->world, datapos, 1, 0.01110);
+            world_transform_rotate_world (& sw->world, datapos, 2, 0.01003);
+            world_transform_rotate_data  (& sw->world, datapos, 1, 0.01200);
+            sw->world.centerPos[0] *= 0.95;
+            sw->world.centerPos[1] *= 0.95;
+            sw->world.centerPos[2] *= 0.95;
         }
 
         cip_force_refresh (cs);

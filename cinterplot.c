@@ -11,14 +11,8 @@
 #include "savepng.h"
 #include "macos_icon.h"
 #include "world_transform.h"
-
-#define LOG101_VALUE 0.0099503308531681
-#define LOG101_VALUE_INV (1.0 / LOG101_VALUE)
-#define log101(x) (log (x) * LOG101_VALUE_INV)
-#define exp101(x) exp ((x) * LOG101_VALUE)
-
-#define LOGFUN log101
-#define EXPFUN exp101
+#include "canvas_functions.h"
+#include "benchmark.h"
 
 typedef struct CipState
 {
@@ -1027,76 +1021,6 @@ static void lineRGBA (uint32_t *pixels, uint32_t _w, uint32_t _h, CipArea *wa, u
         int y = y0;
         if (x>=xMin && y>=yMin && x<xMax && y<yMax)
             pixels[y*w+x] = color;
-    }
-}
-
-void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1, double wzVal)
-{
-    int    *bins = canvas->bins;
-    double *wz   = canvas->wz;
-
-    int w = (int) canvas->w;
-    int h = (int) canvas->h;
-
-    if ((x0 < 0 && x1 < 0) ||
-        (y0 < 0 && y1 < 0) ||
-        (x0 > w && x1 > w) ||
-        (y0 > h && y1 > h)
-       )
-        return;
-
-    int xabs = (x1 > x0) ? x1 - x0 : x0 - x1;
-    int yabs = (y1 > y0) ? y1 - y0 : y0 - y1;
-
-    if (xabs > yabs)
-    {
-        int xstart = ((x0 < x1) ? x0 : x1);
-        int xstop  = xstart + xabs;
-
-        if (xstart <   0) xstart = 0;
-        if (xstart > w-1) xstart = w-1;
-        if (xstop <    0) xstop  = 0;
-        if (xstop >  w-1) xstop  = w-1;
-
-        for (int x=xstart; x<=xstop; x++)
-        {
-            int y = (int) (y0 + ((double) (x - x0) / (x1 - x0) * (y1 - y0) + 0.5));
-            if (x>=0 && y>=0 && x<w && y<h)
-            {
-                bins[y*w+x]++;
-                wz[y*w+x] = wzVal;
-            }
-        }
-    }
-    else if (yabs >= xabs && y0 != y1)
-    {
-        int ystart = ((y0 < y1) ? y0 : y1);
-        int ystop  = ystart + yabs;
-
-        if (ystart <   0) ystart = 0;
-        if (ystart > h-1) ystart = h-1;
-        if (ystop <    0) ystop  = 0;
-        if (ystop >  h-1) ystop  = h-1;
-
-        for (int y=ystart; y<=ystop; y++)
-        {
-            int x = (int) (x0 + ((double) (y - y0) / (y1 - y0) * (x1 - x0) + 0.5));
-            if (x>=0 && y>=1 && x<w && y<h)
-            {
-                bins[y*w+x]++;
-                wz[y*w+x] = wzVal;
-            }
-        }
-    }
-    else
-    {
-        int x = x0;
-        int y = y0;
-        if (x>=0 && y>=0 && x<w && y<h)
-        {
-            bins[y*w+x]++;
-            wz[y*w+x] = wzVal;
-        }
     }
 }
 
@@ -2215,164 +2139,6 @@ void cip_register_canvas_fun (int dim, char plotType, CanvasFun canvasFun)
     canvasFuns[dim][(uint8_t) plotType] = canvasFun;
 }
 
-void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
-{
-    double *points = _points;
-    double *sums   = canvas->sums;
-    int    w       = canvas->w;
-    int    h       = canvas->h;
-
-    double sx   = world->scaleMtx[0][0];
-    double xmin = world->centerPos[0] - 1.0/sx;
-    double xmax = world->centerPos[0] + 1.0/sx;
-
-    for (int xi=0; xi<w; xi++)
-        sums[xi] = 0;
-
-    for (size_t i=0; i<len; i++)
-    {
-        double x = points[i];
-        if (logMode & 1) x = LOGFUN (x);
-        if (isnan (x) || isinf (x))
-            continue;
-
-        int xi = (int) (w * (x - xmin) / (xmax - xmin));
-        if (xi >= 0 && xi < w)
-            sums[xi] += 1.0;
-    }
-
-
-    int lastXi = -1;
-    int lastYi = -1;
-
-    for (int xi=0; xi<w; xi++)
-    {
-        double y = sums[xi];
-        double x = xmin + (xi * (1.0 / w)) * (xmax - xmin);
-        if (logMode & 2) y = LOGFUN (y);
-
-        int binx, biny;
-        double datapos[3] = {x,y,0};
-        double wzVal;
-        if (world_transform_datapos_to_bin (world, datapos, w, h, & binx, & biny, & wzVal) != 0)
-        {
-            lastXi = -1;
-            lastYi = -1;
-            continue;
-        }
-
-        if (lastXi >= 0 && lastYi >= 0)
-        {
-            cip_canvas_line (canvas, lastXi, lastYi, binx, biny, wzVal);
-        }
-        lastXi = binx;
-        lastYi = biny;
-    }
-}
-
-void canvas_fun_2d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
-{
-    double (*points)[2] = _points;
-    int    *bins        = canvas->bins;
-    double *wz          = canvas->wz;
-    int    w            = canvas->w;
-    int    h            = canvas->h;
-
-    for (size_t i=0; i<len; i++)
-    {
-        double x[3] = {points[i][0], points[i][1], 0};
-
-        if (logMode & 1) x[0] = LOGFUN (x[0]);
-        if (logMode & 2) x[1] = LOGFUN (x[1]);
-        if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
-            continue;
-
-        int xi, yi;
-        double wzVal;
-        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
-        {
-            if (xi < 0 || xi >= w || yi < 0 || yi >= h)
-                continue;
-
-            int idx = yi*w + xi;
-            bins[idx]++;
-            if (wz[idx] < wzVal)
-                wz[idx] = wzVal;
-        }
-    }
-}
-
-void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
-{
-    double (*points)[3] = _points;
-    int    *bins        = canvas->bins;
-    double *wz          = canvas->wz;
-    int    w            = canvas->w;
-    int    h            = canvas->h;
-
-    for (size_t i=0; i<len; i++)
-    {
-        double x[3] = {points[i][0], points[i][1], points[i][2]};
-
-        if (logMode & 1) x[0] = LOGFUN (x[0]);
-        if (logMode & 2) x[1] = LOGFUN (x[1]);
-        if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
-            continue;
-
-        int xi, yi;
-        double wzVal;
-        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
-        {
-            if (xi < 0 || xi >= w || yi < 0 || yi >= h)
-                continue;
-
-            int idx = yi*w + xi;
-            bins[idx]++;
-            if (wz[idx] < wzVal)
-                wz[idx] = wzVal;
-        }
-    }
-}
-
-void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
-{
-    double (*points)[3] = _points;
-    int    w            = canvas->w;
-    int    h            = canvas->h;
-
-    int lastXi = -1;
-    int lastYi = -1;
-
-    for (size_t i=0; i<len; i++)
-    {
-        double x[3] = {points[i][0], points[i][1], points[i][2]};
-
-        if (logMode & 1) x[0] = LOGFUN (x[0]);
-        if (logMode & 2) x[1] = LOGFUN (x[1]);
-        if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
-        {
-            lastXi = -1;
-            lastYi = -1;
-            continue;
-        }
-
-        int xi, yi;
-        double wzVal;
-        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) != 0)
-        {
-            lastXi = -1;
-            lastYi = -1;
-            continue;
-        }
-
-        if (lastXi >= 0 && lastYi >= 0)
-            cip_canvas_line (canvas, lastXi, lastYi, xi, yi, wzVal);
-
-        lastXi = xi;
-        lastYi = yi;
-    }
-}
-
 static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     uint64_t counter = 0;
@@ -2439,148 +2205,12 @@ static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logM
 
     WorldTransform *world = & canvas->world;
     int dim = sz / sizeof (double);
+    BENCHMARK_ADD_CHECKPOINT ("canvasFun");
     CanvasFun fun = canvasFuns[dim][(uint8_t) plotType];
     if (fun)
         fun (world, buf, len, logMode, canvas);
     else
         print_error ("unknown plotType '%c' for dim %d", plotType, dim);
-
-    // every point is one pixel
-    //for (int i=0; i<len; i++)
-    //{
-    //    int xi, yi;
-    //    double wzVal;
-
-    //    double x[3];
-    //    double *point = (double *) (buf + sz * i);
-    //    x[0] = point[0];
-    //    x[1] = point[1];
-    //    x[2] = (dim > 2) ? point[2] : 0;
-
-    //    if (logMode & 1) x[0] = LOGFUN (x[0]);
-    //    if (logMode & 2) x[1] = LOGFUN (x[1]);
-    //    if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
-    //        continue;
-
-    //    // FIXME: apply log and permute indices here, make support for n-dimensional vectors
-
-    //    if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
-    //    {
-    //        int xi0 = lastXi;
-    //        int yi0 = lastYi;
-    //        int xi1 = xi;
-    //        int yi1 = yi;
-    //        lastXi = xi;
-    //        lastYi = yi;
-
-    //        if (plotType == 'p')
-    //        {
-    //            int idx = yi*w + xi;
-    //            bins[idx]++;
-    //            if (wz[idx] < wzVal)
-    //                wz[idx] = wzVal;
-    //        }
-    //        //else if (plotType == '+')
-    //        //{
-    //        //    // every point is a plus sign
-    //        //    double *point = (double *) (buf + sz * i);
-    //        //    double x = point[0];
-    //        //    double y = point[1];
-
-    //        //    int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
-    //        //    int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
-    //        //    for (int j=0; j<9; j++)
-    //        //    {
-    //        //        int xp = xi+xx[j];
-    //        //        int yp = yi+yy[j];
-    //        //        if (xp >= 0 && xp < w && yp >= 0 && yp < h)
-    //        //            bins[(uint32_t) yp*w + (uint32_t) xp]++;
-    //        //    }
-    //        //}
-    //        //else if (plotType == 'l')
-    //        //{
-    //        //    // line
-    //        //    // NOTE: A straight line between two points is moving through different points depending on log mode
-    //        //    cip_canvas_line (canvas, xi0, yi0, xi1, yi1);
-    //        //}
-    //        //else if (plotType == 't')
-    //        //{
-    //        //    // thick line
-    //        //    cip_canvas_line (canvas, xi0, yi0, xi1, yi1);
-    //        //    cip_canvas_line (canvas, xi0+1, yi0, xi1+1, yi1);
-    //        //    cip_canvas_line (canvas, xi0-1, yi0, xi1-1, yi1);
-    //        //    cip_canvas_line (canvas, xi0, yi0+1, xi1, yi1+1);
-    //        //    cip_canvas_line (canvas, xi0, yi0-1, xi1, yi1-1);
-    //        //}
-    //        //else if (plotType == 's')
-    //        //{
-    //        //    // staircase
-    //        //    cip_canvas_line (canvas, xi0, yi0, xi1, yi0);
-    //        //    cip_canvas_line (canvas, xi1, yi0, xi1, yi1);
-    //        //}
-    //        //else if (plotType == 'w')
-    //        //{
-    //        //    // waterfall
-    //        //    if (i0 < 0)
-    //        //    {
-    //        //        print_warning ("truncating");
-    //        //        i0 = 0;
-    //        //    }
-    //        //    if (isnan (xy[0]) || isnan (xy[1]))
-    //        //    {
-    //        //        // flush row
-    //        //        for (uint32_t yi=h-1; yi>0; yi--)
-    //        //            for (uint32_t xi=0; xi<w; xi++)
-    //        //                bins[yi*w + xi] = bins[(yi-1) * w + xi];
-
-    //        //        // construct new row
-    //        //        int lastNonZeroXi = -1;
-    //        //        for (uint32_t xi=0; xi<w; xi++)
-    //        //        {
-    //        //            if (canvas->counts[xi] > 1e-5)
-    //        //            {
-    //        //                double avg = sums[xi] / counts[xi];
-    //        //                double s = canvas->world.scaleMtx[1][1];
-    //        //                double ymin = canvas->world.centerPos[1] - s;
-    //        //                double ymax = canvas->world.centerPos[1] + s;
-    //        //                double w = (avg - ymin) / (ymax - ymin);
-
-    //        //                if (lastNonZeroXi < 0)
-    //        //                    lastNonZeroXi = xi-1;
-    //        //                for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
-    //        //                    bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
-
-    //        //                //print_debug ("sums[xi]: %f counts[xi]: %f ymin: %f, ymax: %f avg: %f => w: %f => bins[%d]: %d",
-    //        //                //sums[xi], counts[xi], ymin, ymax, avg, w, xi, bins[xi]);
-    //        //                sums[xi]   = 0.0;
-    //        //                counts[xi] = 0.0;
-    //        //                lastNonZeroXi = xi;
-    //        //            }
-    //        //        }
-    //        //    }
-    //        //    else
-    //        //    {
-    //        //        double x = xy[0];
-    //        //        double y = xy[1];
-
-    //        //        double s = canvas->world.scaleMtx[0][0];
-    //        //        double xmin = canvas->world.centerPos[0] - s;
-    //        //        double xmax = canvas->world.centerPos[0] + s;
-    //        //        int xi = (x - xmin) / (xmax - xmin) * (w-1);
-
-    //        //        if (xi >= 0 && xi < w)
-    //        //        {
-    //        //            sums[xi]   += y;
-    //        //            counts[xi] += 1.0;
-    //        //        }
-    //        //    }
-    //        //}
-    //        else
-    //        {
-    //            exit_error ("unknown plot type '%c'", plotType);
-    //        }
-    //    }
-    //}
 
     release_access (& graph->readAccess);
     return counter;
@@ -2886,8 +2516,9 @@ static void draw_grid (CipState *cs, CipSubWindow *sw, uint32_t *pixels, uint32_
 #define HELP_TEXT(text) \
 draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_TL); y0-=16
 
-static void plot_data (CipState *cs, uint32_t *pixels)
+static void plot_data (CipState *cs, uint32_t *restrict pixels)
 {
+    BENCHMARK_ADD_CHECKPOINT ("plot_data");
     uint32_t activeColor    = make_gray (1.0f);
     uint32_t inactiveColor  = make_gray (0.4f);
     uint32_t bgColor        = make_gray (cs->bgShade);
@@ -2954,7 +2585,10 @@ static void plot_data (CipState *cs, uint32_t *pixels)
             cip_continuous_scroll_update (sw);
 
         if (sw->gridMode)
+        {
+            BENCHMARK_ADD_CHECKPOINT ("grid");
             draw_grid (cs, sw, pixels, w, h, subWidth, subHeight);
+        }
 
         for (uint32_t gi=0; gi<sw->numAttachedGraphs; gi++)
         {
@@ -3006,6 +2640,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
             if (updateCanvas)
             {
+                BENCHMARK_ADD_CHECKPOINT ("update canvas");
                 memcpy (& canvas->world, & sw->world, sizeof (sw->world));
                 attacher->lastGraphCounter = render_canvas (
                   canvas, attacher->graph, sw->logMode, attacher->plotType, attacher->lastGraphCounter);
@@ -3017,8 +2652,9 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 //foobar;
             }
 
-            int *bins = canvas->bins;
-            uint32_t *colors = attacher->colorScheme->colors;
+            BENCHMARK_ADD_CHECKPOINT ("copy canvas to pixels");
+            int *restrict bins = canvas->bins;
+            uint32_t *restrict colors = attacher->colorScheme->colors;
             uint32_t nLevels = attacher->colorScheme->nLevels;
 
             for (uint32_t yi=0; yi<subHeight; yi++)
@@ -3035,9 +2671,8 @@ static void plot_data (CipState *cs, uint32_t *pixels)
 
             if (sw == cs->activeSw && cs->crosshairEnabled)
             {
+                BENCHMARK_ADD_CHECKPOINT ("draw crosshair");
                 double mx[3];
-                int xi0, yi0, xi1, yi1;
-
                 mouse_screenpos_to_datapos (cs, mx);
 
                 double sx = sw->world.scaleMtx[0][0];
@@ -3075,6 +2710,8 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                 for (int axis=0; axis<3; axis++)
                 {
                     int r1, r2;
+                    int xi0, yi0, xi1, yi1;
+
                     r1 = world_transform_datapos_to_bin (
                       & sw->world, dataPos[axis][0], subWidth, subHeight, & xi0, & yi0, NULL);
                     r2 = world_transform_datapos_to_bin (
@@ -3096,6 +2733,7 @@ static void plot_data (CipState *cs, uint32_t *pixels)
         if (sw->selectedArea.x0 != sw->selectedArea.x1 &&
             sw->selectedArea.y0 != sw->selectedArea.y1)
         {
+            BENCHMARK_ADD_CHECKPOINT ("lighen area");
             int sx0 = sw->selectedArea.x0;
             int sy0 = sw->selectedArea.y0;
             int sx1 = sw->selectedArea.x1;
@@ -3107,8 +2745,10 @@ static void plot_data (CipState *cs, uint32_t *pixels)
                         lighten_pixel (& pixels[y*w + x], 0.2);
         }
     }
+
     if (cs->statuslineEnabled)
     {
+        BENCHMARK_ADD_CHECKPOINT ("statusline");
         uint32_t textColor = make_gray (0.9f);
         int transparent = 0;
         uint32_t x0 = 10;
@@ -3328,6 +2968,8 @@ static void update_image (CipState *cs, SDL_Texture *texture, int init)
     else
         cs->plot_data (cs, cs->pixelCache);
 
+    BENCHMARK_ADD_CHECKPOINT ("flushing pixels");
+
     uint32_t* pixels;
     int wb;
     int status = SDL_LockTexture (texture, NULL, (void**) & pixels, & wb);
@@ -3524,6 +3166,7 @@ static int cinterplot_run_until_quit (CipState *cs)
         }
         if (cs->redraw && tsp - lastFrameTsp > periodTime)
         {
+            BENCHMARK_START ("redrawing");
             cs->redraw = 0;
             cs->redrawing = 1;
             lastFrameTsp = tsp;
@@ -3531,6 +3174,8 @@ static int cinterplot_run_until_quit (CipState *cs)
             SDL_RenderCopy (cs->renderer, cs->texture, NULL, NULL);
             SDL_RenderPresent (cs->renderer);
             cs->redrawing = 0;
+            BENCHMARK_STOP ();
+            BENCHMARK_DUMP ();
         }
         else
             usleep (100);
@@ -3658,6 +3303,7 @@ int main (int argc, char **argv)
     // than the main thread
     srand ((unsigned int) time (NULL));
 
+    BENCHMARK_CREATE ();
     CipState *cs = cip_init ();
     if (!cs)
         return 1;

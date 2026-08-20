@@ -19,6 +19,15 @@ extern "C" {
 #define CINTERPLOT_TITLE "Cinterplot"
 #define MAKE_COLOR(r,g,b) (0xff000000 | (uint32_t) (((int)(r) << 16) | ((int)(g) << 8) | (int)(b)))
 
+#define LOG101_VALUE 0.0099503308531681
+#define LOG101_VALUE_INV (1.0 / LOG101_VALUE)
+#define log101(x) (log (x) * LOG101_VALUE_INV)
+#define exp101(x) exp ((x) * LOG101_VALUE)
+
+#define LOGFUN log101
+#define EXPFUN exp101
+
+
 typedef struct CipColorScheme
 {
     uint32_t nLevels;

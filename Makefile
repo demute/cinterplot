@@ -16,6 +16,10 @@ OBJS += oklab.o
 OBJS += savepng.o
 OBJS += macos_icon.o
 OBJS += world_transform.o
+OBJS += canvas_functions.o
+OBJS += benchmark.o
+
+#CFLAGS += -DENABLE_BENCHMARKING
 
 EXAMPLES = $(wildcard examples/*/.)
 .PHONY: run $(EXAMPLES)

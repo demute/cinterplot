@@ -116,4 +116,41 @@ void world_apply_constraints (WorldTransform *world);
 } /* end extern C */
 #endif
 
+#define WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT(world)  \
+    double mtx[3][3];                                        \
+    double (*mtx1)[3] = world->rotMtx;                       \
+    double (*mtx2)[3] = world->scaleMtx;                     \
+    for (int i=0; i<3; i++)                                  \
+        for (int j=0; j<3; j++)                              \
+            mtx[i][j] =                                      \
+                mtx1[i][0] * mtx2[0][j] +                    \
+                mtx1[i][1] * mtx2[1][j] +                    \
+                mtx1[i][2] * mtx2[2][j];                     \
+    const double sx = 0.5 * (w - 1);                         \
+    const double sy = 0.5 * (h - 1);                         \
+    const double cx0 = world->centerPos[0];                  \
+    const double cx1 = world->centerPos[1];                  \
+    const double cx2 = world->centerPos[2];                  \
+    const double m00 = mtx[0][0];                            \
+    const double m01 = mtx[0][1];                            \
+    const double m02 = mtx[0][2];                            \
+    const double m10 = mtx[1][0];                            \
+    const double m11 = mtx[1][1];                            \
+    const double m12 = mtx[1][2];                            \
+    const double m20 = mtx[2][0] * world->perspectiveFactor; \
+    const double m21 = mtx[2][1] * world->perspectiveFactor; \
+    const double m22 = mtx[2][2] * world->perspectiveFactor
+
+
+#define WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE(datapos,xi,yi,z) \
+        const double lx = datapos[0] - cx0;        \
+        const double ly = datapos[1] - cx1;        \
+        const double lz = datapos[2] - cx2;        \
+        const double x = m00*lx + m01*ly + m02*lz; \
+        const double y = m10*lx + m11*ly + m12*lz; \
+        const double z = m20*lx + m21*ly + m22*lz; \
+        const double iz = 1.0 / (z + 1.0);         \
+        const int xi = (int)((x * iz + 1.0) * sx); \
+        const int yi = (int)((y * iz + 1.0) * sy)
+
 #endif /* _WORLD_TRANSFORM_H_ */
