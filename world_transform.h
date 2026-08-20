@@ -104,12 +104,13 @@ void world_transform_projected_to_worldpos (WorldTransform *world, double p[3], 
 void world_transform_rotate_data (WorldTransform *world, double datapos[3], int axis, double theta);
 void world_transform_rotate_world (WorldTransform *world, double datapos[3], int axis, double theta);
 void world_transform_scale_world (WorldTransform *world, double datapos[3], double scale[3]);
+void world_transform_scale_data (WorldTransform *world, double datapos[3], double scale[3]);
 void world_transform_set_default_values (WorldTransform *world);
 void world_transform_set_range (WorldTransform *world, int axis, double range[2], double margin);
 void world_transform_set_ranges (WorldTransform *world, double ranges[3][2], double margin);
 void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], double x[3]);
 int  world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3]);
-void world_dump (WorldTransform *world);
+void world_dump (WorldTransform *world, int line);
 void world_apply_constraints (WorldTransform *world);
 
 #ifdef __cplusplus

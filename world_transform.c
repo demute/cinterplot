@@ -1,6 +1,15 @@
 #include "cinterplot_common.h"
 #include "world_transform.h"
 
+#define WORLD_DUMP world_dump(world,__LINE__)
+
+static void dump_matrix (double mtx[3][3])
+{
+    fprintf (STDFS, "%+16.13f %+16.13f %+16.13f\n", mtx[0][0], mtx[0][1], mtx[0][2]);
+    fprintf (STDFS, "%+16.13f %+16.13f %+16.13f\n", mtx[1][0], mtx[1][1], mtx[1][2]);
+    fprintf (STDFS, "%+16.13f %+16.13f %+16.13f\n", mtx[2][0], mtx[2][1], mtx[2][2]);
+}
+
 static void matrix_matrix_multiply (double dst[3][3], double mtx1[3][3], double mtx2[3][3])
 {
     double tmp[3][3];
@@ -273,19 +282,13 @@ void world_transform_adjust_centerpos_using_scaled_diff (WorldTransform *world, 
     world->centerPos[0] += localx[0] * sd[0];
     world->centerPos[1] += localx[1] * sd[1];
     world->centerPos[2] += localx[2] * sd[2];
+
     world_apply_constraints (world);
 }
 
-static void dump_matrix (double mtx[3][3])
+void world_dump (WorldTransform *world, int line)
 {
-    fprintf (STDFS, "%+10.5f %+10.5f %+10.5f\n", mtx[0][0], mtx[0][1], mtx[0][2]);
-    fprintf (STDFS, "%+10.5f %+10.5f %+10.5f\n", mtx[1][0], mtx[1][1], mtx[1][2]);
-    fprintf (STDFS, "%+10.5f %+10.5f %+10.5f\n", mtx[2][0], mtx[2][1], mtx[2][2]);
-}
-
-void world_dump (WorldTransform *world)
-{
-    print_debug ("dumping world");
+    print_debug ("dumping world %p from line %d", world, line);
     fprintf (STDFS, "rotMtx:\n");
     dump_matrix (world->rotMtx);
 
@@ -297,6 +300,15 @@ void world_dump (WorldTransform *world)
 
     fprintf (STDFS, "scaleMtxInv:\n");
     dump_matrix (world->scaleMtxInv);
+
+    double id[3][3];
+    matrix_matrix_multiply (id, world->scaleMtxInv, world->scaleMtx);
+    fprintf (STDFS, "scaleMtxInv * scaleMtx:\n");
+    dump_matrix (id);
+
+    matrix_matrix_multiply (id, world->rotMtxInv, world->rotMtx);
+    fprintf (STDFS, "rotMtxInv * rotMtx:\n");
+    dump_matrix (id);
 
     fprintf (STDFS, "centerPos: %f,%f,%f\n",
              world->centerPos[0], world->centerPos[1], world->centerPos[2]);
@@ -328,10 +340,48 @@ void world_transform_rotate_data (WorldTransform *world, double datapos[3], int 
 
     double newRotMtx[3][3];
     make_rotation_matrix (newRotMtx, axis, theta);
-    matrix_chain_multiply (world->rotMtx,
-                           world->rotMtx, world->scaleMtx, newRotMtx, world->scaleMtxInv, NULL);
-
+    matrix_matrix_multiply (world->rotMtx, world->rotMtx, newRotMtx);
     make_transpose_matrix (world->rotMtxInv, world->rotMtx);
+
+    world_transform_datapos_to_worldpos (world, datapos, w1);
+    vector_subtract (w0, w0, w1);
+    world_transform_adjust_centerpos_using_world_diff (world, w0);
+
+    world_apply_constraints (world);
+}
+
+void world_transform_scale_data (WorldTransform *world, double datapos[3], double scale[3])
+{
+    double w0[3], w1[3];
+    world_transform_datapos_to_worldpos (world, datapos, w0);
+
+    print_debug ("scale: %f %f %f", scale[0], scale[1], scale[2]);
+    double scaleInv[3] = {1.0/scale[0], 1.0/scale[1], 1.0/scale[2]};
+
+    double dataScaleFactors[3][3], dataScaleFactorsInv[3][3];
+
+    make_diagonal_matrix (dataScaleFactors,    scale);
+    make_diagonal_matrix (dataScaleFactorsInv, scaleInv);
+
+    matrix_chain_multiply (world->scaleMtx,
+                           dataScaleFactors, world->scaleMtx, NULL);
+
+    matrix_chain_multiply (world->scaleMtxInv,
+                           world->scaleMtxInv, dataScaleFactorsInv, NULL);
+
+    int forceOrthogonalCoordinateSystem = 1;
+    if (forceOrthogonalCoordinateSystem)
+    {
+        for (int i=0; i<3; i++)
+            for (int j=0; j<3; j++)
+                if (i==j)
+                    world->scaleMtxInv[i][i] = 1.0 / world->scaleMtx[i][i];
+                else
+                {
+                    world->scaleMtx[i][j] = 0;
+                    world->scaleMtxInv[i][j] = 0;
+                }
+    }
 
     world_transform_datapos_to_worldpos (world, datapos, w1);
     vector_subtract (w0, w0, w1);
@@ -357,37 +407,9 @@ void world_transform_scale_world (WorldTransform *world, double datapos[3], doub
     matrix_chain_multiply (world->scaleMtxInv,
                            world->scaleMtxInv, world->rotMtxInv, worldScaleFactorsInv, world->rotMtx, NULL);
 
-    int forceOrthogonalCoordinateSystem = 1;
-    if (forceOrthogonalCoordinateSystem)
-    {
-        for (int i=0; i<3; i++)
-            for (int j=0; j<3; j++)
-                if (i==j)
-                    world->scaleMtxInv[i][i] = 1.0 / world->scaleMtx[i][i];
-                else
-                {
-                    world->scaleMtx[i][j] = 0;
-                    world->scaleMtxInv[i][j] = 0;
-                }
-    }
-
     world_transform_datapos_to_worldpos (world, datapos, w1);
     vector_subtract (w0, w0, w1);
     world_transform_adjust_centerpos_using_world_diff (world, w0);
-    world_apply_constraints (world);
-}
-
-void world_transform_scale_orthogonal (WorldTransform *world, double scaling[3])
-{
-    double invScaling[3] =
-    {
-        1.0 / scaling[0],
-        1.0 / scaling[1],
-        1.0 / scaling[2]
-    };
-
-    make_diagonal_matrix (world->scaleMtx,    scaling);
-    make_diagonal_matrix (world->scaleMtxInv, invScaling);
     world_apply_constraints (world);
 }
 
@@ -410,11 +432,10 @@ void world_transform_set_range (WorldTransform *world, int axis, double range[2]
     double center = 0.5 *  max + 0.5 * min;
     double scale  = (0.5 * max - 0.5 * min) * (1 + margin);
 
-    world->centerPos[axis] = center;
-    world->scaleMtx[axis][axis] = scale;
+    world->centerPos[axis]         = center;
+    world->scaleMtx[axis][axis]    = 1.0 / scale;
+    world->scaleMtxInv[axis][axis] = scale;
 
-    for (int i=0; i<3; i++)
-        world->scaleMtxInv[i][i] = 1.0 / world->scaleMtx[i][i];
     world_apply_constraints (world);
 }
 
