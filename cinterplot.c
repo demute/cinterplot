@@ -3065,10 +3065,7 @@ static CipState *cip_init (void)
 
     cs->mouseState = MOUSE_STATE_NONE;
 
-    cip_register_canvas_fun (1, 'h', canvas_fun_1d_histogram);
-    cip_register_canvas_fun (2, 'h', canvas_fun_2d_histogram);
-    cip_register_canvas_fun (3, 'h', canvas_fun_3d_histogram);
-    cip_register_canvas_fun (3, 'l', canvas_fun_3d_line);
+    canvas_functions_register ();
 
     signal (SIGINT, signal_handler);
 

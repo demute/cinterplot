@@ -34,7 +34,7 @@ int user_main (int argc, char **argv, CipState *cs)
 
     CipGraph *graph2d = cip_graph_new (2, 500000);
     cip_continuous_scroll_enable (cs, 4);
-    cip_graph_attach (cs, graph2d, 4, 'h', "red yellow white", 32);
+    cip_graph_attach (cs, graph2d, 4, 'p', "red yellow white", 32);
 
     int nIter = 400000;
     for (int i=0; i<nIter; i++)

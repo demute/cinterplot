@@ -3,7 +3,7 @@
 #include "canvas_functions.h"
 #include "benchmark.h"
 
-void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1, double wzVal)
+static void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1, double wzVal)
 {
     int    *bins = canvas->bins;
     double *wz   = canvas->wz;
@@ -73,7 +73,7 @@ void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1, double 
     }
 }
 
-void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("1d_histogram");
     double *points = _points;
@@ -129,40 +129,165 @@ void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, 
     }
 }
 
-void canvas_fun_2d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_histogram_point (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
 {
-    BENCHMARK_ADD_CHECKPOINT ("2d_histogram");
-    double (*points)[2] = _points;
-    int    *bins        = canvas->bins;
-    double *wz          = canvas->wz;
-    int    w            = canvas->w;
-    int    h            = canvas->h;
+    BENCHMARK_ADD_CHECKPOINT ("2d_histogram_point");
+    double (*restrict points)[2] = _points;
+    int    *restrict bins        = canvas->bins;
+    double *restrict wz          = canvas->wz;
+
+    int w = canvas->w;
+    int h = canvas->h;
+
+    WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
 
     for (size_t i=0; i<len; i++)
     {
-        double x[3] = {points[i][0], points[i][1], 0};
+        double pt[3] = {points[i][0], points[i][1], 0};
 
-        if (logMode & 1) x[0] = LOGFUN (x[0]);
-        if (logMode & 2) x[1] = LOGFUN (x[1]);
-        if (isnan (x[0]) || isnan (x[1]) || isinf (x[0]) || isinf (x[1]))
+        if (logMode & 1) pt[0] = LOGFUN (pt[0]);
+        if (logMode & 2) pt[1] = LOGFUN (pt[1]);
+        if (isnan (pt[0]) || isnan (pt[1]) || isinf (pt[0]) || isinf (pt[1]))
             continue;
 
-        int xi, yi;
-        double wzVal;
-        if (world_transform_datapos_to_bin (world, x, w, h, & xi, & yi, & wzVal) == 0)
-        {
-            if (xi < 0 || xi >= w || yi < 0 || yi >= h)
-                continue;
+        WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE (pt, xi, yi, wzVal);
 
-            int idx = yi*w + xi;
-            bins[idx]++;
+        if ((unsigned)xi < (unsigned)w && (unsigned)yi < (unsigned)h)
+        {
+            const int idx = yi * w + xi;
+            ++bins[idx];
             if (wz[idx] < wzVal)
                 wz[idx] = wzVal;
         }
     }
 }
 
-void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_histogram_plus (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+{
+    BENCHMARK_ADD_CHECKPOINT ("2d_histogram_plus");
+    double (*restrict points)[2] = _points;
+    int    *restrict bins        = canvas->bins;
+    double *restrict wz          = canvas->wz;
+
+    int w = canvas->w;
+    int h = canvas->h;
+
+    WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
+
+    for (size_t i=0; i<len; i++)
+    {
+        double pt[3] = {points[i][0], points[i][1], 0};
+
+        if (logMode & 1) pt[0] = LOGFUN (pt[0]);
+        if (logMode & 2) pt[1] = LOGFUN (pt[1]);
+        if (isnan (pt[0]) || isnan (pt[1]) || isinf (pt[0]) || isinf (pt[1]))
+            continue;
+
+        WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE (pt, xi, yi, wzVal);
+
+        int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
+        int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
+
+        for (int j=0; j<9; j++)
+        {
+            int xp = xi+xx[j];
+            int yp = yi+yy[j];
+            if ((unsigned)xp < (unsigned)w && (unsigned)yp < (unsigned)h)
+            {
+                const int idx = yp * w + xp;
+                ++bins[idx];
+                if (wz[idx] < wzVal)
+                    wz[idx] = wzVal;
+            }
+        }
+    }
+}
+
+static void canvas_fun_2d_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+{
+    BENCHMARK_ADD_CHECKPOINT ("2d_line");
+    double (*restrict points)[2] = _points;
+
+    const int w = canvas->w;
+    const int h = canvas->h;
+
+    int lastXi = -1;
+    int lastYi = -1;
+
+    WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
+
+    for (size_t i=0; i<len; i++)
+    {
+        double pt[3] = {points[i][0], points[i][1], 0};
+
+        if (logMode & 1) pt[0] = LOGFUN (pt[0]);
+        if (logMode & 2) pt[1] = LOGFUN (pt[1]);
+        if (isnan (pt[0]) || isnan (pt[1]) || isinf (pt[0]) || isinf (pt[1]))
+            continue;
+
+        WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE (pt, xi, yi, wzVal);
+
+        if ((unsigned)xi < (unsigned)w && (unsigned)yi < (unsigned)h)
+        {
+            if (lastXi >= 0)
+                cip_canvas_line (canvas, lastXi, lastYi, xi, yi, wzVal);
+            lastXi = xi;
+            lastYi = yi;
+        }
+        else
+        {
+            lastXi = -1;
+            lastYi = -1;
+        }
+    }
+}
+
+static void canvas_fun_2d_thick_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+{
+    BENCHMARK_ADD_CHECKPOINT ("2d_line");
+    double (*restrict points)[2] = _points;
+
+    const int w = canvas->w;
+    const int h = canvas->h;
+
+    int lastXi = -1;
+    int lastYi = -1;
+
+    WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
+
+    for (size_t i=0; i<len; i++)
+    {
+        double pt[3] = {points[i][0], points[i][1], 0};
+
+        if (logMode & 1) pt[0] = LOGFUN (pt[0]);
+        if (logMode & 2) pt[1] = LOGFUN (pt[1]);
+        if (isnan (pt[0]) || isnan (pt[1]) || isinf (pt[0]) || isinf (pt[1]))
+            continue;
+
+        WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE (pt, xi, yi, wzVal);
+
+        if ((unsigned)xi < (unsigned)w && (unsigned)yi < (unsigned)h)
+        {
+            if (lastXi >= 0)
+            {
+                cip_canvas_line (canvas, lastXi,   lastYi,   xi,   yi,   wzVal);
+                cip_canvas_line (canvas, lastXi+1, lastYi,   xi+1, yi,   wzVal);
+                cip_canvas_line (canvas, lastXi-1, lastYi,   xi-1, yi,   wzVal);
+                cip_canvas_line (canvas, lastXi,   lastYi+1, xi,   yi+1, wzVal);
+                cip_canvas_line (canvas, lastXi,   lastYi-1, xi,   yi-1, wzVal);
+            }
+            lastXi = xi;
+            lastYi = yi;
+        }
+        else
+        {
+            lastXi = -1;
+            lastYi = -1;
+        }
+    }
+}
+
+static void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("3d_histogram");
     double (*restrict points)[3] = _points;
@@ -188,7 +313,7 @@ void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, 
     }
 }
 
-void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("3d_line");
     double (*restrict points)[3] = _points;
@@ -248,36 +373,6 @@ void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, uint3
 //        lastXi = xi;
 //        lastYi = yi;
 
-//        if (plotType == 'p')
-//        {
-//            int idx = yi*w + xi;
-//            bins[idx]++;
-//            if (wz[idx] < wzVal)
-//                wz[idx] = wzVal;
-//        }
-//        //else if (plotType == '+')
-//        //{
-//        //    // every point is a plus sign
-//        //    double *point = (double *) (buf + sz * i);
-//        //    double x = point[0];
-//        //    double y = point[1];
-
-//        //    int xx[9] = { 0,  0, -2, -1, 0, 1, 2, 0, 0};
-//        //    int yy[9] = {-2, -1,  0,  0, 0, 0, 0, 1, 2};
-//        //    for (int j=0; j<9; j++)
-//        //    {
-//        //        int xp = xi+xx[j];
-//        //        int yp = yi+yy[j];
-//        //        if (xp >= 0 && xp < w && yp >= 0 && yp < h)
-//        //            bins[(uint32_t) yp*w + (uint32_t) xp]++;
-//        //    }
-//        //}
-//        //else if (plotType == 'l')
-//        //{
-//        //    // line
-//        //    // NOTE: A straight line between two points is moving through different points depending on log mode
-//        //    cip_canvas_line (canvas, xi0, yi0, xi1, yi1);
-//        //}
 //        //else if (plotType == 't')
 //        //{
 //        //    // thick line
@@ -357,3 +452,13 @@ void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, uint3
 //    }
 //}
 
+void canvas_functions_register (void)
+{
+    cip_register_canvas_fun (1, 'h', canvas_fun_1d_histogram);
+    cip_register_canvas_fun (2, 'p', canvas_fun_2d_histogram_point);
+    cip_register_canvas_fun (2, '+', canvas_fun_2d_histogram_plus);
+    cip_register_canvas_fun (2, 'l', canvas_fun_2d_line);
+    cip_register_canvas_fun (2, 't', canvas_fun_2d_thick_line);
+    cip_register_canvas_fun (3, 'h', canvas_fun_3d_histogram);
+    cip_register_canvas_fun (3, 'l', canvas_fun_3d_line);
+}
