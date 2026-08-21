@@ -111,6 +111,8 @@ void world_transform_set_ranges (WorldTransform *world, double ranges[3][2], dou
 void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], double x[3]);
 int  world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3]);
 void world_dump (WorldTransform *world, int line);
+void world_transform_adjust_worldz (WorldTransform *world, double datapos[3], double wz, double newPerspectiveFactor);
+void world_transform_zero_wz (WorldTransform *world, double datapos[3]);
 void world_apply_constraints (WorldTransform *world);
 
 #ifdef __cplusplus
@@ -144,15 +146,18 @@ void world_apply_constraints (WorldTransform *world);
     const double pf  = world->perspectiveFactor
 
 
+// last check xf >= 0.0 is used to make casting of NaNs to -1.
 #define WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE(datapos,xi,yi,z) \
-        const double lx = datapos[0] - cx0;        \
-        const double ly = datapos[1] - cx1;        \
-        const double lz = datapos[2] - cx2;        \
-        const double x = m00*lx + m01*ly + m02*lz; \
-        const double y = m10*lx + m11*ly + m12*lz; \
-        const double z = m20*lx + m21*ly + m22*lz; \
-        const double iz = 1.0 / (z*pf + 1.0);      \
-        const int xi = (int)((x * iz + 1.0) * sx); \
-        const int yi = (int)((y * iz + 1.0) * sy)
+        const double lx = datapos[0] - cx0;         \
+        const double ly = datapos[1] - cx1;         \
+        const double lz = datapos[2] - cx2;         \
+        const double x = m00*lx + m01*ly + m02*lz;  \
+        const double y = m10*lx + m11*ly + m12*lz;  \
+        const double z = m20*lx + m21*ly + m22*lz;  \
+        const double iz = 1.0 / (z*pf + 1.0);       \
+        const double xf = (x * iz + 1.0) * sx;      \
+        const double yf = (y * iz + 1.0) * sy;      \
+        const int xi = (xf >= 0.0) ? (int) xf : -1; \
+        const int yi = (yf >= 0.0) ? (int) yf : -1; \
 
 #endif /* _WORLD_TRANSFORM_H_ */

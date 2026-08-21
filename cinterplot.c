@@ -421,7 +421,7 @@ static void cycle_graph_order (CipState *cs)
     //print_debug ("graph order %u", cs->graphOrder);
 }
 
-int cip_autoscale_sw (CipSubWindow *sw)
+int cip_autoscale_sw (CipSubWindow *sw, double margin)
 {
     if (!sw)
         return 0;
@@ -525,20 +525,23 @@ int cip_autoscale_sw (CipSubWindow *sw)
     for (int i=0; i<3; i++)
     {
         double range = ranges[i][1] - ranges[i][0];
+        double center = 0.5 * (ranges[i][1] + ranges[i][0]);
+        range *= 1 + margin;
+
         if (range < 1e-10 * maxRange)
-        {
-            ranges[i][0] = -1;
-            ranges[i][1] =  1;
-        }
+            range = 2;
+
+        ranges[i][0] = center - 0.5 * range;
+        ranges[i][1] = center + 0.5 * range;
     }
 
     world_transform_set_ranges (& sw->world, ranges, 0.0);
     return 1;
 }
 
-int cip_autoscale (CipState *cs, uint32_t windowIndex)
+int cip_autoscale (CipState *cs, uint32_t windowIndex, double margin)
 {
-    return cip_autoscale_sw (cip_get_sub_window (cs, windowIndex));
+    return cip_autoscale_sw (cip_get_sub_window (cs, windowIndex), margin);
 }
 
 void cip_set_range (CipSubWindow *sw, double xmin, double ymin, double xmax, double ymax, int setAsDefault)
@@ -624,6 +627,73 @@ int cip_continuous_scroll_update (CipSubWindow *sw)
     return 1;
 }
 
+static void recompute_sub_window_areas (CipState *cs)
+{
+    if (!cs->subWindows)
+        return;
+
+    uint32_t nCols    = cs->nCols;
+    uint32_t nRows    = cs->numSubWindows / nCols;
+
+    uint32_t w  = cs->windowWidth;
+    uint32_t h0 = cs->statuslineEnabled * STATUSLINE_HEIGHT;
+    uint32_t h  = cs->windowHeight - h0;
+
+    int dx = (int) (w / nCols);
+    int dy = (int) (h / nRows);
+    int subWindowOffset = cs->margin + cs->bordered;
+
+    if (cs->zoomEnabled)
+    {
+        for (uint32_t ri=0; ri<nRows; ri++)
+        {
+            for (uint32_t ci=0; ci<nCols; ci++)
+            {
+                CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+                if (sw == cs->activeSw && w > subWindowOffset && h > subWindowOffset)
+                {
+                    sw->windowArea.x0 = 0 + subWindowOffset;
+                    sw->windowArea.x1 = w - subWindowOffset;
+                    sw->windowArea.y0 = h0 + 0 + subWindowOffset;
+                    sw->windowArea.y1 = h0 + h - subWindowOffset;
+                }
+                else
+                {
+                    sw->windowArea.x0 = 0;
+                    sw->windowArea.x1 = 0;
+                    sw->windowArea.y0 = 0;
+                    sw->windowArea.y1 = 0;
+                }
+            }
+        }
+    }
+    else
+    {
+        for (uint32_t ri=0; ri<nRows; ri++)
+        {
+            for (uint32_t ci=0; ci<nCols; ci++)
+            {
+                if (dx > subWindowOffset && dy > subWindowOffset)
+                {
+                    CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+                    sw->windowArea.x0 = (ci    ) * dx + subWindowOffset;
+                    sw->windowArea.x1 = (ci + 1) * dx - subWindowOffset;
+                    sw->windowArea.y0 = (nRows - ri - 1) * dy + subWindowOffset + h0;
+                    sw->windowArea.y1 = (nRows - ri    ) * dy - subWindowOffset + h0;
+                }
+                else
+                {
+                    CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
+                    sw->windowArea.x0 = 0;
+                    sw->windowArea.x1 = 0;
+                    sw->windowArea.y0 = 0;
+                    sw->windowArea.y1 = 0;
+                }
+            }
+        }
+    }
+}
+
 void cip_continuous_scroll_enable (CipState *cs, uint32_t windowIndex)     { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=1; }
 void cip_continuous_scroll_disable (CipState *cs, uint32_t windowIndex)    { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); if (sw) sw->continuousScroll=0; }
 int  cip_set_grid_mode (CipState *cs, uint32_t windowIndex, uint32_t mode) { CipSubWindow *sw = cip_get_sub_window (cs, windowIndex); return cip_set_grid_mode_sw (sw, mode); }
@@ -633,7 +703,7 @@ int  cip_is_running (CipState *cs)                               { return cs->ru
 void cip_redraw_async(CipState *cs)                              { cs->redraw=1; }
 void cip_set_bg_shade (CipState *cs, float bgShade)              { cs->bgShade = bgShade; }
 int  cip_set_crosshair_enabled (CipState *cs, uint32_t enabled)  { cs->crosshairEnabled  = enabled & 1; return 1; }
-int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; return 1; }
+int  cip_set_statusline_enabled (CipState *cs, uint32_t enabled) { cs->statuslineEnabled = enabled & 1; recompute_sub_window_areas (cs); return 1; }
 int  cip_set_tracking_mode (CipState *cs, uint32_t mode)         { cs->trackingMode = mode & 3; return 1; }
 int  cip_toggle_paused (CipState *cs)                            { paused ^= 1;                 return 1; }
 int  cip_quit (CipState *cs)                                     { cs->running = 0; paused=0;   return 0; }
@@ -726,9 +796,9 @@ int cip_set_log_mode_sw (CipState *cs, CipSubWindow *sw, uint32_t mode)
         isnan (y0) || isnan (y1) ||
         isnan (z0) || isnan (z1))
     {
-        cip_autoscale_sw (sw);
+        cip_autoscale_sw (sw, 0.1);
     }
-    
+
     return 1;
 }
 
@@ -853,73 +923,6 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
     iconData = malloc (sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
     if (!iconData)
         print_error ("failed to allocate iconData buffer");
-}
-
-static void recompute_sub_window_areas (CipState *cs)
-{
-    if (!cs->subWindows)
-        return;
-
-    uint32_t nCols    = cs->nCols;
-    uint32_t nRows    = cs->numSubWindows / nCols;
-
-    uint32_t w  = cs->windowWidth;
-    uint32_t h0 = cs->statuslineEnabled * STATUSLINE_HEIGHT;
-    uint32_t h  = cs->windowHeight - h0;
-
-    int dx = (int) (w / nCols);
-    int dy = (int) (h / nRows);
-    int subWindowOffset = cs->margin + cs->bordered;
-
-    if (cs->zoomEnabled)
-    {
-        for (uint32_t ri=0; ri<nRows; ri++)
-        {
-            for (uint32_t ci=0; ci<nCols; ci++)
-            {
-                CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
-                if (sw == cs->activeSw && w > subWindowOffset && h > subWindowOffset)
-                {
-                    sw->windowArea.x0 = 0 + subWindowOffset;
-                    sw->windowArea.x1 = w - subWindowOffset;
-                    sw->windowArea.y0 = h0 + 0 + subWindowOffset;
-                    sw->windowArea.y1 = h0 + h - subWindowOffset;
-                }
-                else
-                {
-                    sw->windowArea.x0 = 0;
-                    sw->windowArea.x1 = 0;
-                    sw->windowArea.y0 = 0;
-                    sw->windowArea.y1 = 0;
-                }
-            }
-        }
-    }
-    else
-    {
-        for (uint32_t ri=0; ri<nRows; ri++)
-        {
-            for (uint32_t ci=0; ci<nCols; ci++)
-            {
-                if (dx > subWindowOffset && dy > subWindowOffset)
-                {
-                    CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
-                    sw->windowArea.x0 = (ci    ) * dx + subWindowOffset;
-                    sw->windowArea.x1 = (ci + 1) * dx - subWindowOffset;
-                    sw->windowArea.y0 = (nRows - ri - 1) * dy + subWindowOffset + h0;
-                    sw->windowArea.y1 = (nRows - ri    ) * dy - subWindowOffset + h0;
-                }
-                else
-                {
-                    CipSubWindow *sw = & cs->subWindows[ri * nCols + ci];
-                    sw->windowArea.x0 = 0;
-                    sw->windowArea.x1 = 0;
-                    sw->windowArea.y0 = 0;
-                    sw->windowArea.y1 = 0;
-                }
-            }
-        }
-    }
 }
 
 int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t bordered, uint32_t margin)
@@ -1240,13 +1243,18 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
         }
         else if (cs->pressedModifiers == KMOD_ALT)
         {
-            sw->world.perspectiveFactor += 0.01 * xf;
-            if (sw->world.perspectiveFactor < 0)
-                sw->world.perspectiveFactor = 0;
-            if (sw->world.perspectiveFactor > 0.75)
-                sw->world.perspectiveFactor = 0.75;
+            double newPf = sw->world.perspectiveFactor + 0.01 * xf;
+            if (newPf < 0)
+                newPf = 0;
+            if (newPf > 0.75)
+                newPf = 0.75;
 
-            print_debug ("perspectiveFactor: %f", sw->world.perspectiveFactor);
+            double wz = 0.02*yf;
+            double w[3];
+            world_transform_adjust_worldz (& sw->world, cs->pivot, wz, newPf);
+            world_transform_datapos_to_worldpos (& sw->world, cs->pivot, w);
+            print_debug ("perspectiveFactor: %f, w(pivot).z:%f", sw->world.perspectiveFactor, w[2]);
+
             return 1;
         }
         else if (cs->pressedModifiers == (KMOD_ALT | KMOD_SHIFT))
@@ -1676,7 +1684,8 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
            {
                switch (key)
                {
-                case 'a': cip_autoscale_sw (cs->activeSw); break;
+                case 'w': if (cs->activeSw) world_transform_zero_wz (& cs->activeSw->world, cs->pivot); break;
+                case 'a': cip_autoscale_sw (cs->activeSw, 0.1); break;
                 case 'c': cycle_graph_order (cs); break;
                 case 'f': cip_set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': if (cs->activeSw) { cip_set_grid_mode_sw (cs->activeSw, cs->activeSw->gridMode + 1); print_debug ("grid mode %d", cs->activeSw->gridMode); } break;
@@ -1776,18 +1785,6 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                           }
                           break;
 
-                case 'w':
-                          if (cs->activeSw)
-                          {
-                              double (*mtx)[3] = cs->activeSw->world.rotMtx;
-                              double (*inv)[3] = cs->activeSw->world.rotMtxInv;
-                              double a = 1.0 / sqrt(2);
-                              mtx[0][0] =  a; mtx[0][1] = -a; mtx[0][2] =  0;
-                              mtx[1][0] =  a; mtx[1][1] =  a; mtx[1][2] =  0;
-                              mtx[2][0] =  0; mtx[2][1] =  0; mtx[2][2] =  1;
-                              for (int i=0; i<3; i++) for (int j=0; j<3; j++) inv[i][j] = mtx[j][i];
-                          }
-                          break;
                 case 'd':
                           if (cs->activeSw)
                               world_transform_set_default_values (& cs->activeSw->world);
@@ -3052,7 +3049,7 @@ static CipState *cip_init (void)
     cs->plot_data         = plot_data;
 
     cs->crosshairEnabled  = 1;
-    cs->trackingMode      = 3;
+    cs->trackingMode      = 2;
     cs->statuslineEnabled = 1;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;

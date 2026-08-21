@@ -82,9 +82,9 @@ static void matrix_transpose_vector_multiply (double mtx[3][3], double src[3], d
 
 static inline void vector_subtract (double dst[3], double v1[3], double v2[3])
 {
-    dst[0] = v2[0] - v1[0];
-    dst[1] = v2[1] - v1[1];
-    dst[2] = v2[2] - v1[2];
+    dst[0] = v1[0] - v2[0];
+    dst[1] = v1[1] - v2[1];
+    dst[2] = v1[2] - v2[2];
 }
 
 
@@ -328,8 +328,8 @@ void world_transform_rotate_world (WorldTransform *world, double datapos[3], int
     make_transpose_matrix (world->rotMtxInv, world->rotMtx);
 
     world_transform_datapos_to_worldpos (world, datapos, w1);
-    vector_subtract (w0, w0, w1);
-    world_transform_adjust_centerpos_using_world_diff (world, w0);
+    vector_subtract (w1, w1, w0);
+    world_transform_adjust_centerpos_using_world_diff (world, w1);
     world_apply_constraints (world);
 }
 
@@ -344,8 +344,8 @@ void world_transform_rotate_data (WorldTransform *world, double datapos[3], int 
     make_transpose_matrix (world->rotMtxInv, world->rotMtx);
 
     world_transform_datapos_to_worldpos (world, datapos, w1);
-    vector_subtract (w0, w0, w1);
-    world_transform_adjust_centerpos_using_world_diff (world, w0);
+    vector_subtract (w1, w1, w0);
+    world_transform_adjust_centerpos_using_world_diff (world, w1);
 
     world_apply_constraints (world);
 }
@@ -369,7 +369,7 @@ void world_transform_scale_data (WorldTransform *world, double datapos[3], doubl
     matrix_chain_multiply (world->scaleMtxInv,
                            world->scaleMtxInv, dataScaleFactorsInv, NULL);
 
-    int forceOrthogonalCoordinateSystem = 1;
+    int forceOrthogonalCoordinateSystem = 0;
     if (forceOrthogonalCoordinateSystem)
     {
         for (int i=0; i<3; i++)
@@ -384,8 +384,8 @@ void world_transform_scale_data (WorldTransform *world, double datapos[3], doubl
     }
 
     world_transform_datapos_to_worldpos (world, datapos, w1);
-    vector_subtract (w0, w0, w1);
-    world_transform_adjust_centerpos_using_world_diff (world, w0);
+    vector_subtract (w1, w1, w0);
+    world_transform_adjust_centerpos_using_world_diff (world, w1);
     world_apply_constraints (world);
 }
 
@@ -408,8 +408,8 @@ void world_transform_scale_world (WorldTransform *world, double datapos[3], doub
                            world->scaleMtxInv, world->rotMtxInv, worldScaleFactorsInv, world->rotMtx, NULL);
 
     world_transform_datapos_to_worldpos (world, datapos, w1);
-    vector_subtract (w0, w0, w1);
-    world_transform_adjust_centerpos_using_world_diff (world, w0);
+    vector_subtract (w1, w1, w0);
+    world_transform_adjust_centerpos_using_world_diff (world, w1);
     world_apply_constraints (world);
 }
 
@@ -461,6 +461,37 @@ void world_transform_set_default_values (WorldTransform *world)
     }
     world->perspectiveFactor = 0;
     world_apply_constraints (world);
+}
+
+void world_transform_adjust_worldz (WorldTransform *world, double datapos[3], double wz, double newPerspectiveFactor)
+{
+    double w0[3], w1[3];
+    world_transform_datapos_to_worldpos (world, datapos, w0);
+
+    double f0 = world->perspectiveFactor;
+    double f1 = newPerspectiveFactor;
+    w1[2] = w0[2] + wz;
+    w1[0] = w0[0] * (w1[2] * f1 + 1) / (w0[2] * f0 + 1);
+    w1[1] = w0[1] * (w1[2] * f1 + 1) / (w0[2] * f0 + 1);
+
+    double scaledx[3], localx[3];
+
+    matrix_transpose_vector_multiply (world->rotMtx, w1, scaledx);
+    matrix_vector_multiply (world->scaleMtxInv, scaledx, localx);
+
+    vector_subtract (world->centerPos, datapos, localx);
+    world->perspectiveFactor = newPerspectiveFactor;
+
+    double w2[3];
+    world_transform_datapos_to_worldpos (world, datapos, w2);
+    print_debug  ("%f %f %f", w2[0], w2[1], w2[2]);
+}
+
+void world_transform_zero_wz (WorldTransform *world, double datapos[3])
+{
+    double w[3];
+    world_transform_datapos_to_worldpos (world, datapos, w);
+    world_transform_adjust_worldz (world, datapos, -w[2], world->perspectiveFactor);
 }
 
 void world_apply_constraints (WorldTransform *world)

@@ -121,8 +121,8 @@ typedef struct CipMouse
 
 typedef struct CipState CipState;
 
-int  cip_autoscale (CipState *cs, uint32_t windowIndex);
-int  cip_autoscale_sw (CipSubWindow *sw);
+int  cip_autoscale (CipState *cs, uint32_t windowIndex, double margin);
+int  cip_autoscale_sw (CipSubWindow *sw, double margin);
 int  cip_set_crosshair_enabled (CipState *cs, uint32_t enabled);
 void cip_update_color_scheme (CipState *cs, GraphAttacher *attacher, char *spec, uint32_t nLevels);
 int  cip_set_fullscreen (CipState *cs, uint32_t fullscreen);
