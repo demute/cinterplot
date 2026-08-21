@@ -481,10 +481,6 @@ void world_transform_adjust_worldz (WorldTransform *world, double datapos[3], do
 
     vector_subtract (world->centerPos, datapos, localx);
     world->perspectiveFactor = newPerspectiveFactor;
-
-    double w2[3];
-    world_transform_datapos_to_worldpos (world, datapos, w2);
-    print_debug  ("%f %f %f", w2[0], w2[1], w2[2]);
 }
 
 void world_transform_zero_wz (WorldTransform *world, double datapos[3])
