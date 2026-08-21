@@ -622,7 +622,7 @@ int cip_continuous_scroll_update (CipSubWindow *sw)
     if (xmin == DBL_MAX || xmax == -DBL_MAX)
         return 0;
 
-    sw->world.centerPos[0] = xmax - sw->world.scaleMtx[0][0];
+    sw->world.centerPos[0] = xmax - 1.0 / sw->world.scaleMtx[0][0];
     // FIXME: If scaleMtx has non-zero non-diagonal elements, this will not work
     return 1;
 }
