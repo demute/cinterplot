@@ -1409,7 +1409,7 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                  int binx = xi - x0;
                  int biny = yi - y0;
 
-                 if (cs->trackingMode && cs->activeSw->numAttachedGraphs > 0)
+                 if (cs->activeSw->numAttachedGraphs > 0)
                  {
                      if (sw->selectedGraph > sw->numAttachedGraphs - 1)
                          sw->selectedGraph = sw->numAttachedGraphs - 1;
@@ -1482,14 +1482,13 @@ static int on_mouse_motion (CipState *cs, int xi, int yi)
                          // trackingMode 3: mouse position is used to get the closest coordinate on the graph
                          find_closest_point (canvas, binx, biny, & binx, & biny);
                      }
-                     else
-                         exit_error ("bug: %d", cs->trackingMode);
 
                      double wzVal = wz[biny * w + binx];
                      world_transform_bin_to_datapos (& sw->world, w, h, binx, biny, wzVal, cs->pivot);
                      cs->mouseScreenPos[0] = x0 + binx;
                      cs->mouseScreenPos[1] = y0 + biny;
                  }
+
 
                  if (cs->app_on_mouse_motion)
                  {
@@ -3049,7 +3048,7 @@ static CipState *cip_init (void)
     cs->plot_data         = plot_data;
 
     cs->crosshairEnabled  = 1;
-    cs->trackingMode      = 2;
+    cs->trackingMode      = 3;
     cs->statuslineEnabled = 1;
     cs->zoomEnabled       = 0;
     cs->fullscreen        = 0;
