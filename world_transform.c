@@ -189,11 +189,24 @@ void world_transform_worldpos_to_datapos (WorldTransform *world, double w[3], do
 
 int world_transform_worldpos_to_projected (WorldTransform *world, double w[3], double p[3])
 {
-    if (w[2] * world->perspectiveFactor < -0.99)
+    // As the projection is computed as px = wx / (wz*f+1), we need to make sure that px stays the same
+    // sign so that it doesn't alias into another valid point after the computation. As wz*f approaches
+    // -1, the value px goes to infinity and then wraps around to -infinity. As long as invalid points
+    // maps to points outside the valid range [-1,1], other computations can just check if it's within the
+    // valid range.
+    // That being said, we need to make sure we don't wrap around. so that a negative wz value would result
+    // -1 <= px < 0. If the screen is 2000 pixels wide and we would be using orthogonal mapping, a one pixel
+    // deviation would be equal to wx = 1e-3. For this point, we would get outside the valid range at
+    // 1 = 1e-3 / (wz*f+1) <=> wz*f+1 = 1e-3. Any value less than this value will therefore be be invalid.
+
+    double contraction = w[2] * world->perspectiveFactor + 1;
+    if (contraction < 1e-3)
         return -1;
 
-    p[0] = w[0] / (w[2] * world->perspectiveFactor + 1);
-    p[1] = w[1] / (w[2] * world->perspectiveFactor + 1);
+    double f = 1.0 / contraction;
+
+    p[0] = w[0] * f;
+    p[1] = w[1] * f;
     p[2] = w[2];
     //print_debug ("p[3] = (%f,%f,%f)", p[0], p[1], p[2]);
     return 0;

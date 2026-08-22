@@ -143,21 +143,24 @@ void world_apply_constraints (WorldTransform *world);
     const double m20 = mtx[2][0];                            \
     const double m21 = mtx[2][1];                            \
     const double m22 = mtx[2][2];                            \
-    const double pf  = world->perspectiveFactor
-
+    const double pf  = world->perspectiveFactor;
 
 // last check xf >= 0.0 is used to make casting of NaNs to -1.
-#define WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE(datapos,xi,yi,z) \
+// the mask is used to or the result with -1 = 0xfff... if zz is
+// less than the required amount to give an unaliased projection
+#define WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE(datapos,xi,yi,wz) \
         const double lx = datapos[0] - cx0;         \
         const double ly = datapos[1] - cx1;         \
         const double lz = datapos[2] - cx2;         \
-        const double x = m00*lx + m01*ly + m02*lz;  \
-        const double y = m10*lx + m11*ly + m12*lz;  \
-        const double z = m20*lx + m21*ly + m22*lz;  \
-        const double iz = 1.0 / (z*pf + 1.0);       \
-        const double xf = (x * iz + 1.0) * sx;      \
-        const double yf = (y * iz + 1.0) * sy;      \
-        const int xi = (xf >= 0.0) ? (int) xf : -1; \
-        const int yi = (yf >= 0.0) ? (int) yf : -1; \
+        const double wx = m00*lx + m01*ly + m02*lz; \
+        const double wy = m10*lx + m11*ly + m12*lz; \
+        const double wz = m20*lx + m21*ly + m22*lz; \
+        const double zz = wz*pf + 1.0;              \
+        const int    mask = (zz > 1e-3) - 1;        \
+        const double iz = 1.0 / zz;                 \
+        const double xf = (wx * iz + 1.0) * sx;     \
+        const double yf = (wy * iz + 1.0) * sy;     \
+        const int xi = (xf >= 0.0) ? (int) xf | mask : -1; \
+        const int yi = (yf >= 0.0) ? (int) yf        : -1; \
 
 #endif /* _WORLD_TRANSFORM_H_ */
