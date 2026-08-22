@@ -73,13 +73,16 @@ static void cip_canvas_line (CipCanvas *canvas, int x0, int y0, int x1, int y1, 
     }
 }
 
-static void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("1d_histogram");
     double *points = _points;
     double *sums   = canvas->sums;
     int    w       = canvas->w;
     int    h       = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     double sx   = world->scaleMtx[0][0];
     double xmin = world->centerPos[0] - 1.0/sx;
@@ -129,7 +132,7 @@ static void canvas_fun_1d_histogram (WorldTransform *world, void *_points, size_
     }
 }
 
-static void canvas_fun_2d_histogram_point (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_histogram_point (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("2d_histogram_point");
     double (*restrict points)[2] = _points;
@@ -138,6 +141,9 @@ static void canvas_fun_2d_histogram_point (WorldTransform *world, void *_points,
 
     int w = canvas->w;
     int h = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
 
@@ -162,7 +168,7 @@ static void canvas_fun_2d_histogram_point (WorldTransform *world, void *_points,
     }
 }
 
-static void canvas_fun_2d_histogram_plus (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_histogram_plus (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("2d_histogram_plus");
     double (*restrict points)[2] = _points;
@@ -171,6 +177,9 @@ static void canvas_fun_2d_histogram_plus (WorldTransform *world, void *_points, 
 
     int w = canvas->w;
     int h = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
 
@@ -203,13 +212,16 @@ static void canvas_fun_2d_histogram_plus (WorldTransform *world, void *_points, 
     }
 }
 
-static void canvas_fun_2d_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_line (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("2d_line");
     double (*restrict points)[2] = _points;
 
     const int w = canvas->w;
     const int h = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     int lastXi = -1;
     int lastYi = -1;
@@ -242,13 +254,16 @@ static void canvas_fun_2d_line (WorldTransform *world, void *_points, size_t len
     }
 }
 
-static void canvas_fun_2d_stair (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_stair (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("2d_line");
     double (*restrict points)[2] = _points;
 
     const int w = canvas->w;
     const int h = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     int lastXi = -1;
     int lastYi = -1;
@@ -288,13 +303,16 @@ static void canvas_fun_2d_stair (WorldTransform *world, void *_points, size_t le
     }
 }
 
-static void canvas_fun_2d_thick_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_thick_line (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("2d_line");
     double (*restrict points)[2] = _points;
 
     const int w = canvas->w;
     const int h = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     int lastXi = -1;
     int lastYi = -1;
@@ -333,7 +351,87 @@ static void canvas_fun_2d_thick_line (WorldTransform *world, void *_points, size
     }
 }
 
-static void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_2d_waterfall (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
+{
+    BENCHMARK_ADD_CHECKPOINT ("2d_line");
+    double (*restrict points)[2] = _points;
+    double (*restrict counts) = canvas->counts;
+    double (*restrict sums)   = canvas->sums;
+    int    *restrict bins     = canvas->bins;
+
+    const int w = canvas->w;
+    const int h = canvas->h;
+
+    WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
+
+    if (firstUnusedIndex < 0)
+    {
+        // If we have data and we just changed plotType to waterfall, we want to go back
+        // in time and use more data than just from lastGraphCounter.
+        // This rewinds firstUnusedIndex with at most nRows
+        int i = len - 1;
+        int nRows = 0;
+        while (i > 0 && nRows <= h)
+        {
+            if (isnan (points[i][0]) && isnan (points[i][1]))
+                nRows++;
+            i--;
+        }
+        firstUnusedIndex = i;
+        memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    }
+
+    for (size_t i=firstUnusedIndex; i<len; i++)
+    {
+        double pt[3] = {points[i][0], points[i][1], 0};
+
+        if (isnan (pt[0]) || isnan (pt[1]))
+        {
+            // flush row
+            for (int yi=0; yi<h-1; yi++)
+                for (int xi=0; xi<w; xi++)
+                    bins[yi*w + xi] = bins[(yi+1) * w + xi];
+
+            // construct new row
+            int lastVal = 0;
+            for (int xi=0; xi<w; xi++)
+            {
+                if (counts[xi] > 0.9)
+                    lastVal = (int) (sums[xi] / counts[xi]);
+                bins[(h-1)*w + xi] = lastVal;
+            }
+            for (int xi=w-1; xi>=0; xi--)
+            {
+                if (counts[xi] > 0.9)
+                    break;
+                bins[(h-1)*w + xi] = 0;
+            }
+            for (int xi=0; xi<w; xi++)
+            {
+                sums[xi]   = 0.0;
+                counts[xi] = 0.0;
+            }
+        }
+        else
+        {
+            if (logMode & 1) pt[0] = LOGFUN (pt[0]);
+            if (logMode & 2) pt[1] = LOGFUN (pt[1]);
+            if (isnan (pt[0]) || isnan (pt[1]) || isinf (pt[0]) || isinf (pt[1]))
+                continue;
+
+            WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_COMPUTE (pt, xi, yi, wzVal);
+
+            if ((unsigned)xi < (unsigned)w && (unsigned)yi < (unsigned)h)
+            {
+                sums[xi]   += yi;
+                counts[xi] += 1.0;
+            }
+        }
+    }
+}
+
+
+static void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("3d_histogram");
     double (*restrict points)[3] = _points;
@@ -342,6 +440,9 @@ static void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_
 
     const int w = canvas->w;
     const int h = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     WORLD_TRANSFORM_DATAPOS_TO_BIN_HOT_LOOP_INIT (world);
 
@@ -359,13 +460,16 @@ static void canvas_fun_3d_histogram (WorldTransform *world, void *_points, size_
     }
 }
 
-static void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, uint32_t logMode, CipCanvas *canvas)
+static void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
 {
     BENCHMARK_ADD_CHECKPOINT ("3d_line");
     double (*restrict points)[3] = _points;
 
     const int w = canvas->w;
     const int h = canvas->h;
+
+    memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
+    memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
 
     int lastXi = -1;
     int lastYi = -1;
@@ -391,44 +495,6 @@ static void canvas_fun_3d_line (WorldTransform *world, void *_points, size_t len
     }
 }
 
-//    // waterfall
-//    if (i0 < 0)
-//    {
-//        print_warning ("truncating");
-//        i0 = 0;
-//    }
-//    if (isnan (xy[0]) || isnan (xy[1]))
-//    {
-//        // flush row
-//        for (uint32_t yi=h-1; yi>0; yi--)
-//            for (uint32_t xi=0; xi<w; xi++)
-//                bins[yi*w + xi] = bins[(yi-1) * w + xi];
-
-//        // construct new row
-//        int lastNonZeroXi = -1;
-//        for (uint32_t xi=0; xi<w; xi++)
-//        {
-//            if (canvas->counts[xi] > 1e-5)
-//            {
-//                double avg = sums[xi] / counts[xi];
-//                double s = canvas->world.scaleMtx[1][1];
-//                double ymin = canvas->world.centerPos[1] - s;
-//                double ymax = canvas->world.centerPos[1] + s;
-//                double w = (avg - ymin) / (ymax - ymin);
-
-//                if (lastNonZeroXi < 0)
-//                    lastNonZeroXi = xi-1;
-//                for (int xik=lastNonZeroXi+1; xik<=xi; xik++)
-//                    bins[xik] = w * 1000; // FIXME: 1000 is the resolution of the color scheme
-
-//                //print_debug ("sums[xi]: %f counts[xi]: %f ymin: %f, ymax: %f avg: %f => w: %f => bins[%d]: %d",
-//                //sums[xi], counts[xi], ymin, ymax, avg, w, xi, bins[xi]);
-//                sums[xi]   = 0.0;
-//                counts[xi] = 0.0;
-//                lastNonZeroXi = xi;
-//            }
-//        }
-
 void canvas_functions_register (void)
 {
     cip_register_canvas_fun (1, 'h', canvas_fun_1d_histogram);
@@ -437,6 +503,7 @@ void canvas_functions_register (void)
     cip_register_canvas_fun (2, 'l', canvas_fun_2d_line);
     cip_register_canvas_fun (2, 't', canvas_fun_2d_thick_line);
     cip_register_canvas_fun (2, 's', canvas_fun_2d_stair);
+    cip_register_canvas_fun (2, 'w', canvas_fun_2d_waterfall);
     cip_register_canvas_fun (3, 'h', canvas_fun_3d_histogram);
     cip_register_canvas_fun (3, 'l', canvas_fun_3d_line);
 }

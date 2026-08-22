@@ -69,7 +69,7 @@ typedef struct CipCanvas
     double *wz;
 } CipCanvas;
 
-typedef void (*CanvasFun) (WorldTransform *world, void *buf, size_t len, uint32_t logMode, CipCanvas *canvas);
+typedef void (*CanvasFun) (WorldTransform *world, void *buf, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas);
 
 typedef struct GraphAttacher
 {

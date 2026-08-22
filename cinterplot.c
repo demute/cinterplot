@@ -1684,7 +1684,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                switch (key)
                {
                 case 'w': if (cs->activeSw) world_transform_zero_wz (& cs->activeSw->world, cs->pivot); break;
-                case 'a': cip_autoscale_sw (cs->activeSw, 0.1); break;
+                case 'a': cip_autoscale_sw (cs->activeSw, 0.0); break;
                 case 'c': cycle_graph_order (cs); break;
                 case 'f': cip_set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': if (cs->activeSw) { cip_set_grid_mode_sw (cs->activeSw, cs->activeSw->gridMode + 1); print_debug ("grid mode %d", cs->activeSw->gridMode); } break;
@@ -2151,13 +2151,6 @@ void cip_register_canvas_fun (int dim, char plotType, CanvasFun canvasFun)
 static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logMode, char plotType, uint64_t lastGraphCounter)
 {
     uint64_t counter = 0;
-    int      *bins   = canvas->bins;
-    double   *wz     = canvas->wz;
-    int      w       = canvas->w;
-    int      h       = canvas->h;
-    //double   *sums   = canvas->sums;
-    //double   *counts = canvas->counts;
-
     uint8_t *buf;
     uint32_t len;
     wait_for_access (& graph->readAccess);
@@ -2166,9 +2159,9 @@ static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logM
 
     size_t sz = graph->sb->itemSize;
 
-    int i0 = 0;
-    if (plotType == 'w' && lastGraphCounter)
-        i0 = stream_buffer_counter_to_index (graph->sb, lastGraphCounter + 1);
+    int firstUnusedIndex = 0;
+    if (lastGraphCounter)
+        firstUnusedIndex = stream_buffer_counter_to_index (graph->sb, lastGraphCounter + 1);
 
     if (!len)
     {
@@ -2181,43 +2174,20 @@ static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logM
     // if that happens, make sure to throw away those extra points
     if (graph->len && graph->len < len)
     {
-        buf += sz * (len - graph->len);
+        int n = len - graph->len;
+        buf              += n * sz;
+        firstUnusedIndex -= n;
         len = graph->len;
     }
     counter = graph->sb->counter;
     release_access (& graph->insertAccess);
-
-    if (plotType == 'w')
-    {
-        if (lastGraphCounter == 0)
-        {
-            // If we have data and we just changed plotType to waterfall, we want to go back
-            // in time and use more data than just from lastGraphCounter.
-            // This rewinds i0 with at most nRows
-            i0 = len - 1;
-            int nRows = 0;
-            while (i0 > 0 && nRows <= h)
-            {
-                double *point = (double *) (buf + sz * i0);
-                if (isnan (point[0]) && isnan (point[1]))
-                    nRows++;
-                i0--;
-            }
-            memset (bins, 0x00, w*h*sizeof (bins[0]));
-        }
-    }
-    else
-    {
-        memset (bins, 0x00, w*h*sizeof (bins[0]));
-        memset (wz,   0x00, w*h*sizeof (wz[0]));
-    }
 
     WorldTransform *world = & canvas->world;
     int dim = sz / sizeof (double);
     BENCHMARK_ADD_CHECKPOINT ("canvasFun");
     CanvasFun fun = canvasFuns[dim][(uint8_t) plotType];
     if (fun)
-        fun (world, buf, len, logMode, canvas);
+        fun (world, buf, len, firstUnusedIndex, logMode, canvas);
     else
         print_error ("unknown plotType '%c' for dim %d", plotType, dim);
 
