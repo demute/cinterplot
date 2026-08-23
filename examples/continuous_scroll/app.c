@@ -35,7 +35,7 @@ int user_main (int argc, char **argv, CipState *cs)
     {
         cip_continuous_scroll_enable (cs, i);
         sineGraph[i] = cip_graph_new (2, 1000000);
-        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
+        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, plotType[i], colorSchemes[i % 6], 8);
     }
 
     double v = 0;

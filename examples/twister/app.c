@@ -43,23 +43,15 @@ int on_press (void *twisterDev, int encoder, int pressed)
 int on_button (int button, int pressed)
 {
     print_debug ("button: %d pressed: %d", button, pressed);
-    return 1;
+    return 0;
 }
+
+static double speed = 1.0;
 
 int on_encoder (void *twisterDev, int encoder, int dir)
 {
-    static double speed = 1.0;
     double f = (dir > 0) ? 1.01 : 1.0 / 1.01;
     speed *= f;
-
-    cip_graph_remove_points (sineGraph[0]);
-    for (int i=0; i<N; i++)
-    {
-        double x = i * 1e-3;
-        double y = sin (x * 2 * M_PI * speed);
-        cip_graph_add_2d_point (sineGraph[0], x, y);
-    }
-    print_debug ("en: %d dir: %d", encoder, dir);
     return 1;
 }
 
@@ -102,10 +94,6 @@ int twister_poll (void *twisterDev)
          default: printf ("%02x %02x %02x\n", buf[0], buf[1], buf[2]);
         }
     }
-    else
-    {
-        usleep (100);
-    }
     return 0;
 }
 
@@ -118,7 +106,7 @@ int user_main (int argc, char **argv, CipState *_cs)
 
     char *colorSchemes[6] =
     {
-        "white blue black",
+        "white",
         "white",
         "white",
         "white",
@@ -134,14 +122,27 @@ int user_main (int argc, char **argv, CipState *_cs)
     for (int i=0; i<n; i++)
     {
         sineGraph[i] = cip_graph_new (2, N);
-        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 4);
+        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, plotType[i], colorSchemes[i % 6], 4);
     }
 
     while (cip_is_running (cs))
     {
         midi_connect (twisterDev);
-        if (twister_poll (twisterDev))
+        int update = 0;
+        while (twister_poll (twisterDev))
+            update = 1;
+
+        if (update)
+        {
+            double s = 1.0 / N;
+            for (int i=0; i<N; i++)
+            {
+                double x = i * s;
+                double y = sin (x * 2 * M_PI * speed);
+                cip_graph_add_2d_point (sineGraph[0], x, y);
+            }
             cip_redraw_async (cs);
+        }
         else
             usleep (1000);
     }

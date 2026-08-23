@@ -29,10 +29,10 @@ int user_main (int argc, char **argv, CipState *cs)
     for (int i=0; i<n; i++)
     {
         sineGraph[i] = cip_graph_new (2, 1000000);
-        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, NULL, plotType[i], colorSchemes[i % 6], 8);
+        cip_graph_attach (cs, sineGraph[i], (uint32_t) i, plotType[i], colorSchemes[i % 6], 8);
         char name[32];
         sprintf (name, "sineGraph[%d]", i);
-        cip_set_graph_name (sineGraph[i], name);
+        //cip_set_graph_name (sineGraph[i], name);
     }
 
     double v = 0;

@@ -58,7 +58,7 @@ int user_main (int argc, char **argv, CipState *cs)
 
             print_debug ("color: %s", colorStr);
             states[si].graph = cip_graph_new (3, numPerColor * masklen);
-            cip_graph_attach (cs, states[si].graph, 0, NULL, 'p', colorStr, 5);
+            cip_graph_attach (cs, states[si].graph, 0, 'h', colorStr, 5);
         }
     }
 
@@ -117,10 +117,11 @@ int user_main (int argc, char **argv, CipState *cs)
         }
 
         CipSubWindow *sw = cip_get_sub_window (cs, 0);
-        rotate_y (sw->rotMatrix, 0.0003,  0);
-        //rotate_y (sw->rotMatrix, 0.00019, 1);
-        //rotate_z (sw->rotMatrix, 0.0001003, 0);
-        //rotate_y (sw->rotMatrix, 0.00012,   1);
+        double fixedpos[3] = {0};
+        world_transform_rotate_world   (& sw->world, fixedpos, 1, 0.0003);
+        world_transform_rotate_data  (& sw->world, fixedpos, 1, 0.00019);
+        world_transform_rotate_world (& sw->world, fixedpos, 2, 0.0001003);
+        world_transform_rotate_data  (& sw->world, fixedpos, 1, 0.00012);
 
         usleep (2000);
         cip_redraw_async (cs);
