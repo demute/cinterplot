@@ -905,7 +905,7 @@ static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
             exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
     }
 
-    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED);
+    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!cs->renderer)
         exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
 
@@ -2952,9 +2952,13 @@ static void update_image (CipState *cs, SDL_Texture *texture, int init)
     if (status)
         exit_error ("texture: %p, status: %d: %s\n", (void*) texture, status, SDL_GetError());
 
-    for (int yi=0; yi<h; yi++)
-        for (int xi=0; xi<w; xi++)
-            pixels[yi*w + xi] = cs->pixelCache[(h-1-yi)*w + xi];
+    for (int yi = 0; yi < h; yi++)
+    {
+        uint32_t *row = (uint32_t *)((uint8_t *)pixels + yi * wb);
+
+        for (int xi = 0; xi < w; xi++)
+            row[xi] = cs->pixelCache[(h - 1 - yi) * w + xi];
+    }
 
     if (iconData && processIconData == 0)
     {
