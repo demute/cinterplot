@@ -2187,7 +2187,7 @@ static uint64_t render_canvas (CipCanvas *canvas, CipGraph *graph, uint32_t logM
     BENCHMARK_ADD_CHECKPOINT ("canvasFun");
     CanvasFun fun = canvasFuns[dim][(uint8_t) plotType];
     if (fun)
-        fun (world, buf, len, firstUnusedIndex, logMode, canvas);
+        fun (world, buf, len, firstUnusedIndex, logMode, plotType, canvas);
     else
         print_error ("unknown plotType '%c' for dim %d", plotType, dim);
 
