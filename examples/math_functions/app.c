@@ -1,7 +1,7 @@
 #include "cinterplot_common.h"
 #include "cinterplot.h"
 
-void canvas_fun_math_functions (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
+void canvas_fun_math_functions (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, char plotType, CipCanvas *canvas)
 {
     //double (*restrict points)[2] = _points;
     //double *restrict wz          = canvas->wz;
@@ -12,8 +12,6 @@ void canvas_fun_math_functions (WorldTransform *world, void *_points, size_t len
 
     memset (canvas->bins, 0x00, w*h*sizeof (canvas->bins[0]));
     memset (canvas->wz,   0x00, w*h*sizeof (canvas->wz[0]));
-
-    char plotType = '5';
 
     for (uint32_t yi=0; yi<h; yi++)
     {
@@ -59,7 +57,7 @@ int user_main (int argc, char **argv, CipState *cs)
         return 1;
 
     for (int i=0; i<256; i++)
-        cip_register_canvas_fun (1, (char) i, canvas_fun_math_functions);
+        cip_register_canvas_fun (1, (char) i, (i >= '0' && i <= '5') ? canvas_fun_math_functions : NULL);
 
     CipGraph *nullGraph = cip_graph_new (1, 10);
 
@@ -73,7 +71,6 @@ int user_main (int argc, char **argv, CipState *cs)
     cip_graph_attach (cs, nullGraph, windowIndex++, '3', "1/10 2/10 3/10 4/10 5/10 6/10 7/10 8/10 9/10 10/10 black", 1024);
     cip_graph_attach (cs, nullGraph, windowIndex++, '4', "red black blue", 1024);
 
-    double tiltAngle = -M_PI * 0.75;
     while (cip_is_running (cs))
     {
         cip_graph_add_1d_point (nullGraph, 1.0);
