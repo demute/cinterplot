@@ -1,14 +1,13 @@
 #include "cinterplot_common.h"
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
+#include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
 #include <stdatomic.h>
 #include <sys/stat.h>
 
 #include "cinterplot.h"
 #include "font.c"
 #include "oklab.h"
-#include "savepng.h"
 #include "macos_icon.h"
 #include "world_transform.h"
 #include "canvas_functions.h"
@@ -107,7 +106,7 @@ static int paused = 0;
 static WorldTransform storedWorldTransforms[10] = {0};
 
 static volatile int processIconData = 0;
-static uint32_t *iconData = NULL;
+static volatile uint32_t *iconData = NULL;
 static volatile int iconWidth = 0;
 static volatile int iconHeight = 0;
 static volatile int iconWb = 0;
@@ -875,50 +874,56 @@ static char *make_title(char *buf, size_t size)
 #endif
 }
 
-static void reinitialise_sdl_context (CipState *cs, int reinitWindow)
+static void create_sdl_window_and_renderer (CipState *cs)
+{
+    if (cs->window)
+        SDL_DestroyWindow (cs->window);
+
+    char title[256];
+    make_title (title, sizeof (title));
+
+    cs->window = SDL_CreateWindow (title,
+                                   (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_RESIZABLE);
+    if (!cs->window)
+        exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
+
+    // if SDL_CreateRenderer is called with (cs->window, NULL), MacOS will pick metal as underlying
+    // renderer and that one causes the pixels to dim down after one second of inactivity if in fullscreen
+    cs->renderer = SDL_CreateRenderer (cs->window, "opengl");
+    if (!cs->renderer)
+        exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
+
+    print_debug ("renderer: %s", SDL_GetRendererName(cs->renderer));
+
+    if (!SDL_SetRenderVSync(cs->renderer, 1))
+        print_error("Could not enable vsync: %s\n", SDL_GetError());
+}
+
+static void reinitialise_sdl_context (CipState *cs)
 {
     if (iconData)
     {
-        void *ptr = iconData;
+        volatile void *ptr = iconData;
         iconData = NULL;
-        free (ptr);
+        usleep (50000);
+        free ((void *) ptr);
     }
-
     if (cs->texture)
         SDL_DestroyTexture (cs->texture);
     if (cs->pixelCache)
         free (cs->pixelCache);
-    if (cs->renderer)
-        SDL_DestroyRenderer (cs->renderer);
 
-    if (reinitWindow)
-    {
-        if (cs->window)
-            SDL_DestroyWindow (cs->window);
-
-        char title[256];
-        make_title (title, sizeof (title));
-
-        cs->window = SDL_CreateWindow (title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                       (int) cs->windowWidth, (int) cs->windowHeight, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-        if (!cs->window)
-            exit_error ("Window could not be created: SDL Error: %s\n", SDL_GetError ());
-    }
-
-    cs->renderer = SDL_CreateRenderer (cs->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!cs->renderer)
-        exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
-
-    cs->texture = SDL_CreateTexture (cs->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                     (int) cs->windowWidth, (int) cs->windowHeight);
+    cs->texture = SDL_CreateTexture (cs->renderer,
+                                     SDL_PIXELFORMAT_ARGB8888,
+                                     SDL_TEXTUREACCESS_STREAMING,
+                                     (int) cs->windowWidth,
+                                     (int) cs->windowHeight);
     if (!cs->texture)
         exit_error ("Texture could not be created: SDL Error: %s\n", SDL_GetError ());
 
     cs->pixelCache = calloc (cs->windowWidth * cs->windowHeight, sizeof (cs->pixelCache[0]));
     if (!cs->pixelCache)
         exit_error ("pixelCache could not be created");
-
-    SDL_SetWindowFullscreen (cs->window, cs->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 
     iconData = malloc (sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
     if (!iconData)
@@ -959,25 +964,21 @@ int cip_make_sub_windows (CipState *cs, uint32_t nRows, uint32_t nCols, uint32_t
 
 int cip_set_fullscreen (CipState *cs, uint32_t fullscreen)
 {
-    cs->fullscreen = fullscreen & 1;
+    cs->fullscreen = !!fullscreen;
 
-    if (cs->fullscreen)
-    {
-        SDL_DisplayMode displayMode;
-        SDL_GetCurrentDisplayMode (0, & displayMode);
-        assert (displayMode.w > 0);
-        assert (displayMode.h > 0);
-        print_debug ("fullscreen res: %u %u", displayMode.w, displayMode.h);
-        cs->windowWidth  = (uint32_t) displayMode.w;
-        cs->windowHeight = (uint32_t) displayMode.h;
-    }
-    else
-    {
-        cs->windowWidth  = CINTERPLOT_INIT_WIDTH;
-        cs->windowHeight = CINTERPLOT_INIT_HEIGHT;
-    }
 
-    reinitialise_sdl_context (cs, 1);
+    if (!SDL_SetWindowFullscreen(cs->window, fullscreen))
+        print_error("Could not change fullscreen mode: %s\n", SDL_GetError());
+
+    SDL_SyncWindow(cs->window);
+
+    int w, h;
+    SDL_GetWindowSizeInPixels(cs->window, &w, &h);
+
+    cs->windowWidth  = w;
+    cs->windowHeight = h;
+
+    reinitialise_sdl_context (cs);
     recompute_sub_window_areas (cs);
     return 1;
 }
@@ -1087,7 +1088,7 @@ static int on_mouse_pressed (CipState *cs, int xi, int yi, int button, int click
     {
         switch (cs->pressedModifiers)
         {
-         case KMOD_NONE:
+         case SDL_KMOD_NONE:
              {
                  cs->mouseState = MOUSE_STATE_SELECTING;
                  cs->mouseScreenPos[0] = (double) xi-1;
@@ -1103,7 +1104,7 @@ static int on_mouse_pressed (CipState *cs, int xi, int yi, int button, int click
 
                  break;
              }
-         case KMOD_GUI:
+         case SDL_KMOD_GUI:
              {
                  cs->mouseState = MOUSE_STATE_MOVING;
                  break;
@@ -1116,7 +1117,7 @@ static int on_mouse_pressed (CipState *cs, int xi, int yi, int button, int click
     {
         switch (cs->pressedModifiers)
         {
-         case KMOD_NONE:
+         case SDL_KMOD_NONE:
              {
                  cs->mouseState = MOUSE_STATE_MOVING;
                  break;
@@ -1228,7 +1229,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
     CipSubWindow *sw = cs->activeSw;
     if (sw && cs->mouseState == MOUSE_STATE_NONE)
     {
-        if (cs->pressedModifiers == KMOD_GUI)
+        if (cs->pressedModifiers == SDL_KMOD_GUI)
         {
             // zooming
             CipSubWindow *sw = cs->activeSw;
@@ -1241,7 +1242,7 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
             world_transform_scale_world (& sw->world, cs->pivot, scales);
             return 1;
         }
-        else if (cs->pressedModifiers == KMOD_ALT)
+        else if (cs->pressedModifiers == SDL_KMOD_ALT)
         {
             double newPf = sw->world.perspectiveFactor + 0.01 * xf;
             if (newPf < 0)
@@ -1257,13 +1258,13 @@ static int on_mouse_wheel (CipState *cs, float xf, float yf)
 
             return 1;
         }
-        else if (cs->pressedModifiers == (KMOD_ALT | KMOD_SHIFT))
+        else if (cs->pressedModifiers == (SDL_KMOD_ALT | SDL_KMOD_SHIFT))
         {
             // rotating z
             world_transform_rotate_world (& sw->world, cs->pivot, 2, -yf * 0.02);
             return 1;
         }
-        else if (cs->pressedModifiers == KMOD_SHIFT)
+        else if (cs->pressedModifiers == SDL_KMOD_SHIFT)
         {
             // rotating
             world_transform_rotate_world (& sw->world, cs->pivot, 0, yf * 0.02);
@@ -1644,33 +1645,33 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
     if (key == SDLK_LSHIFT || key == SDLK_RSHIFT)
     {
         if (pressed)
-            cs->pressedModifiers |= KMOD_SHIFT;
+            cs->pressedModifiers |= SDL_KMOD_SHIFT;
         else
-            cs->pressedModifiers &= ~KMOD_SHIFT;
+            cs->pressedModifiers &= ~SDL_KMOD_SHIFT;
         return 0;
     }
     else if (key == SDLK_LGUI || key == SDLK_RGUI)
     {
         if (pressed)
-            cs->pressedModifiers |= KMOD_GUI;
+            cs->pressedModifiers |= SDL_KMOD_GUI;
         else
-            cs->pressedModifiers &= ~KMOD_GUI;
+            cs->pressedModifiers &= ~SDL_KMOD_GUI;
         return 0;
     }
     else if (key == SDLK_LALT || key == SDLK_RALT)
     {
         if (pressed)
-            cs->pressedModifiers |= KMOD_ALT;
+            cs->pressedModifiers |= SDL_KMOD_ALT;
         else
-            cs->pressedModifiers &= ~KMOD_ALT;
+            cs->pressedModifiers &= ~SDL_KMOD_ALT;
         return 0;
     }
     else if (key == SDLK_LCTRL || key == SDLK_RCTRL)
     {
         if (pressed)
-            cs->pressedModifiers |= KMOD_CTRL;
+            cs->pressedModifiers |= SDL_KMOD_CTRL;
         else
-            cs->pressedModifiers &= ~KMOD_CTRL;
+            cs->pressedModifiers &= ~SDL_KMOD_CTRL;
         return 0;
     }
 
@@ -1679,7 +1680,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
     {
         if (!repeat)
         {
-           if (mod == KMOD_NONE)
+           if (mod == SDL_KMOD_NONE)
            {
                switch (key)
                {
@@ -1805,7 +1806,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                 default: unhandled = 1;
                }
            }
-           else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
+           else if (mod == SDL_KMOD_LSHIFT || mod == SDL_KMOD_RSHIFT || mod == SDL_KMOD_SHIFT)
            {
                switch (key)
                {
@@ -1860,7 +1861,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
         if (unhandled || repeat)
         {
             unhandled = 0;
-            if (mod == KMOD_NONE)
+            if (mod == SDL_KMOD_NONE)
             {
                 double zfp = 1.05;
                 double zfn = 1.0 / 1.05;
@@ -1881,7 +1882,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                  default: unhandled = 1; break;
                 }
             }
-            else if (mod == KMOD_LSHIFT || mod == KMOD_RSHIFT || mod == KMOD_SHIFT)
+            else if (mod == SDL_KMOD_LSHIFT || mod == SDL_KMOD_RSHIFT || mod == SDL_KMOD_SHIFT)
             {
                 switch (key)
                 {
@@ -1896,7 +1897,7 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
         }
     }
 
-    if (cs->pressedModifiers == KMOD_CTRL && key == 'c')
+    if (cs->pressedModifiers == SDL_KMOD_CTRL && key == 'c')
     {
         cip_quit (cs);
         unhandled = 0;
@@ -2948,9 +2949,8 @@ static void update_image (CipState *cs, SDL_Texture *texture, int init)
 
     uint32_t* pixels;
     int wb;
-    int status = SDL_LockTexture (texture, NULL, (void**) & pixels, & wb);
-    if (status)
-        exit_error ("texture: %p, status: %d: %s\n", (void*) texture, status, SDL_GetError());
+    if (!SDL_LockTexture (texture, NULL, (void**) & pixels, & wb))
+        exit_error ("texture: %p, %s\n", (void*) texture, SDL_GetError());
 
     for (int yi = 0; yi < h; yi++)
     {
@@ -2962,7 +2962,7 @@ static void update_image (CipState *cs, SDL_Texture *texture, int init)
 
     if (iconData && processIconData == 0)
     {
-        memcpy (iconData, pixels, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
+        memcpy ((void *) iconData, pixels, sizeof (uint32_t) * cs->windowWidth * cs->windowHeight);
         iconWidth  = cs->windowWidth;
         iconHeight = cs->windowHeight;
         iconWb     = wb;
@@ -3049,18 +3049,21 @@ static CipState *cip_init (void)
 
     signal (SIGINT, signal_handler);
 
-    if (SDL_Init (SDL_INIT_VIDEO) < 0)
+    SDL_SetHint(SDL_HINT_MAC_SCROLL_MOMENTUM, "1");
+
+    if (!SDL_Init (SDL_INIT_VIDEO))
         exit_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());
 
     // allow screen to turn black
     SDL_EnableScreenSaver ();
 
-    reinitialise_sdl_context (cs, 1);
+    create_sdl_window_and_renderer (cs);
+    reinitialise_sdl_context (cs);
     recompute_sub_window_areas (cs);
 
     update_image (cs, cs->texture, 1);
 
-    SDL_RenderCopy (cs->renderer, cs->texture, NULL, NULL);
+    SDL_RenderTexture (cs->renderer, cs->texture, NULL, NULL);
     SDL_RenderPresent (cs->renderer);
 
     return cs;
@@ -3083,50 +3086,42 @@ static int cinterplot_run_until_quit (CipState *cs)
         {
             switch(event.type)
             {
-             case SDL_QUIT:
+             case SDL_EVENT_QUIT:
                  return 0;
-             case SDL_MOUSEBUTTONDOWN:
+             case SDL_EVENT_MOUSE_BUTTON_DOWN:
                  redraw |= cs->on_mouse_pressed (cs, event.button.x-1, h-1-(event.button.y-2), event.button.button, event.button.clicks);
                  break;
-             case SDL_MOUSEBUTTONUP:
+             case SDL_EVENT_MOUSE_BUTTON_UP:
                  redraw |= cs->on_mouse_released (cs, event.button.x-1, h-1-(event.button.y-2));
                  break;
-             case SDL_MOUSEMOTION:
+             case SDL_EVENT_MOUSE_MOTION:
                  redraw |= cs->on_mouse_motion (cs, event.motion.x-1, h-1-(event.motion.y-2));
                  break;
-             case SDL_MOUSEWHEEL:
-                 redraw |= cs->on_mouse_wheel (cs, -event.wheel.preciseX, -event.wheel.preciseY);
+             case SDL_EVENT_MOUSE_WHEEL:
+                 redraw |= cs->on_mouse_wheel (cs, -event.wheel.x, -event.wheel.y);
                  break;
-             case SDL_KEYDOWN:
-             case SDL_KEYUP:
+             case SDL_EVENT_KEY_DOWN:
+             case SDL_EVENT_KEY_UP:
                  {
-                     int repeat = event.key.repeat;
-                     int pressed = event.key.state == SDL_PRESSED;
-                     int key = event.key.keysym.sym;
-                     int mod = event.key.keysym.mod;
+                     int repeat  = event.key.repeat;
+                     int pressed = event.key.down;
+                     int key     = event.key.key;
+                     int mod     = event.key.mod;
 
                      redraw |= cs->on_keyboard (cs, key, mod, pressed, repeat);
                      break;
                  }
-             case SDL_WINDOWEVENT:
+             case SDL_EVENT_WINDOW_RESIZED:
                  {
-                     switch (event.window.event)
-                     {
-                      case SDL_WINDOWEVENT_RESIZED:
-                          {
-                              int newWidth = event.window.data1;
-                              int newHeight = event.window.data2;
-                              cs->windowWidth  = (uint32_t) newWidth;
-                              cs->windowHeight = (uint32_t) newHeight;
-                              reinitialise_sdl_context (cs, 0);
-                              recompute_sub_window_areas (cs);
-                              redraw = 1;
-                              break;
-                          }
-                      default:
-                          //print_debug ("event.window.event: %d", event.window.event);
-                          break;
-                     }
+                     int newWidth  = event.window.data1;
+                     int newHeight = event.window.data2;
+
+                     cs->windowWidth  = (uint32_t)newWidth;
+                     cs->windowHeight = (uint32_t)newHeight;
+
+                     reinitialise_sdl_context (cs);
+                     recompute_sub_window_areas(cs);
+                     redraw = 1;
                      break;
                  }
              default:
@@ -3148,7 +3143,7 @@ static int cinterplot_run_until_quit (CipState *cs)
             cs->redrawing = 1;
             lastFrameTsp = tsp;
             update_image (cs, cs->texture, 0);
-            SDL_RenderCopy (cs->renderer, cs->texture, NULL, NULL);
+            SDL_RenderTexture (cs->renderer, cs->texture, NULL, NULL);
             SDL_RenderPresent (cs->renderer);
             cs->redrawing = 0;
             BENCHMARK_STOP ();
@@ -3170,91 +3165,73 @@ static void cinterplot_cleanup (CipState *cs)
     cs->window = NULL;
 }
 
-void cip_save_png (CipState* cs, char* imageDir, int frameCounter, int format)
+void cip_save_png(CipState *cs, char *imageDir, int frameCounter, int format)
 {
     uint32_t w = cs->windowWidth;
     uint32_t h = cs->windowHeight;
 
     static SDL_Surface *surface = NULL;
+
     if (!surface || surface->w != w || surface->h != h)
     {
         if (surface)
-            SDL_FreeSurface (surface);
-        surface = SDL_CreateRGBSurface(0, (int) w, (int) h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+            SDL_DestroySurface(surface);
+
+        surface = SDL_CreateSurface((int) w, (int) h, SDL_PIXELFORMAT_ARGB8888);
+        if (!surface)
+            exit_error ("Unable to create PNG surface: %s\n", SDL_GetError());
     }
 
-    uint32_t *pixels = (uint32_t *) surface->pixels;
-    memcpy (pixels, cs->pixelCache, w * h * sizeof (pixels[0]));
+    for (uint32_t y=0; y<h; y++)
+    {
+        uint32_t *dst = (uint32_t *)((uint8_t *)surface->pixels + (h-1-y) * surface->pitch);
+        const uint32_t *src = cs->pixelCache + (size_t) (h-1-y) * w;
 
-    for (int i=0; i<w*h; i++)
-        pixels[i] |= 0xff000000;
+        for (uint32_t x = 0; x < w; x++)
+            dst[x] = src[x] | 0xff000000;
+    }
 
     char file[256];
     char *dumpPrefix = "foo";
+
     sprintf(file, "%s/%s-%06d-%dx%d", imageDir, dumpPrefix, frameCounter, w, h);
-    char* suffix = & file[strlen (file)];
-    static int j=0;
-    sprintf (suffix, "%d.png", j++);
-    while (file_exists (file))
-        sprintf (suffix, "%d.png", j++);
+    char *suffix = &file[strlen(file)];
+    static int j = 0;
+    sprintf(suffix, "%d.png", j++);
 
-    if (SDL_SavePNG (surface, file))
+    while (file_exists(file))
+        sprintf(suffix, "%d.png", j++);
+
+    if (!SDL_SavePNG(surface, file))
         printf("Unable to save png -- %s\n", SDL_GetError());
-    else 
-        print_debug ("saved image %s", file);
+    else
+        print_debug("saved image %s", file);
 }
 
-SDL_Surface *createSurfaceFromImage (char *file)
+SDL_Surface *createSurfaceFromImage(char *file)
 {
-    SDL_Surface* srcSurface = IMG_Load (file);
-    if(!srcSurface)
-        return NULL;
-
-    int w = srcSurface->w;
-    int h = srcSurface->h;
-
-    SDL_Surface *dstSurface = SDL_CreateRGBSurface (0, w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
-    uint8_t *src = srcSurface->pixels;
-    uint32_t *dst = dstSurface->pixels;
-
-    int bytesPerPixel = srcSurface->format->BytesPerPixel;
-    int ri = srcSurface->format->Rshift / 8;
-    int gi = srcSurface->format->Gshift / 8;
-    int bi = srcSurface->format->Bshift / 8;
-    int ai = srcSurface->format->Ashift / 8;
-
-    //print_debug ("bytesPerPixel: %d", srcSurface->format->BytesPerPixel);
-    //print_debug ("dimension: %d x %d, pitch: %d", w, h, srcSurface->pitch);
-    //print_debug ("ri,gi,bi: %d,%d,%d", ri, gi, bi);
-
-    int pitch = srcSurface->pitch;
-
-    if (w * dstSurface->format->BytesPerPixel != dstSurface->pitch)
-        exit_error ("unexpected width * bytesPerPixel != pitch");
-
-    //char c[12] = {'#', '@', '8', '%', 'O', 'o', '"', ';', ',', '\'', '.', ' '};
-    for (int y=0; y<h; y++)
+    SDL_Surface *src = IMG_Load(file);
+    if (!src)
     {
-        for (int x=0; x<w; x++)
-        {
-            uint32_t color = 0;
-            color |= src[y * pitch + x * bytesPerPixel + ri] << 16;
-            color |= src[y * pitch + x * bytesPerPixel + gi] <<  8;
-            color |= src[y * pitch + x * bytesPerPixel + bi] <<  0;
-            if (bytesPerPixel == 4)
-                color |= src[y * pitch + x * bytesPerPixel + ai] << 24;
-            dst[y*w+x] = color;
-            //float value = (float) ((color & 0xff) + ((color >> 8) & 0xff) + ((color >> 16) & 0xff)) / (256*3);
-            //printf ("%c", c[(int) (value * 12)]);
-            //printf ("%c", value > 197 ? '#' : ' ');
-        }
-        //printf ("\n");
+        print_error("Could not load image %s: %s\n",
+                    file, SDL_GetError());
+        return NULL;
     }
-    //exit (0);
-    SDL_FreeSurface (srcSurface);
-    return dstSurface;
-}
 
+    SDL_Surface *dst =
+        SDL_ConvertSurface(src, SDL_PIXELFORMAT_ARGB8888);
+
+    SDL_DestroySurface(src);
+
+    if (!dst)
+    {
+        print_error("Could not convert image %s: %s\n",
+                    file, SDL_GetError());
+        return NULL;
+    }
+
+    return dst;
+}
 
 static void *iconUpdater (void *_data)
 {
@@ -3263,9 +3240,10 @@ static void *iconUpdater (void *_data)
 
     while (cs->running)
     {
-        if (iconData && processIconData)
+        volatile uint32_t *iconDataPtr = iconData;
+        if (iconDataPtr && processIconData)
         {
-            update_macos_icon (iconData, iconWidth, iconHeight, iconWb);
+            update_macos_icon ((uint32_t *) iconDataPtr, iconWidth, iconHeight, iconWb);
             processIconData = 0;
         }
         else

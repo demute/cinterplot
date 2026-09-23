@@ -7,7 +7,7 @@ CFLAGS  += $(shell pkg-config --cflags gsl)
 
 LDFLAGS += -L$(LIBDIR) -lcinterplot
 LDFLAGS += $(shell pkg-config --libs gsl)
-LDFLAGS += $(shell pkg-config --libs sdl2)
+LDFLAGS += $(shell pkg-config --libs sdl3)
 
 
 .PHONY: run

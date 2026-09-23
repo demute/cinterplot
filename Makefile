@@ -4,7 +4,7 @@ include $(TOPDIR)/Makefile.common
 .PHONY: all
 
 
-PKGS = sdl2 libpng
+PKGS = sdl3 libpng
 PKGS_CFLAGS = $(foreach pkg,$(PKGS),--cflags $(pkg))
 PKGS_LIBS   = $(foreach pkg,$(PKGS),--libs $(pkg))
 CFLAGS     += $(shell $(PKGCONFIG) $(PKGS_CFLAGS))
@@ -13,7 +13,6 @@ LDFLAGS    += $(shell $(PKGCONFIG) $(PKGS_LIBS))
 OBJS += cinterplot.o
 OBJS += stream_buffer.o
 OBJS += oklab.o
-OBJS += savepng.o
 OBJS += macos_icon.o
 OBJS += world_transform.o
 OBJS += canvas_functions.o

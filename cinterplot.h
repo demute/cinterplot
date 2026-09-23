@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #include <stdatomic.h>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include "stream_buffer.h"
 #include "world_transform.h"
 
@@ -98,12 +98,6 @@ typedef struct CipSubWindow
     CipArea selectedArea;
     CipArea selectedAreaRaw;
 } CipSubWindow;
-
-#define KMOD_NONE  0
-#define KMOD_SHIFT 1
-#define KMOD_GUI   2
-#define KMOD_ALT   4
-#define KMOD_CTRL  8
 
 typedef struct CipMouse
 {

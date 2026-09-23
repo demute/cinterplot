@@ -8,7 +8,7 @@ CFLAGS  += $(shell pkg-config --cflags gsl)
 LDFLAGS += -L$(LIBDIR) -lcinterplot
 LDFLAGS += $(shell pkg-config --libs rtmidi)
 LDFLAGS += $(shell pkg-config --libs gsl)
-LDFLAGS += $(shell pkg-config --libs sdl2)
+LDFLAGS += $(shell pkg-config --libs sdl3)
 
 CXXFLAGS += -std=c++11
 CXXFLAGS += $(shell pkg-config --cflags rtmidi)

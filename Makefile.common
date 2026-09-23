@@ -19,7 +19,7 @@ ifeq ($(UNAME),Darwin)
 	LDFLAGS = -L$(LIBDIR) -lpthread
 	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE -std=c2x
 	CFLAGS += -D_BSD_SOURCE -ferror-limit=5
-	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl2)
+	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl3)
 	CFLAGS += -I$(TOPDIR)
 	CXXFLAGS := $(CFLAGS)
 #CFLAGS += -Wno-deprecated -Wconversion -Werror -Wno-unused-function
@@ -32,7 +32,7 @@ else
 	LDFLAGS = -L$(LIBDIR) -lm -lpthread
 	CFLAGS  = -g -ggdb -Wall -O3 -D_THREAD_SAFE -std=c2x
 	CFLAGS += -D_XOPEN_SOURCE=500 -fmax-errors=5
-	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl2)
+	CFLAGS += $(shell $(PKGCONFIG) --cflags sdl3)
 	CFLAGS += -I$(TOPDIR)
 	CXXFLAGS := $(CFLAGS)
 	CFLAGS += -Wno-deprecated -Wconversion -Werror -Wno-unused-function
