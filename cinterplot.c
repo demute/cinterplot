@@ -420,6 +420,15 @@ static void cycle_graph_order (CipState *cs)
     //print_debug ("graph order %u", cs->graphOrder);
 }
 
+static void cycle_scale_mode (CipSubWindow *sw)
+{
+    if (!sw)
+        return;
+
+    WorldTransform *w = & sw->world;
+    w->scaleMode = (w->scaleMode + 1) % SCALE_MODE_SIZE;
+}
+
 int cip_autoscale_sw (CipSubWindow *sw, double margin)
 {
     if (!sw)
@@ -892,8 +901,7 @@ static void create_sdl_window_and_renderer (CipState *cs)
     cs->renderer = SDL_CreateRenderer (cs->window, "opengl");
     if (!cs->renderer)
         exit_error ("Renderer could not be created! SDL Error: %s\n", SDL_GetError ());
-
-    print_debug ("renderer: %s", SDL_GetRendererName(cs->renderer));
+    //print_debug ("renderer: %s", SDL_GetRendererName(cs->renderer));
 
     if (!SDL_SetRenderVSync(cs->renderer, 1))
         print_error("Could not enable vsync: %s\n", SDL_GetError());
@@ -1684,21 +1692,23 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
            {
                switch (key)
                {
-                case 'w': if (cs->activeSw) world_transform_zero_wz (& cs->activeSw->world, cs->pivot); break;
+                case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
                 case 'a': cip_autoscale_sw (cs->activeSw, 0.0); break;
+                case 'b': if (cs->activeSw) {cycle_scale_mode (cs->activeSw); world_transform_apply_constraints (& cs->activeSw->world);} break;
                 case 'c': cycle_graph_order (cs); break;
+                case 'd': if (cs->activeSw) world_transform_set_default_values (& cs->activeSw->world); break;
+                case 'e': cip_force_refresh (cs); break;
                 case 'f': cip_set_fullscreen (cs, ! cs->fullscreen); break;
                 case 'g': if (cs->activeSw) { cip_set_grid_mode_sw (cs->activeSw, cs->activeSw->gridMode + 1); print_debug ("grid mode %d", cs->activeSw->gridMode); } break;
                 case 'h': toggle_help (cs); break;
                 case 'i': cip_save_png (cs, ".", cs->frameCounter, 0); break;
+                case 'l': cycle_line_type (cs->activeSw, 1); break;
                 case 'm': cip_set_crosshair_enabled (cs, !cs->crosshairEnabled); break;
                 case 'o': if (cs->activeSw) {cip_set_log_mode_sw (cs, cs->activeSw, cs->activeSw->logMode + 1); print_debug ("log mode %d", cs->activeSw->logMode);} break;
-                case '\t': if (cs->activeSw) {cycle_selected_graph (cs->activeSw, 1); print_debug ("graph %d", cs->activeSw->selectedGraph);cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);} break; 
-                case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); recompute_sub_window_areas (cs); break;
                 case 'q': cip_quit (cs); break;
-                case 'e': cip_force_refresh (cs); break;
+                case 's': cip_set_statusline_enabled (cs, !cs->statuslineEnabled); recompute_sub_window_areas (cs); break;
                 case 't': cip_set_tracking_mode (cs, cs->trackingMode + 1); cs->on_mouse_motion (cs, cs->mouse.x, cs->mouse.y);break;
-                case 'l': cycle_line_type (cs->activeSw, 1); break;
+                case 'w': if (cs->activeSw) world_transform_zero_wz (& cs->activeSw->world, cs->pivot); break;
                           //case 'x': exit_zoom (cs); break;
                 case ' ': cip_toggle_paused (cs); break;
 
@@ -1785,10 +1795,6 @@ static int on_keyboard (CipState *cs, int key, int mod, int pressed, int repeat)
                           }
                           break;
 
-                case 'd':
-                          if (cs->activeSw)
-                              world_transform_set_default_values (& cs->activeSw->world);
-                          break;
 
                 case 'v':
                           if (cs->activeSw)
@@ -2738,12 +2744,14 @@ static void plot_data (CipState *cs, uint32_t *restrict pixels)
         {
             CipSubWindow *sw = cs->activeSw;
 
-            char *tm[] = {"(none)", "(x-fix, y-find)", "(x-find, y-fix)", "(x-find, y-find)"};
+            char *tm[] = {"user,user", "user,find", "find,user", "find,find"};
             char *lm[] = {"linlin", "loglin", "linlog", "loglog"};
             char *trackingModeStr = tm[cs->trackingMode];
             char *logModeStr      = lm[sw->logMode];
-            snprintf (text, sizeof (text), "(x,y,z) = (%0.6g, %0.6g, %0.6g) tracking:%s logMode:%s",
-                      cs->pivot[0], cs->pivot[1], cs->pivot[2], trackingModeStr, logModeStr);
+            char *scaleMode        = (char *[]){"arb","uni","ort"}[sw->world.scaleMode % 3];
+            snprintf (text, sizeof (text), "cursor:{%s} log:%s scale:%s {%0.6g,%0.6g,%0.6g}",
+                      trackingModeStr, logModeStr, scaleMode,
+                      cs->pivot[0], cs->pivot[1], cs->pivot[2]);
             draw_text (pixels, cs->windowWidth, cs->windowHeight, x0, y0, textColor, transparent, text, 2, ALIGN_ML);
 
             char *title = sw->title;
@@ -2808,7 +2816,9 @@ static void plot_data (CipState *cs, uint32_t *restrict pixels)
         uint32_t y0 = h-20;
         HELP_TEXT (" Keyboard bindings:");
         HELP_TEXT ("   a        - autoscale");
+        HELP_TEXT ("   b        - cycle scale mode");
         HELP_TEXT ("   c        - cycle graph order");
+        HELP_TEXT ("   d        - set default world transform values");
         HELP_TEXT ("   e        - force refresh");
         HELP_TEXT ("   f        - toggle fullscreen");
         HELP_TEXT ("   g        - cycle between grid modes");
@@ -2821,7 +2831,7 @@ static void plot_data (CipState *cs, uint32_t *restrict pixels)
         HELP_TEXT ("   q        - quit");
         HELP_TEXT ("   s        - toggle statusline");
         HELP_TEXT ("   [tT]     - next/prev tracking mode");
-        HELP_TEXT ("   u        - reset zoom to default");
+        HELP_TEXT ("   [xyz]    - set rotation matrix axis orthogonal to screen");
         HELP_TEXT ("   <space>  - pause new data");
         HELP_TEXT ("   [0-9]    - recall range setting");
         HELP_TEXT ("   S+[0-9]  - save range setting");
@@ -2834,12 +2844,15 @@ static void plot_data (CipState *cs, uint32_t *restrict pixels)
         HELP_TEXT ("   <Esc>    - toggle user's keyboard handler");
         HELP_TEXT ("");
         HELP_TEXT (" Mouse gestures:");
-        HELP_TEXT ("   click in sub window          - enter or exit zoom mode");
-        HELP_TEXT ("   move cursor                  - read off crosshair coordinates");
-        HELP_TEXT ("   click select area            - zoom to area, <esc> to cancel");
-        HELP_TEXT ("   two finger click and drag    - move center point");
-        HELP_TEXT ("   scroll motion x/y            - move center point");
-        HELP_TEXT ("   <GUI>-button + scroll motion - zoom in/out");
+        HELP_TEXT ("   click in sub window         - enter or exit zoom mode");
+        HELP_TEXT ("   move cursor                 - read off crosshair coordinates");
+        HELP_TEXT ("   click select area           - zoom to area, <esc> to cancel");
+        HELP_TEXT ("   two finger click and drag   - move center point");
+        HELP_TEXT ("   scroll motion               - move center point");
+        HELP_TEXT ("   <Gui>   + scroll motion     - zoom in/out");
+        HELP_TEXT ("   <Shift> + scroll motion     - rotate world");
+        HELP_TEXT ("   <Opt>   + scroll up/down    - move world z axis");
+        HELP_TEXT ("   <Opt>   + scroll left/right - change perspectiveFactor");
     }
 }
 
@@ -3049,7 +3062,7 @@ static CipState *cip_init (void)
 
     signal (SIGINT, signal_handler);
 
-    SDL_SetHint(SDL_HINT_MAC_SCROLL_MOMENTUM, "1");
+    //SDL_SetHint(SDL_HINT_MAC_SCROLL_MOMENTUM, "1");
 
     if (!SDL_Init (SDL_INIT_VIDEO))
         exit_error ("SDL could not initialize! SDL Error: %s\n", SDL_GetError ());

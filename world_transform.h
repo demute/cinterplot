@@ -7,6 +7,14 @@ extern "C" {
 
 #include <stdlib.h>
 
+enum
+{
+    SCALE_MODE_ARBITRARY,
+    SCALE_MODE_UNIFORM,
+    SCALE_MODE_ORTHOGONAL,
+    SCALE_MODE_SIZE,
+};
+
 typedef struct WorldTransform
 {
     // if x is a data point from a CipGraph, data position gets transformed to world
@@ -90,6 +98,7 @@ typedef struct WorldTransform
     double scaleMtxInv[3][3];
     double centerPos[3];
     double perspectiveFactor;
+    int scaleMode;
 } WorldTransform;
 
 
@@ -113,7 +122,7 @@ int  world_transform_worldpos_to_projected (WorldTransform *world, double w[3], 
 void world_dump (WorldTransform *world, int line);
 void world_transform_adjust_worldz (WorldTransform *world, double datapos[3], double wz, double newPerspectiveFactor);
 void world_transform_zero_wz (WorldTransform *world, double datapos[3]);
-void world_apply_constraints (WorldTransform *world);
+void world_transform_apply_constraints (WorldTransform *world);
 
 #ifdef __cplusplus
 } /* end extern C */
