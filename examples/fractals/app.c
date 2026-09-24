@@ -1,12 +1,11 @@
 #include "cinterplot_common.h"
 #include "cinterplot.h"
 
-void canvas_fun_fractals (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, CipCanvas *canvas)
+void canvas_fun_fractals (WorldTransform *world, void *_points, size_t len, int firstUnusedIndex, uint32_t logMode, char plotType, CipCanvas *canvas)
 {
     int *bins  = canvas->bins;
     uint32_t w = canvas->w;
     uint32_t h = canvas->h;
-    char plotType = '1';
 
     for (uint32_t yi=0; yi<h; yi++)
     {
@@ -110,7 +109,9 @@ int user_main (int argc, char **argv, CipState *cs)
     cip_set_statusline_enabled (cs, 0);
 
     for (int i=0; i<256; i++)
-        cip_register_canvas_fun (1, (char) i, canvas_fun_fractals);
+        cip_register_canvas_fun (1, (char) i, NULL);
+    for (int i=0; i<=5; i++)
+        cip_register_canvas_fun (1, (char) i + '0', canvas_fun_fractals);
 
     if (cip_make_sub_windows (cs, nRows, nCols, bordered, margin) < 0)
         return 1;
@@ -121,6 +122,11 @@ int user_main (int argc, char **argv, CipState *cs)
     CipGraph *nullGraph = cip_graph_new (1, 0);
     cip_graph_add_1d_point (nullGraph, 1.0);
     cip_graph_attach (cs, nullGraph, 0, '1', "white yellow red black blue cyan black", 1000);
+    cip_graph_attach (cs, nullGraph, 1, '2', "white yellow red black blue cyan black", 1000);
+    cip_graph_attach (cs, nullGraph, 2, '3', "white yellow red black blue cyan black", 1000);
+    cip_graph_attach (cs, nullGraph, 3, '4', "white yellow red black blue cyan black", 1000);
+    cip_graph_attach (cs, nullGraph, 4, '5', "white yellow red black blue cyan black", 1000);
+    cip_graph_attach (cs, nullGraph, 5, '6', "white yellow red black blue cyan black", 1000);
     cip_set_range (cip_get_sub_window (cs, 1), -1.9, -1.2, 0.7,  1.0, 1);
     cip_redraw_async (cs);
     return 0;
