@@ -118,8 +118,8 @@ int user_main (int argc, char **argv, CipState *cs)
 
         CipSubWindow *sw = cip_get_sub_window (cs, 0);
         double fixedpos[3] = {0};
-        world_transform_rotate_world   (& sw->world, fixedpos, 1, 0.0003);
-        world_transform_rotate_data  (& sw->world, fixedpos, 1, 0.00019);
+        world_transform_rotate_world (& sw->world, fixedpos, 1, 0.0003);
+        world_transform_rotate_data  (& sw->world, fixedpos, 1, 0.00019);
         world_transform_rotate_world (& sw->world, fixedpos, 2, 0.0001003);
         world_transform_rotate_data  (& sw->world, fixedpos, 1, 0.00012);
 
